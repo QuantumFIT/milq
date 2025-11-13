@@ -8,7 +8,7 @@ from z3_synth import synthesis, solve_and_extract_circuit
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
 
-n = 5
+n = 4
 d1 = n
 gen = SMTLibGenerator()
 
@@ -44,7 +44,7 @@ gate_set = ['I', 'H', 'S', 'T', 'CNOT']
 
 start_time = time.time()
 synthesis(vector_pairs, n, d1, "ghz.smt2", gen, gate_set)
-solve_and_extract_circuit("ghz.smt2", n, d1, "ghz.qasm", "z3")
+solve_and_extract_circuit("ghz.smt2", n, d1, "ghz.qasm", "yices2")
 end_time = time.time()
 print(f"Time taken: {end_time - start_time} seconds")
 print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")

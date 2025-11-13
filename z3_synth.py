@@ -1,7 +1,7 @@
 import numpy as np
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
-from qasm import save_to_qasm
+from qasm import parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2
 import time
 import resource
 import subprocess
@@ -362,72 +362,33 @@ def solve_and_extract_circuit(smtlib_filename, n, d1, output_qasm="circuit.qasm"
         n: Number of qubits
         d1: Number of layers
         output_qasm: Output filename for QASM circuit
-        solver: z3, cvc5
+        solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2
     """
-    if solver not in ["z3", "cvc5"]:
+    solver_to_filename = {
+        "z3": "z3",
+        "z3alpha": "../../solvers/z3alpha/z3alpha.py",
+        "cvc5": "../../solvers/cvc5/starexec_run_sq",
+        "opensmt": "../../solvers/opensmt/opensmt",
+        "smtinterpol": "../../solvers/smtinterpol/smtinterpol",
+        "yices2": "../../solvers/yices2/yices_smt2"
+    }
+    if solver not in solver_to_filename:
         raise ValueError(f"Invalid solver: {solver}")
     try:
         result = subprocess.run(
-            [solver, smtlib_filename],
+            [solver_to_filename[solver], smtlib_filename],
             capture_output=True,
             text=True,
         )
         
-        if result.returncode == 0:
-            output = result.stdout.strip()
-            print(output)
-            
-            if output.startswith("sat"):
-                model_output = result.stdout
-                model_lines = model_output.split('\n')
-                gate_assignments = {}
-                i = 0
-                while i < len(model_lines):
-                    line = model_lines[i].strip()
-                    if 'define-fun' in line.lower() and 'L' in line and '_' in line:
-                        # (define-fun LX_GATE_qY () Bool true)
-                        try:
-                            start = line.find('define-fun')
-                            if start >= 0:
-                                start += len('define-fun')
-                                end = line.find('()', start)
-                                if end > start:
-                                    var_name = line[start:end].strip()
-                                    if var_name.startswith('L') and '_' in var_name:
-                                        is_true = 'true' in line.lower()
-                                        if not is_true and i + 1 < len(model_lines):
-                                            next_line = model_lines[i + 1].strip().lower()
-                                            if 'true' in next_line:
-                                                is_true = True
-                                        
-                                        if is_true:
-                                            gate_assignments[var_name] = True
-                        except Exception:
-                            pass
-                    i += 1
-                
-                if gate_assignments:
-                    class SimpleModel:
-                        def __init__(self, assignments):
-                            self.assignments = assignments
-                        def decls(self):
-                            class Decl:
-                                def __init__(self, name):
-                                    self.name_val = name
-                                def name(self):
-                                    return self.name_val
-                            return [Decl(name) for name in self.assignments.keys()]
-                        def __getitem__(self, decl):
-                            class Value:
-                                def __str__(self):
-                                    return "True"
-                            return Value()
-                    
-                    m = SimpleModel(gate_assignments)
-                    save_to_qasm(n, d1, m, output_qasm)
-            else:
-                raise ValueError(f"Solver {solver} returned UNSAT")
-        else:
-            raise ValueError(f"Solver {solver} returned error: {result.stderr}")
+        parse_map = {
+            "z3": parse_z3,
+            "z3alpha": parse_z3alpha,
+            "cvc5": parse_cvc5,
+            "opensmt": parse_opensmt,
+            "smtinterpol": parse_smtinterpol,
+            "yices2": parse_yices2
+        }
+        parse_map[solver](result.stdout, n, d1, output_qasm, result)
     except Exception as e:
         raise ValueError(f"Error: {e}")

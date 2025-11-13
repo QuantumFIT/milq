@@ -1,3 +1,5 @@
 *.smt2
 __pycache__/
 .venv/
+solvers/
+*.log

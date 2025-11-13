@@ -41,6 +41,31 @@ class SMTLibGenerator:
             return str(value)
         return value
     
+    def declare_helpers(self, lines):
+        # add is_even
+        lines.append("(define-fun is_even ((x Int)) Bool (ite (= (mod x 2) 0) true false))")
+    
+    def is_even(self, x):
+        return f"(is_even {x})"
+    
+    def ite(self, condition, true_value, false_value):
+        return f"(ite {condition} {true_value} {false_value})"
+    
+    def mul(self, x, y):
+        return f"(* {x} {y})"
+    
+    def add(self, x, y):
+        return f"(+ {x} {y})"
+    
+    def sub(self, x, y):
+        return f"(- {x} {y})"
+    
+    def mod(self, x, y):
+        return f"(mod {x} {y})"
+    
+    def eq(self, x, y):
+        return f"(= {x} {y})"
+    
     def generate(self, complex_representation=None):
         if complex_representation is None:
             raise ValueError()
@@ -53,6 +78,7 @@ class SMTLibGenerator:
             raise ValueError()
         
         lines = [f"(set-logic {logic})"]
+        self.declare_helpers(lines)
         
         for decl_type, name, sig in self.declarations:
             lines.append(f"({decl_type} {name} {sig})")

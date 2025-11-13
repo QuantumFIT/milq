@@ -9,15 +9,40 @@ def save_to_qasm(n, d1, m, filename):
             # L{d}_H_q{q}  -> h q[q];
             # L{d}_S_q{q}  -> s q[q];
             # L{d}_T_q{q}  -> t q[q];
+            # L{d}_Tdg_q{q}  -> tdg q[q];
+            # L{d}_X_q{q}  -> x q[q];
+            # L{d}_Y_q{q}  -> y q[q];
+            # L{d}_Z_q{q}  -> z q[q];
             # L{d}_I_q{q}  -> id q[q];
             # L{d}_CNOT_c{c}t{t} -> cx q[c],q[t];
+            if "_X_q" in name:
+                q = int(name.split("_X_q")[1])
+                f.write(f"x q[{q}];\n")
+                return
+            if "_Y_q" in name:
+                q = int(name.split("_Y_q")[1])
+                f.write(f"y q[{q}];\n")
+                return
+            if "_Z_q" in name:
+                q = int(name.split("_Z_q")[1])
+                f.write(f"z q[{q}];\n")
+                return
             if "_H_q" in name:
                 q = int(name.split("_H_q")[1])
                 f.write(f"h q[{q}];\n")
                 return
+            if "_Sdg_q" in name:
+                q = int(name.split("_Sdg_q")[1])
+                f.write(f"sdg q[{q}];\n")
+                return
             if "_S_q" in name:
                 q = int(name.split("_S_q")[1])
                 f.write(f"s q[{q}];\n")
+                return
+            # Check Tdg before T to avoid substring match
+            if "_Tdg_q" in name:
+                q = int(name.split("_Tdg_q")[1])
+                f.write(f"tdg q[{q}];\n")
                 return
             if "_T_q" in name:
                 q = int(name.split("_T_q")[1])

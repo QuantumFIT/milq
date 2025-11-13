@@ -2,7 +2,7 @@ from mqt.core import load
 import numpy as np
 from mqt.ddsim import CircuitSimulator
 
-filename = "circuit.qasm"
+filename = "ghz.qasm"
 qc = load(filename)
 sim = CircuitSimulator(qc)
 

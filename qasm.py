@@ -1,5 +1,3 @@
-from z3 import *
-
 def save_to_qasm(n, d1, m, filename):
     with open(filename, 'w') as f:
         f.write("OPENQASM 2.0;\n")

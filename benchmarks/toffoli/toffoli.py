@@ -3,13 +3,13 @@ import sys
 import os
 import time
 import resource
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
 from z3_synth import synthesis, solve_and_extract_circuit
 from complex_numbers_smtlib import Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
 
 n = 3
-d1 = 15
+d1 = 16
 gen = SMTLibGenerator()
 
 vector_pairs = []

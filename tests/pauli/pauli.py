@@ -2,7 +2,7 @@ import sys
 import os
 import time
 import resource
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
 from z3_synth import synthesis, solve_and_extract_circuit
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator

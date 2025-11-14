@@ -69,7 +69,6 @@ def save_to_qasm(n, d1, m, filename):
 def parse_z3(model_output, n, d1, output_qasm, result):
     if result.returncode == 0:
         output = result.stdout.strip()
-        print(output)
         
         if output.startswith("sat"):
             model_output = result.stdout
@@ -133,7 +132,6 @@ def parse_cvc5(model_output, n, d1, output_qasm, result):
         raise ValueError(f"Solver returned error: {result.stderr}")
     
     output = result.stdout.strip()
-    print(output)
     
     if not output.startswith("sat"):
         raise ValueError("Solver returned UNSAT")

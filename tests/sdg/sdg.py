@@ -29,7 +29,7 @@ for i in range(2**n):
 output_vec[2**n - 1] = Cyclotomic8Dyadic.one(gen).multiply_by_minus_i(gen)
 
 vector_pairs = [(input_vec, output_vec)]
-gate_set = ['I', 'H', 'S', 'T', 'CNOT', 'Tdg', 'Sdg']
+gate_set = ['I', 'H', 'S', 'T', 'CX', 'Tdg', 'Sdg']
 
 start_time = time.time()
 synthesis(vector_pairs, n, d1, "sdg.smt2", gen, gate_set)

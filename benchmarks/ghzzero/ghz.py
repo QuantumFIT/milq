@@ -20,6 +20,8 @@ else:
     solver = "z3"
 gen = SMTLibGenerator()
 
+assert(n == d1)
+
 #REALS VERSION
 # input |0^n>
 #input_vector = [Complex.zero(gen) for _ in range(2**n)]
@@ -45,12 +47,12 @@ output_vec[0] = Cyclotomic8Dyadic.one(gen)
 output_vec[2**n - 1] = Cyclotomic8Dyadic.one(gen)
 
 vector_pairs = [(input_vec, output_vec)]
-gate_set = ['I', 'H', 'S', 'T', 'CNOT']
+gate_set = ['I', 'H', 'S', 'T', 'CX']
 
 start_time = time.time()
 try:
-    synthesis(vector_pairs, n, d1, "ghz.smt2", gen, gate_set)
-    solve_and_extract_circuit("ghz.smt2", n, d1, "ghz.qasm", solver)
+    synthesis(vector_pairs, n, d1, "ghzzero.smt2", gen, gate_set)
+    solve_and_extract_circuit("ghzzero.smt2", n, d1, "ghzzero.qasm", solver)
     end_time = time.time()
     print(f"sat")
     print(f"Time taken: {end_time - start_time} seconds")

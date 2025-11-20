@@ -65,6 +65,14 @@ class Complex:
     @classmethod
     def inv_sqrt2(cls,generator):
         return cls(a=np.sqrt(1/2), b=0, generator=generator)
+    
+    @classmethod
+    def one_half(cls, generator):
+        return cls(a=1/2, b=0, generator=generator)
+    
+    @classmethod
+    def i_half(cls, generator):
+        return cls(a=0, b=1/2, generator=generator)
 
 class Cyclotomic8Dyadic:
     def __init__(self, a=0, b=0, c=0, d=0,
@@ -145,6 +153,15 @@ class Cyclotomic8Dyadic:
         return cls(a=1, b=0, c=0, d=0, generator=generator)
 
     @classmethod
+    def one_half(cls, generator):
+        # should not be used
+        return cls(a=1, b=0, c=0, d=0, generator=generator)
+    
+    @classmethod
+    def i_half(cls, generator):
+        return cls(a=0, b=1/2, c=0, d=0, generator=generator)
+
+    @classmethod
     def omega(cls, generator):
         return cls(b=1, generator=generator)
 
@@ -215,7 +232,6 @@ class Cyclotomic8Dyadic:
             generator=self.generator
         )
 
-
 class Vector:
     def __init__(self, q, symbolic=True, name=None, generator=None, element_representation=None, k=None):
         if element_representation is None:
@@ -244,7 +260,7 @@ class Vector:
                     # If no name, create non-symbolic (literal) elements
                     if element_representation == Cyclotomic8Dyadic:
                         self.vec.append(element_representation.zero(generator))
-                    elif isinstance(element_representation, Complex):
+                    elif element_representation == Complex:
                         self.vec.append(element_representation.zero(generator))
                     else:
                         raise ValueError("element_representation must be a Cyclotomic8Dyadic or Complex")

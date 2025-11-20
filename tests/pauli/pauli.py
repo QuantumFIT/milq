@@ -26,7 +26,7 @@ output_vec[1] = Cyclotomic8Dyadic.one(gen).multiply_by_minus_i(gen)
 vector_pairs = [
     (input_vec, output_vec),
 ]
-gate_set = ['I', 'H', 'S', 'T', 'CNOT', 'X', 'Y', 'Z']
+gate_set = ['I', 'H', 'S', 'T', 'CX', 'X', 'Y', 'Z']
 
 start_time = time.time()
 synthesis(vector_pairs, n, d1, "pauli.smt2", gen, gate_set)

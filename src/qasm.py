@@ -14,10 +14,72 @@ def save_to_qasm(n, d1, m, filename):
             # L{d}_Y_q{q}  -> y q[q];
             # L{d}_Z_q{q}  -> z q[q];
             # L{d}_I_q{q}  -> id q[q];
-            # L{d}_CNOT_c{c}t{t} -> cx q[c],q[t];
-            if "_X_q" in name:
-                q = int(name.split("_X_q")[1])
-                f.write(f"x q[{q}];\n")
+            # L{d}_CX_c{c}t{t} -> cx q[c],q[t];
+            # L{d}_CCX_c{c1}c{c2}t{t} -> ccx q[c1],q[c2],q[t];
+            if "_CCX_c" in name and "t" in name:
+                # Parse L{d}_CCX_c{c1}c{c2}t{t}
+                # Example: L0_CCX_c0c1t2 -> c1=0, c2=1, t=2
+                tail = name.split("_CCX_c")[1]
+                # tail is like "0c1t2"
+                # Split by 'c' to get ["0", "1t2"]
+                parts = tail.split("c")
+                if len(parts) >= 2:
+                    c1 = int(parts[0])
+                    # parts[1] is like "1t2", split by 't'
+                    rest = parts[1]
+                    t_part = rest.split("t")
+                    if len(t_part) >= 2:
+                        c2 = int(t_part[0])
+                        t = int(t_part[1])
+                        f.write(f"ccx q[{c1}],q[{c2}],q[{t}];\n")
+                        return
+            if "_RCCX_c" in name and "t" in name:
+                # Parse L{d}_RCCX_c{c1}c{c2}t{t}
+                # Example: L0_RCCX_c0c1t2 -> c1=0, c2=1, t=2
+                tail = name.split("_RCCX_c")[1]
+                parts = tail.split("c")
+                if len(parts) >= 2:
+                    c1 = int(parts[0])
+                    rest = parts[1]
+                    t_part = rest.split("t")
+                    if len(t_part) >= 2:
+                        c2 = int(t_part[0])
+                        t = int(t_part[1])
+                        f.write(f"rccx q[{c1}],q[{c2}],q[{t}];\n")
+                        return
+            if "_CSWAP_c" in name and "t" in name:
+                tail = name.split("_CSWAP_c")[1]
+                # tail is like "0c1t2"
+                # Split by 'c' to get ["0", "1t2"]
+                parts = tail.split("c")
+                if len(parts) >= 2:
+                    c1 = int(parts[0])
+                    # parts[1] is like "1t2", split by 't'
+                    rest = parts[1]
+                    t_part = rest.split("t")
+                    if len(t_part) >= 2:
+                        c2 = int(t_part[0])
+                        t = int(t_part[1])
+                        f.write(f"cswap q[{c1}],q[{c2}],q[{t}];\n")
+                        return
+            if "_CCZ_c" in name and "t" in name:
+                tail = name.split("_CCZ_c")[1]
+                parts = tail.split("c")
+                if len(parts) >= 2:
+                    c1 = int(parts[0])
+                    rest = parts[1]
+                    t_part = rest.split("t")
+                    if len(t_part) >= 2:
+                        c2 = int(t_part[0])
+                        t = int(t_part[1])
+                        f.write(f"ccz q[{c1}],q[{c2}],q[{t}];\n")
+                        return
+            if "_CX_c" in name and "t" in name:
+                tail = name.split("_CX_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"cx q[{c}],q[{t}];\n")
                 return
             if "_Y_q" in name:
                 q = int(name.split("_Y_q")[1])
@@ -52,12 +114,104 @@ def save_to_qasm(n, d1, m, filename):
                 q = int(name.split("_I_q")[1])
                 f.write(f"id q[{q}];\n")
                 return
-            if "_CNOT_c" in name and "t" in name:
-                tail = name.split("_CNOT_c")[1]
+            if "_SX_q" in name:
+                q = int(name.split("_SX_q")[1])
+                f.write(f"sx q[{q}];\n")
+                return
+            if "_SXdg_q" in name:
+                q = int(name.split("_SXdg_q")[1])
+                f.write(f"sxdg q[{q}];\n")
+                return
+            if "_XCX_c" in name and "t" in name:
+                tail = name.split("_XCX_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"xcx q[{c}],q[{t}];\n")
+                return
+            if "_CX_c" in name and "t" in name:
+                tail = name.split("_CX_c")[1]
                 c_str, t_str = tail.split("t")
                 c = int(c_str)
                 t = int(t_str)
                 f.write(f"cx q[{c}],q[{t}];\n")
+                return
+            if "_CS_c" in name and "t" in name:
+                tail = name.split("_CS_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"cs q[{c}],q[{t}];\n")
+                return
+            if "_CSdg_c" in name and "t" in name:
+                tail = name.split("_CSdg_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"csdg q[{c}],q[{t}];\n")
+                return
+            if "_CY_c" in name and "t" in name:
+                tail = name.split("_CY_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"cy q[{c}],q[{t}];\n")
+                return
+            if "_CZ_c" in name and "t" in name:
+                tail = name.split("_CZ_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"cz q[{c}],q[{t}];\n")
+                return
+            if "_CH_c" in name and "t" in name:
+                tail = name.split("_CH_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"ch q[{c}],q[{t}];\n")
+                return
+            if "_DCX_c" in name and "t" in name:
+                tail = name.split("_DCX_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"dcx q[{c}],q[{t}];\n")
+                return
+            if "_CSX_c" in name and "t" in name:
+                tail = name.split("_CSX_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"csx q[{c}],q[{t}];\n")
+                return
+            if "_iSWAP_c" in name and "t" in name:
+                tail = name.split("_iSWAP_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"iswap q[{c}],q[{t}];\n")
+                return
+            if "_SWAP_c" in name and "t" in name:
+                tail = name.split("_SWAP_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"swap q[{c}],q[{t}];\n")
+                return
+            if "_sqrtSWAP_c" in name and "t" in name:
+                tail = name.split("_sqrtSWAP_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"sqrtswap q[{c}],q[{t}];\n")
+                return
+            if "_isqrtSWAP_c" in name and "t" in name:
+                tail = name.split("_isqrtSWAP_c")[1]
+                c_str, t_str = tail.split("t")
+                c = int(c_str)
+                t = int(t_str)
+                f.write(f"isqrtswap q[{c}],q[{t}];\n")
                 return
         for d in range(d1):
             for decl in sorted(m.decls(), key=lambda dcl: dcl.name()):

@@ -1,6 +1,6 @@
 *.smt2
 __pycache__/
 .venv/
-solvers/
 *.log
 src/__pycache__/
+*.qasm

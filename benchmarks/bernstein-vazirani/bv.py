@@ -19,7 +19,7 @@ if len(sys.argv) > 1:
 else:
     n = 3
     d1 = 8
-    solver = "z3"
+    solver = "cvc5"
     s = "101"
     k_glob = 6
     a = 2**n
@@ -30,7 +30,6 @@ assert(a == 2**n)
 
 
 gen = SMTLibGenerator()
-
 
 
 input_vec = Vector(q=2**n, generator=gen,
@@ -69,4 +68,5 @@ try:
     print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")
 
 except Exception:
+    print(f"Error: {e}")
     print("unsat")

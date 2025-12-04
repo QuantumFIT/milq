@@ -8,12 +8,16 @@ class Complex:
             self.real = generator.declare_real(safe_name + 'r')
             self.imag = generator.declare_real(safe_name + 'i')
         else:
-            if isinstance(a, str) and isinstance(b, str):
+            if generator is not None:
+                if isinstance(a, str) and isinstance(b, str):
+                    self.real = a
+                    self.imag = b
+                else:
+                    self.real = generator.format_real(a)
+                    self.imag = generator.format_real(b)
+            else:
                 self.real = a
                 self.imag = b
-            else:
-                self.real = generator.format_real(a)
-                self.imag = generator.format_real(b)
 
     def __add__(self, other):
         real_expr = f"(+ {self.real} {other.real})"
@@ -30,14 +34,17 @@ class Complex:
         real_expr = f"(- (* {self.real} {other.real}) (* {self.imag} {other.imag}))"
         imag_expr = f"(+ (* {self.real} {other.imag}) (* {self.imag} {other.real}))"
         return Complex(a=real_expr, b=imag_expr, generator=self.generator)
-
+    
     def __eq__(self, other):
         real_eq = f"(= {self.real} {other.real})"
         imag_eq = f"(= {self.imag} {other.imag})"
         return f"(and {real_eq} {imag_eq})"
 
     def __repr__(self):
-        return f"({self.real} + {self.imag}i)"
+        return f"({self.real} + {self.imag}j)"
+    
+    def copy(self):
+        return Complex(a=self.real, b=self.imag, generator=self.generator)
 
     def conjugate(self, generator):
         return Complex(a=self.real, b=f"(- 0 {self.imag})", generator=self.generator)
@@ -77,7 +84,17 @@ class Complex:
 class Cyclotomic8Dyadic:
     def __init__(self, a=0, b=0, c=0, d=0,
                  name=None, generator=None):
-        self.generator = generator
+        if generator is not None:
+            self.generator = generator
+        else:
+            self.generator = None
+            
+        if self.generator is None:
+            self.a = a
+            self.b = b
+            self.c = c
+            self.d = d
+            return
 
         if name is not None:
             safe = name.replace('[', '_').replace(']', '')
@@ -90,27 +107,36 @@ class Cyclotomic8Dyadic:
             self.b = generator.format_integer(b)
             self.c = generator.format_integer(c)
             self.d = generator.format_integer(d)
+            
+    def copy(self):
+        return Cyclotomic8Dyadic(a=self.a, b=self.b, c=self.c, d=self.d, generator=self.generator)
 
     def _coeffs(self):
         return (self.a, self.b, self.c, self.d)
 
     def __add__(self, other):
-        return Cyclotomic8Dyadic(
-            a = f"(+ {self.a} {other.a})",
-            b = f"(+ {self.b} {other.b})",
-            c = f"(+ {self.c} {other.c})",
-            d = f"(+ {self.d} {other.d})",
-            generator=self.generator
-        )
+        if self.generator is None:
+            return Cyclotomic8Dyadic(a=self.a + other.a, b=self.b + other.b, c=self.c + other.c, d=self.d + other.d)
+        else:
+            return Cyclotomic8Dyadic(
+                a = f"(+ {self.a} {other.a})",
+                b = f"(+ {self.b} {other.b})",
+                c = f"(+ {self.c} {other.c})",
+                d = f"(+ {self.d} {other.d})",
+                generator=self.generator
+            )
 
     def __sub__(self, other):
-        return Cyclotomic8Dyadic(
-            a = f"(- {self.a} {other.a})",
-            b = f"(- {self.b} {other.b})",
-            c = f"(- {self.c} {other.c})",
-            d = f"(- {self.d} {other.d})",
-            generator=self.generator
-        )
+        if self.generator is None:
+            return Cyclotomic8Dyadic(a=self.a - other.a, b=self.b - other.b, c=self.c - other.c, d=self.d - other.d)
+        else:
+            return Cyclotomic8Dyadic(
+                a = f"(- {self.a} {other.a})",
+                b = f"(- {self.b} {other.b})",
+                c = f"(- {self.c} {other.c})",
+                d = f"(- {self.d} {other.d})",
+                generator=self.generator
+            )
 
     def __mul__(self, other):
         # a = a1*a2 - b1*d2 - c1*c2 - d1*b2
@@ -118,13 +144,21 @@ class Cyclotomic8Dyadic:
         # c = a1*c2 + b1*b2 + c1*a2 - d1*d2
         # d = a1*d2 + b1*c2 + c1*b2 + d1*a2
         # k = k1 + k2
-        return Cyclotomic8Dyadic(
+        if self.generator is None:
+            return Cyclotomic8Dyadic(
+                a=self.a * other.a - self.b * other.d - self.c * other.c - self.d * other.b, 
+                b=self.a * other.b + self.b * other.a + self.c * other.d - self.d * other.c, 
+                c=self.a * other.c + self.b * other.b + self.c * other.a - self.d * other.d, 
+                d=self.a * other.d + self.b * other.c + self.c * other.b + self.d * other.a
+            )
+        else:
+            return Cyclotomic8Dyadic(
             a = f"(- (* {self.a} {other.a}) (* {self.b} {other.d}) (* {self.c} {other.c}) (* {self.d} {other.b}))",
             b = f"(+ (* {self.a} {other.b}) (* {self.b} {other.a}) (* {self.c} {other.d}) (* {self.d} {other.c}))",
             c = f"(+ (* {self.a} {other.c}) (* {self.b} {other.b}) (* {self.c} {other.a}) (* {self.d} {other.d}))",
             d = f"(+ (* {self.a} {other.d}) (* {self.b} {other.c}) (* {self.c} {other.b}) (* {self.d} {other.a}))",
             generator=self.generator
-        )
+            )
     
     def __eq__(self, other):
         eqs = [
@@ -179,16 +213,22 @@ class Cyclotomic8Dyadic:
         return cls(b=1, generator=generator)
     
     def multiply_by_omega(self, generator):
-        return Cyclotomic8Dyadic(
-            a = f"(- 0 {self.d})",
-            b = f"{self.a}",
-            c = f"{self.b}",
-            d = f"{self.c}",
-            generator=self.generator
-        )
+        if self.generator is None:
+            return Cyclotomic8Dyadic(a=-self.d, b=self.a, c=self.b, d=self.c)
+        else:
+            return Cyclotomic8Dyadic(
+                a = f"(- 0 {self.d})",
+                b = f"{self.a}",
+                c = f"{self.b}",
+                d = f"{self.c}",
+                generator=self.generator
+            )
         
     def multiply_by_omega_counter(self, generator):
-        return Cyclotomic8Dyadic(
+        if self.generator is None:
+            return Cyclotomic8Dyadic(a=self.b, b=self.c, c=self.d, d=-self.a)
+        else:
+            return Cyclotomic8Dyadic(
             a = f"{self.b}",
             b = f"{self.c}",
             c = f"{self.d}",
@@ -197,7 +237,10 @@ class Cyclotomic8Dyadic:
         )
     
     def multiply_by_i(self, generator):
-        return Cyclotomic8Dyadic(
+        if self.generator is None:
+            return Cyclotomic8Dyadic(a=-self.c, b=-self.d, c=self.a, d=self.b)
+        else:
+            return Cyclotomic8Dyadic(
             a = f"(- 0 {self.c})",
             b = f"(- 0 {self.d})",
             c = f"{self.a}",
@@ -206,7 +249,10 @@ class Cyclotomic8Dyadic:
         )
         
     def multiply_by_minus_i(self, generator):
-        return Cyclotomic8Dyadic(
+        if self.generator is None:
+            return Cyclotomic8Dyadic(a=self.c, b=self.d, c=-self.a, d=-self.b)
+        else:
+            return Cyclotomic8Dyadic(
             a = f"{self.c}",
             b = f"{self.d}",
             c = f"(- 0 {self.a})",
@@ -215,7 +261,10 @@ class Cyclotomic8Dyadic:
         )
         
     def multiply_by_minus_one(self, generator):
-        return Cyclotomic8Dyadic(
+        if self.generator is None:
+            return Cyclotomic8Dyadic(a=-self.a, b=-self.b, c=-self.c, d=-self.d)
+        else:
+            return Cyclotomic8Dyadic(
             a = f"(- 0 {self.a})",
             b = f"(- 0 {self.b})",
             c = f"(- 0 {self.c})",
@@ -224,32 +273,47 @@ class Cyclotomic8Dyadic:
         )
         
     def divide_by_sqrt2(self, generator):
-        return Cyclotomic8Dyadic(
+        if self.generator is None:
+            return Cyclotomic8Dyadic(a=self.a, b=self.b, c=self.c, d=self.d)
+        else:
+            return Cyclotomic8Dyadic(
             a = f"{self.a}",
             b = f"{self.b}",
             c = f"{self.c}",
             d = f"{self.d}",
             generator=self.generator
         )
+            
+    def to_real(self, k):
+        # omega = (1 + i) / sqrt(2)
+        real = (self.a + ((self.b - self.d)/np.sqrt(2))) / np.sqrt(2)**k
+        imag = (self.c + ((self.b + self.d)/np.sqrt(2))) / np.sqrt(2)**k
+        return Complex(a=real, b=imag, generator=self.generator)
 
 class Vector:
     def __init__(self, q, symbolic=True, name=None, generator=None, element_representation=None, k=None):
         if element_representation is None:
             raise ValueError("element_representation must be provided")
         
+        self.element_representation = element_representation
+        
         if element_representation == Cyclotomic8Dyadic and k is None:
             raise ValueError("k must be provided for Cyclotomic8Dyadic")
         
         # k is stored in the vector (shared by all elements)
-        if element_representation == Cyclotomic8Dyadic and k is not None:
-            if name is not None:
-                self.k = generator.declare_integer(f"{name}_k")
+        if generator is not None:
+            if element_representation == Cyclotomic8Dyadic and k is not None:
+                if name is not None:
+                    self.k = generator.declare_integer(f"{name}_k")
+                else:
+                    self.k = generator.format_integer(k)
             else:
-                self.k = generator.format_integer(k)
+                self.k = None
+            self.generator = generator
         else:
-            self.k = None
+            self.generator = None
+            self.k = k
         
-        self.generator = generator
         self.vec = []
         for i in range(q):
             if symbolic:
@@ -286,4 +350,21 @@ class Vector:
         return f"(and {' '.join(eqs)})"
     
     def __repr__(self):
-        return f"[{', '.join(str(v) for v in self.vec)}]"
+        return f"[{', '.join(str(v) for v in self.vec)}], k={self.k}"
+    
+    def copy(self):
+        new_vec = Vector(q=len(self.vec), generator=self.generator, element_representation=self.element_representation, k=self.k)
+        for i in range(len(self.vec)):
+            new_vec[i] = self.vec[i].copy()
+        new_vec.k = self.k
+        return new_vec
+
+    def to_real(self):
+        assert self.element_representation == Cyclotomic8Dyadic
+        new_vec = Vector(q=len(self.vec), generator=self.generator, element_representation=Complex, k=self.k)
+        for i in range(len(self.vec)):
+            new_vec[i] = self.vec[i].to_real(self.k)
+        return new_vec
+    
+    def __len__(self):
+        return len(self.vec)

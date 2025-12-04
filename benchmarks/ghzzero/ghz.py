@@ -4,7 +4,7 @@ import os
 import time
 import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from z3_synth import synthesis, solve_and_extract_circuit
+from synth import synthesis, solve_and_extract_circuit
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
 
@@ -52,10 +52,18 @@ gate_set = ['I', 'H', 'S', 'T', 'CX']
 start_time = time.time()
 try:
     synthesis(vector_pairs, n, d1, "ghzzero.smt2", gen, gate_set)
-    solve_and_extract_circuit("ghzzero.smt2", n, d1, "ghzzero.qasm", solver)
+    #solve_and_extract_circuit("ghzzero.smt2", n, d1, "ghzzero.qasm", solver)
     end_time = time.time()
-    print(f"sat")
-    print(f"Time taken: {end_time - start_time} seconds")
-    print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")
+    #print(f"sat")
+    #print(f"Time taken: {end_time - start_time} seconds")
+    #print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")
+    print(f"Number of assertions: {gen.num_of_assertions}")
+    print(f"Number of bool variables: {gen.num_of_bool_variables}")
+    print(f"Number of int variables: {gen.num_of_int_variables}")
+    print(f"Number of qubits: {n}")
+    print(f"Number of gates: {d1}")
+    print(f"Gate set size: {len(gate_set)}")
+    print(f"Number of vector pairs: {len(vector_pairs)}")
+    
 except Exception:
     print(f"unsat")

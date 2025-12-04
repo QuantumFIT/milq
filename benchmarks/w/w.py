@@ -4,7 +4,7 @@ import os
 import time
 import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from z3_synth import synthesis, solve_and_extract_circuit
+from synth import synthesis, solve_and_extract_circuit
 from complex_numbers_smtlib import Complex, Cyclotomic8Dyadic, Vector
 from smtlib_generator import SMTLibGenerator
 

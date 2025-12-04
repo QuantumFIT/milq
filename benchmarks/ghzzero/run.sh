@@ -1,7 +1,8 @@
 #!/bin/bash
 
-solvers=(z3 cvc5 yices2 opensmt smtinterpol z3alpha)
-max_q=6
+#solvers=(z3 cvc5 yices2 opensmt smtinterpol z3alpha)
+solvers=(z3)
+max_q=10
 timeout=300
 
 for q in $(seq 1 $max_q); do

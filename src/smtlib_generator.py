@@ -6,6 +6,10 @@ class SMTLibGenerator:
         self.declared_names = set()
         self.assertions = []
         self.var_counter = 0
+        
+        self.num_of_assertions = 0
+        self.num_of_bool_variables = 0
+        self.num_of_int_variables = 0
     
     def declare_real(self, name):
         if name not in self.declared_names:
@@ -17,15 +21,18 @@ class SMTLibGenerator:
         if name not in self.declared_names:
             self.declarations.append(("declare-fun", name, "() Int"))
             self.declared_names.add(name)
+            self.num_of_int_variables += 1
         return name
     
     def declare_bool(self, name):
         if name not in self.declared_names:
             self.declarations.append(("declare-fun", name, "() Bool"))
             self.declared_names.add(name)
+            self.num_of_bool_variables += 1
         return name
     
     def add_assertion(self, assertion):
+        self.num_of_assertions += 1
         self.assertions.append(assertion)
     
     def format_real(self, value):

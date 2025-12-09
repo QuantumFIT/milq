@@ -6,7 +6,7 @@ import resource
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
 from synth import synthesis, solve_and_extract_circuit
-from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
+from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic, nTuple
 from smtlib_generator import SMTLibGenerator
 
 if len(sys.argv) > 1:
@@ -48,8 +48,6 @@ for i in range(2**n):
 s_index = int(s, 2)
 output_vec[s_index] = Cyclotomic8Dyadic.one(gen)
 output_vec[s_index].a = a
-
-
 
 vector_pairs = [(input_vec, output_vec)]
 

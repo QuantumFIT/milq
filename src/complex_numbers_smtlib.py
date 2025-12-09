@@ -81,6 +81,9 @@ class Complex:
     def i_half(cls, generator):
         return cls(a=0, b=1/2, generator=generator)
 
+# ------------------------------------------------------------------------------------------------ #
+
+
 class Cyclotomic8Dyadic:
     def __init__(self, a=0, b=0, c=0, d=0,
                  name=None, generator=None):
@@ -289,9 +292,231 @@ class Cyclotomic8Dyadic:
         real = (self.a + ((self.b - self.d)/np.sqrt(2))) / np.sqrt(2)**k
         imag = (self.c + ((self.b + self.d)/np.sqrt(2))) / np.sqrt(2)**k
         return Complex(a=real, b=imag, generator=self.generator)
+    
+    def conjugate(self):
+        pass
+    
+# ------------------------------------------------------------------------------------------------ #
+    
+class nTuple:
+    def __init__(self, elements=None,
+                 name=None, n=0, generator=None):
+        
+        # n has to be a power of 2
+        if n != 0:
+            # https://stackoverflow.com/questions/600293/how-to-check-if-a-number-is-a-power-of-2
+            if not (n and (n & (n - 1)) == 0):
+                raise ValueError("n has to be a power of 2")
+        self.n = n
+        if generator is not None:
+            self.generator = generator
+        else:
+            self.generator = None
+            
+        if self.generator is None:
+            self.elements = elements
+            return
+
+        if name is not None:
+            safe = name.replace('[', '_').replace(']', '')
+            self.elements = [generator.declare_integer(f"{safe}_{i}") for i in range(n)]
+        else:
+            self.elements = [generator.format_integer(e) for e in elements]
+            
+    def copy(self):
+        return nTuple(elements=self.elements.copy(), n=self.n, generator=self.generator)
+
+    def _coeffs(self):
+        return self.elements
+
+    def __add__(self, other):
+        if self.generator is None:
+            return nTuple(elements=self.elements + other.elements)
+        else:
+            return nTuple(elements=[f"(+ {self.elements[i]} {other.elements[i]})" for i in range(self.n)], n=self.n, generator=self.generator)
+
+    def __sub__(self, other):
+        if self.generator is None:
+            return nTuple(elements=self.elements - other.elements)
+        else:
+            return nTuple(elements=[f"(- {self.elements[i]} {other.elements[i]})" for i in range(self.n)], n=self.n, generator=self.generator)
+
+    def __mul__(self, other):
+        elements = [0] * self.n
+        for i in range(self.n):
+            for j in range(other.n):
+                target_index = (i + j) % self.n
+                amplitude = self.elements[i] * other.elements[j]
+                elements[target_index] += amplitude
+        return nTuple(elements=elements, n=self.n, generator=self.generator)
+    
+    def __eq__(self, other):
+        eqs = [
+            f"(= {self.elements[i]} {other.elements[i]})" for i in range(self.n)
+        ]
+        return f"(and {' '.join(eqs)})"
+
+    def __repr__(self):
+        return f"({', '.join(str(e) for e in self.elements)})"
+
+    @classmethod
+    def one(cls, generator, n):
+        elems = [0] * n
+        elems[0] = 1
+        return cls(elements=elems, n=n, generator=generator)
+    
+    @classmethod
+    def zero(cls, generator, n):
+        elems = [0] * n
+        return cls(elements=elems, n=n, generator=generator)
+    
+    @classmethod
+    def inv_sqrt2(cls, generator, n):
+        # should not be used
+        raise ValueError("inv_sqrt2 is not used for nTuple")
+
+    @classmethod
+    def one_half(cls, generator, n):
+        # should not be used
+        raise ValueError("one_half is not used for nTuple")
+    
+    @classmethod
+    def i_half(cls, generator, n):
+        raise ValueError("i_half is not used for nTuple")
+
+    @classmethod
+    def omega(cls, generator, n):
+        raise ValueError("omega is not used for nTuple")
+
+    @classmethod
+    def minus_one(cls, generator, n):
+        elems = [0] * n
+        elems[0] = -1
+        return cls(elements=elems, n=n, generator=generator)
+
+    @classmethod
+    def i_phase(cls, generator, n):
+        raise ValueError("i_phase is not used for nTuple")
+
+    @classmethod
+    def t_phase(cls, generator, n):
+        raise ValueError("t_phase is not used for nTuple")
+    
+    def multiply_by_omega(self, generator):
+        # HERE omega is e^(ipi/4) -- T gate phase
+        shifts = int(self.n/4) 
+        # swap the sign of the last shifts numbers, shift to the right by shifts
+        if self.generator is None:
+            elems = [0] * self.n
+            for i in range(shifts):
+                elems[i] = -self.elements[self.n - shifts + i]
+            for i in range(shifts, self.n):
+                elems[i] = self.elements[i - shifts]
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
+        else:
+            elems = [0] * self.n
+            for i in range(shifts):
+                elems[i] = f"(- 0 {self.elements[self.n - shifts + i]})"
+            for i in range(shifts, self.n):
+                elems[i] = f"{self.elements[i - shifts]}"
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
+        
+    def multiply_by_omega_counter(self, generator):
+        # HERE omega is e^(ipi/4) -- T gate phase
+        shifts = int(self.n/4) 
+        # swap the sign of the first shifts numbers, shift to the left by shifts 
+        if self.generator is None:
+            elems = [0] * self.n
+            for i in range(shifts):
+                elems[self.n - shifts + i] = -self.elements[i]
+            for i in range(shifts, self.n):
+                elems[i - shifts] = self.elements[i]
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
+        else:
+            elems = [0] * self.n
+            for i in range(shifts):
+                elems[self.n - shifts + i] = f"(- 0 {self.elements[i]})"
+            for i in range(shifts, self.n):
+                elems[i - shifts] = f"{self.elements[i]}"
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
+    
+    def multiply_by_i(self, generator):
+        shifts = int(self.n/2)
+        if self.generator is None:
+            elems = [0] * self.n
+            for i in range(shifts):
+                elems[i] = -self.elements[self.n - shifts + i]
+            for i in range(shifts, self.n):
+                elems[i] = self.elements[i - shifts]
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
+        else:
+            elems = [0] * self.n
+            for i in range(shifts):
+                elems[i] = f"(- 0 {self.elements[self.n - shifts + i]})"
+            for i in range(shifts, self.n):
+                elems[i] = f"{self.elements[i - shifts]}"
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
+        
+    def multiply_by_minus_i(self, generator):
+        shifts = int(self.n/2)
+        if self.generator is None:
+            elems = [0] * self.n
+            for i in range(shifts):
+                elems[self.n - shifts + i] = -self.elements[i]
+            for i in range(shifts, self.n):
+                elems[i - shifts] = self.elements[i]
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
+        else:
+            elems = [0] * self.n
+            for i in range(shifts):
+                elems[self.n - shifts + i] = f"(- 0 {self.elements[i]})"
+            for i in range(shifts, self.n):
+                elems[i - shifts] = f"{self.elements[i]}"
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
+        
+    def multiply_by_minus_one(self, generator):
+        if self.generator is None:
+            return nTuple(elements=[-self.elements[i] for i in range(self.n)], n=self.n, generator=self.generator)
+        else:
+            return nTuple(elements=[f"(- 0 {self.elements[i]})" for i in range(self.n)], n=self.n, generator=self.generator)
+        
+    def divide_by_sqrt2(self, generator):
+        if self.generator is None:
+            return nTuple(elements=self.elements, n=self.n, generator=self.generator)
+        else:
+            return nTuple(elements=[f"{self.elements[i]}" for i in range(self.n)], n=self.n, generator=self.generator)
+        
+    def to_five_tuple(self):
+        elems = [0] * 4
+        # if size is X, take every Yth element (X -> Y)
+        # 4 -> 1, 8 -> 2, 16 -> 4
+        take_every = int(self.n/4)
+        j = 0
+        for i in range(self.n):
+            if i % take_every == 0:
+                # take this element
+                elems[j] = self.elements[i]
+                j += 1
+            elif int(self.elements[i]) != 0:
+                raise ValueError("cant convert nTuple to five tuple")
+        return Cyclotomic8Dyadic(a=elems[0], b=elems[1], c=elems[2], d=elems[3], generator=self.generator)
+    
+    def abs2(self, k):
+        denominator = np.sqrt(2)**k
+        num_r = 0
+        num_i = 0
+        for i in range(self.n):
+            num_r += np.cos(np.pi * i / self.n) * self.elements[i]
+            num_i += np.sin(np.pi * i / self.n) * self.elements[i]
+        num_r = num_r / denominator
+        num_i = num_i / denominator
+        return num_r ** 2 + num_i ** 2
+                
+
+# ------------------------------------------------------------------------------------------------ #
 
 class Vector:
-    def __init__(self, q, symbolic=True, name=None, generator=None, element_representation=None, k=None):
+    def __init__(self, q, symbolic=True, name=None, generator=None, element_representation=None, k=None, n=None):
         if element_representation is None:
             raise ValueError("element_representation must be provided")
         
@@ -302,7 +527,7 @@ class Vector:
         
         # k is stored in the vector (shared by all elements)
         if generator is not None:
-            if element_representation == Cyclotomic8Dyadic and k is not None:
+            if (element_representation == Cyclotomic8Dyadic or element_representation == nTuple) and k is not None:
                 if name is not None:
                     self.k = generator.declare_integer(f"{name}_k")
                 else:
@@ -314,27 +539,36 @@ class Vector:
             self.generator = None
             self.k = k
         
+        self.n = n
+        
         self.vec = []
         for i in range(q):
             if symbolic:
                 # Only create named symbolic elements if name is provided
                 if name is not None:
-                    self.vec.append(element_representation(name=f"{name}_{i}", generator=generator))
+                    if element_representation == nTuple:
+                        self.vec.append(element_representation(name=f"{name}_{i}", n=n, generator=generator))
+                    else:
+                        self.vec.append(element_representation(name=f"{name}_{i}", generator=generator))
                 else:
                     # If no name, create non-symbolic (literal) elements
                     if element_representation == Cyclotomic8Dyadic:
                         self.vec.append(element_representation.zero(generator))
+                    elif element_representation == nTuple:
+                        self.vec.append(element_representation.zero(generator, n=n))
                     elif element_representation == Complex:
                         self.vec.append(element_representation.zero(generator))
                     else:
-                        raise ValueError("element_representation must be a Cyclotomic8Dyadic or Complex")
+                        raise ValueError("element_representation must be a Cyclotomic8Dyadic, nTuple or Complex")
             else:
                 if element_representation == Cyclotomic8Dyadic:
                     self.vec.append(element_representation.zero(generator))
+                elif element_representation == nTuple:
+                    self.vec.append(element_representation.zero(generator, n=n))
                 elif isinstance(element_representation, Complex):
                     self.vec.append(element_representation.zero(generator))
                 else:
-                    raise ValueError("element_representation must be a Cyclotomic8Dyadic or Complex")
+                    raise ValueError("element_representation must be a Cyclotomic8Dyadic, nTuple or Complex")
     
     def __getitem__(self, i):
         return self.vec[i]
@@ -368,3 +602,12 @@ class Vector:
     
     def __len__(self):
         return len(self.vec)
+    
+    def __mul__(self, other):
+        # inner product of two quantum states
+        res = Vector(q=len(self.vec), generator=self.generator, element_representation=self.element_representation, k=self.k, n=self.n)
+        i = 0
+        while i < len(self.vec):
+            res[i] = self.vec[i].conjugate(self.generator) * other.vec[i]
+            i += 1
+        return res

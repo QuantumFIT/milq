@@ -81,6 +81,10 @@ def save_to_qasm(n, d1, m, filename):
                 t = int(t_str)
                 f.write(f"cx q[{c}],q[{t}];\n")
                 return
+            if "_X_q" in name:
+                q = int(name.split("_X_q")[1])
+                f.write(f"x q[{q}];\n")
+                return
             if "_Y_q" in name:
                 q = int(name.split("_Y_q")[1])
                 f.write(f"y q[{q}];\n")

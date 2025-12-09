@@ -1,5 +1,5 @@
 import numpy as np
-from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
+from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic, nTuple
 from smtlib_generator import SMTLibGenerator
 from qasm import parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2
 import time
@@ -34,6 +34,9 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
             elif isinstance(val, Cyclotomic8Dyadic):
                 complex_representation = Cyclotomic8Dyadic
                 break
+            elif isinstance(val, nTuple):
+                complex_representation = nTuple
+                break
         if complex_representation is None:
             raise ValueError()
         
@@ -46,12 +49,20 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
         if len(output_vec.vec) != vec_len:
             raise ValueError()
     
-    inv_sqrt2 = complex_representation.inv_sqrt2(gen)
-    minus1    = complex_representation.minus_one(gen)
-    i_phase   = complex_representation.i_phase(gen)
-    t_phase   = complex_representation.t_phase(gen)
-    one_half  = complex_representation.one_half(gen)
-    i_half    = complex_representation.i_half(gen)
+    if complex_representation == Complex:
+        inv_sqrt2 = complex_representation.inv_sqrt2(gen)
+        minus1    = complex_representation.minus_one(gen)
+        i_phase   = complex_representation.i_phase(gen)
+        t_phase   = complex_representation.t_phase(gen)
+        one_half  = complex_representation.one_half(gen)
+        i_half    = complex_representation.i_half(gen)
+    else:
+        inv_sqrt2 = None
+        minus1 = None
+        i_phase = None
+        t_phase = None
+        one_half = None
+        i_half = None
     
 
     def encode_layer(gen, inp, out, layer, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, gate_selections, gate_set):
@@ -136,7 +147,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
             for a in range(vec_len):
                 eq_expr = out[a] == inp[a]
                 gen.add_assertion(f"(=> {sel} {eq_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
 
@@ -153,13 +164,13 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     eq2_expr = out[b] == ((inp[a] + (inp[b] * minus1)) * inv_sqrt2)
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
                     gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                elif complex_representation == Cyclotomic8Dyadic:
+                elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                     eq1_expr = out[a] == (inp[a] + inp[b]).divide_by_sqrt2(gen)
                     eq2_expr = out[b] == (inp[a] + (inp[b].multiply_by_minus_one(gen))).divide_by_sqrt2(gen)
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
                     gen.add_assertion(f"(=> {sel} {eq2_expr})")
                     # Increment k when Hadamard is applied
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_incr = f"(= {out.k} (+ {inp.k} 1))"
                 gen.add_assertion(f"(=> {sel} {k_incr})")
 
@@ -175,10 +186,10 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * i_phase)
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == inp[a].multiply_by_i(gen)
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -194,10 +205,10 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * i_phase)
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == inp[a].multiply_by_minus_i(gen)
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
 
@@ -213,10 +224,10 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * t_phase)
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == inp[a].multiply_by_omega(gen)
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
 
@@ -232,10 +243,10 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * t_phase.conjugate(gen))
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == inp[a].multiply_by_omega_counter(gen)
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -253,7 +264,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 gen.add_assertion(f"(=> {sel} {eq1_expr})")
                 gen.add_assertion(f"(=> {sel} {eq2_expr})")
             # k stays the same for X gate
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -270,7 +281,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     eq2_expr = out[b] == (((inp[a] + inp[b]) * one_half)  + (inp[b] - inp[a]) * i_half)
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
                     gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                elif complex_representation == Cyclotomic8Dyadic:
+                elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                     eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(gen))
                     eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(gen))
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
@@ -290,7 +301,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     eq2_expr = out[b] == (((inp[a] + inp[b]) * one_half)  + (inp[a] - inp[b]) * i_half)
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
                     gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                elif complex_representation == Cyclotomic8Dyadic:
+                elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                     eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(gen))
                     eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(gen))
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
@@ -311,7 +322,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq1_expr = out[b] == (inp[a] * i_phase)
                         eq2_expr = out[a] == (inp[b] * i_phase.conjugate(gen))
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq1_expr = out[b] == inp[a].multiply_by_i(gen)
                         eq2_expr = out[a] == inp[b].multiply_by_minus_i(gen)
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
@@ -320,13 +331,13 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq1_expr = out[b] == (inp[a] * i_phase.conjugate(gen))
                         eq2_expr = out[a] == (inp[b] * i_phase)
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq1_expr = out[b] == inp[a].multiply_by_minus_i(gen)
                         eq2_expr = out[a] == inp[b].multiply_by_i(gen)
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
                     gen.add_assertion(f"(=> {sel} {eq2_expr})")
             # k stays the same for Y gate
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
         
@@ -342,10 +353,10 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1)
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == inp[a].multiply_by_minus_one(gen)
                         gen.add_assertion(f"(=> {sel} {eq_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
         
@@ -365,7 +376,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
                     gen.add_assertion(f"(=> {sel} {eq2_expr})")
             # k stays the same for CNOT gate
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -383,7 +394,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     eq2_expr = out[b] == inp[a]
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
                     gen.add_assertion(f"(=> {sel} {eq2_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -415,7 +426,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     gen.add_assertion(f"(=> {sel} {eq_expr})")
                     visited.add(a)
             
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -437,7 +448,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                         eq2_expr = out[b] == ((inp[a] + (inp[b] * minus1)) * inv_sqrt2)
                         gen.add_assertion(f"(=> {sel} {eq1_expr})")
                         gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq1_expr = out[a] == (inp[a] + inp[b]).divide_by_sqrt2(gen)
                         eq2_expr = out[b] == (inp[a] + (inp[b].multiply_by_minus_one(gen))).divide_by_sqrt2(gen)
                         gen.add_assertion(f"(=> {sel} {eq1_expr})")
@@ -473,7 +484,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                         eq2_expr = out[b] == (((inp[a] + inp[b]) * one_half)  + (inp[b] - inp[a]) * i_half)
                         gen.add_assertion(f"(=> {sel} {eq1_expr})")
                         gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(gen))
                         eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(gen))
                         gen.add_assertion(f"(=> {sel} {eq1_expr})")
@@ -509,7 +520,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                         gen.add_assertion(f"(=> {sel} {eq1_expr})")
                         gen.add_assertion(f"(=> {sel} {eq2_expr})")
 
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
         
@@ -523,14 +534,14 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if control_on and target_on:
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1)
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == (inp[a].multiply_by_minus_one(gen))
                 else:
                     eq_expr = out[a] == inp[a]
 
                 gen.add_assertion(f"(=> {sel} {eq_expr})")
 
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
 
@@ -544,14 +555,14 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if control_on and target_on:
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * i_phase)
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == (inp[a].multiply_by_i(gen))
                 else:
                     eq_expr = out[a] == inp[a]
 
                 gen.add_assertion(f"(=> {sel} {eq_expr})")
 
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -565,14 +576,14 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if control_on and target_on:
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1 * i_phase)
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == (inp[a].multiply_by_minus_i(gen))
                 else:
                     eq_expr = out[a] == inp[a]
 
                 gen.add_assertion(f"(=> {sel} {eq_expr})")
 
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -589,7 +600,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     b = a ^ ((1 << q1) | (1 << q2))
                     eq_expr = out[a] == inp[b]
                     gen.add_assertion(f"(=> {sel} {eq_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -606,7 +617,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     b = a ^ ((1 << q1) | (1 << q2))
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[b] * i_phase)
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == (inp[b].multiply_by_i(gen))
                     gen.add_assertion(f"(=> {sel} {eq_expr})")
         
@@ -629,12 +640,12 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                         eq2_expr = out[b] == (((inp[a] + inp[b]) * one_half)  + (inp[b] - inp[a]) * i_half)
                         gen.add_assertion(f"(=> {sel} {eq1_expr})")
                         gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(gen))
                         eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(gen))
                         gen.add_assertion(f"(=> {sel} {eq1_expr})")
                         gen.add_assertion(f"(=> {sel} {eq2_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} (+ {inp.k} 2))"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
         
@@ -657,12 +668,12 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                         eq2_expr = out[b] == (((inp[a] * i_phase) + (inp[b])) * inv_sqrt2)
                         gen.add_assertion(f"(=> {sel} {eq1_expr})")
                         gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq1_expr = out[a] == ((inp[a] + (inp[b].multiply_by_i(gen))))
                         eq2_expr = out[b] == ((inp[a].multiply_by_i(gen)) + (inp[b]))
                         gen.add_assertion(f"(=> {sel} {eq1_expr})")
                         gen.add_assertion(f"(=> {sel} {eq2_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} (+ {inp.k} 1))"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                     
@@ -681,7 +692,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     eq2_expr = out[b] == inp[a]
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
                     gen.add_assertion(f"(=> {sel} {eq2_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -696,7 +707,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     # the minus one
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1)
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == (inp[a].multiply_by_minus_one(gen))
                     gen.add_assertion(f"(=> {sel} {eq_expr})")
                 elif not control1_on or not control2_on:
@@ -708,7 +719,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     eq2_expr = out[b] == inp[a]
                     gen.add_assertion(f"(=> {sel} {eq1_expr})")
                     gen.add_assertion(f"(=> {sel} {eq2_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -737,7 +748,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     eq_expr = out[a] == inp[a]
                     gen.add_assertion(f"(=> {sel} {eq_expr})")
             
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
                 
@@ -751,31 +762,31 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if control1_on and control2_on and target_on:
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1)
-                    elif complex_representation == Cyclotomic8Dyadic:
+                    elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                         eq_expr = out[a] == (inp[a].multiply_by_minus_one(gen))
                 else:
                     eq_expr = out[a] == inp[a]
                     gen.add_assertion(f"(=> {sel} {eq_expr})")
-            if complex_representation == Cyclotomic8Dyadic:
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} {inp.k})"
                 gen.add_assertion(f"(=> {sel} {k_eq})")
 
     gate_selections = {}
     
     for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
-        In = Vector(q=vec_len, name=f"In_{pair_idx}", generator=gen, element_representation=complex_representation, k = input_vector.k)
+        In = Vector(q=vec_len, name=f"In_{pair_idx}", generator=gen, element_representation=complex_representation, k = input_vector.k, n = input_vector.n)
         for i, val in enumerate(input_vector.vec):
             gen.add_assertion(In[i] == val)
         
         # Assert that In.k equals the input_vector.k value
-        if complex_representation == Cyclotomic8Dyadic:
+        if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
             if isinstance(input_vector.k, int):
                 gen.add_assertion(f"(= {In.k} {input_vector.k})")
             elif isinstance(input_vector.k, str) and input_vector.k != In.k:
                 gen.add_assertion(f"(= {In.k} {input_vector.k})")
         
-        if complex_representation == Cyclotomic8Dyadic:
-            inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=gen, element_representation=complex_representation, k=input_vector.k if d == 0 else 0) for d in range(d1 + 1)]
+        if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
+            inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=gen, element_representation=complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(d1 + 1)]
         else:
             inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=gen, element_representation=complex_representation) for d in range(d1 + 1)]
         gen.add_assertion(inter[0] == In)
@@ -783,12 +794,12 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
         for d in range(d1):
             encode_layer(gen, inter[d], inter[d+1], d, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, gate_selections, gate_set)
         
-        Target = Vector(q=vec_len, name=f"Target_{pair_idx}", generator=gen, element_representation=complex_representation, k = output_vector.k)
+        Target = Vector(q=vec_len, name=f"Target_{pair_idx}", generator=gen, element_representation=complex_representation, k = output_vector.k, n = output_vector.n)
         for i, val in enumerate(output_vector.vec):
             gen.add_assertion(Target[i] == val)
         
         # Assert that Target.k equals the output_vector.k value
-        if complex_representation == Cyclotomic8Dyadic:
+        if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
             # If output_vector.k is a literal integer, assert Target.k equals it
             # If it's already a string (symbolic), it should already be set correctly
             if isinstance(output_vector.k, int):

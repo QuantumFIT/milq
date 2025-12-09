@@ -1,4 +1,4 @@
-from complex_numbers_smtlib import Complex, Cyclotomic8Dyadic
+from complex_numbers_smtlib import Complex, Cyclotomic8Dyadic, nTuple
 
 class SMTLibGenerator:
     def __init__(self):
@@ -80,6 +80,8 @@ class SMTLibGenerator:
         if complex_representation == Complex:
             logic = "QF_NRA"
         elif complex_representation == Cyclotomic8Dyadic:
+            logic = "QF_LIA"
+        elif complex_representation == nTuple:
             logic = "QF_LIA"
         else:
             raise ValueError()

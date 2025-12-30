@@ -4,7 +4,7 @@ import os
 import time
 import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from synth import synthesis, solve_and_extract_circuit
+from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
 
@@ -19,6 +19,8 @@ else:
     d1 = n
     solver = "z3"
 gen = SMTLibGenerator()
+gate_set = ['I', 'H', 'S', 'T', 'CX']
+synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 
 assert(n == d1)
 
@@ -47,12 +49,11 @@ output_vec[0] = Cyclotomic8Dyadic.one(gen)
 output_vec[2**n - 1] = Cyclotomic8Dyadic.one(gen)
 
 vector_pairs = [(input_vec, output_vec)]
-gate_set = ['I', 'H', 'S', 'T', 'CX']
 
 start_time = time.time()
 try:
-    synthesis(vector_pairs, n, d1, "ghzzero.smt2", gen, gate_set)
-    #solve_and_extract_circuit("ghzzero.smt2", n, d1, "ghzzero.qasm", solver)
+    synthesizer.synthesis(vector_pairs, n, d1, "ghzzero.smt2")
+    #synthesizer.solve_and_extract_circuit("ghzzero.smt2", n, d1, "ghzzero.qasm", solver)
     end_time = time.time()
     #print(f"sat")
     #print(f"Time taken: {end_time - start_time} seconds")

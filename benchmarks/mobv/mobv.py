@@ -5,7 +5,7 @@ import time
 import resource
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from synth import synthesis, solve_and_extract_circuit
+from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
 
@@ -29,6 +29,8 @@ assert(a == 2**(n+1))
 
 
 gen = SMTLibGenerator()
+gate_set = ['I', 'H', 'CX', 'Z', 'CCX']
+synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 
 # |000> -> |001>
 # |100> -> |111>
@@ -67,12 +69,10 @@ for q in range(2**n):
 
     vector_pairs.append((input_vec, output_vec))
 
-gate_set = ['I', 'H', 'CX', 'Z', 'CCX']
-
 start_time = time.time()
 try:
-    synthesis(vector_pairs, 2*n+1, d1, "mobv.smt2", gen, gate_set)
-    solve_and_extract_circuit("mobv.smt2", n, d1, "mobv.qasm", solver)
+    synthesizer.synthesis(vector_pairs, 2*n+1, d1, "mobv.smt2")
+    synthesizer.solve_and_extract_circuit("mobv.smt2", n, d1, "mobv.qasm", solver)
 
     end_time = time.time()
 

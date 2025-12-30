@@ -5,7 +5,7 @@ import time
 import resource
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from synth import synthesis, solve_and_extract_circuit
+from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic, nTuple
 from smtlib_generator import SMTLibGenerator
 
@@ -29,7 +29,8 @@ assert(len(s) == n)
 assert(a == 2**n)
 
 
-gen = SMTLibGenerator()
+gen = SMTLibGenerator(dreal=False)
+synthesizer = Synthesizer(gen=gen, gate_set=['I', 'H', 'CX', 'Z'], solver=solver)
 
 
 input_vec = Vector(q=2**n, generator=gen,
@@ -56,8 +57,8 @@ gate_set = ['I', 'H', 'CX', 'Z']
 
 start_time = time.time()
 try:
-    synthesis(vector_pairs, n, d1, "bv.smt2", gen, gate_set)
-    solve_and_extract_circuit("bv.smt2", n, d1, "bv.qasm", solver)
+    synthesizer.synthesis(vector_pairs, n, d1, "bv.smt2")
+    synthesizer.solve_and_extract_circuit("bv.smt2", n, d1, "bv.qasm", solver)
 
     end_time = time.time()
 
@@ -65,6 +66,6 @@ try:
     print(f"Time taken: {end_time - start_time} seconds")
     print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")
 
-except Exception:
+except Exception as e:
     print(f"Error: {e}")
     print("unsat")

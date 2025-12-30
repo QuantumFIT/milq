@@ -4,7 +4,7 @@ import os
 import time
 import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from synth import synthesis, solve_and_extract_circuit
+from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Cyclotomic8Dyadic, Vector
 from smtlib_generator import SMTLibGenerator
 
@@ -39,9 +39,10 @@ for i in range(n):
 #TODO might need control H, + Ry is used in the reference picture
 gate_set = ['H', 'S', 'CNOT', 'T', 'I']
 vector_pairs = [(input_vec, output_vec)]
+synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver="cvc5")
 
 start_time = time.time()
-synthesis(vector_pairs, n, d1, "w_state.smt2", gen, gate_set)
-solve_and_extract_circuit("w_state.smt2", n, d1, "w_state.qasm", "cvc5")
+synthesizer.synthesis(vector_pairs, n, d1, "w_state.smt2")
+synthesizer.solve_and_extract_circuit("w_state.smt2", n, d1, "w_state.qasm", "cvc5")
 print(f"Time taken: {time.time() - start_time:.2f} s")
 print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")

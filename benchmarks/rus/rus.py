@@ -5,7 +5,7 @@ import time
 import resource
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from synth import synthesis, solve_and_extract_circuit
+from synth import Synthesizer
 from sim import simulate_circuit, simulate_rus
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
@@ -16,28 +16,32 @@ if len(sys.argv) > 1:
     d = int(sys.argv[2])
     solver = sys.argv[3]
 else:
-    qasm_file = '6/spec.qasm'
-    d = 20
+    qasm_file = '1/spec.qasm'
+    d = 40
     solver = "opensmt"
 
 # first simulate to get the vectors
 generator = SMTLibGenerator()
-gate_set = ['I', 'H', 'T', 'Tdg', 'CZ']
+gate_set = ['I', 'H', 'T', 'Tdg', 'S', 'Sdg', 'CX', 'CZ', 'X']
+synthesizer = Synthesizer(gen=generator, gate_set=gate_set, solver=solver)
 start_smt = time.time()
-vectors = simulate_rus(qasm_file, generator=generator)
-#for vec_pair in vectors:
-#    print("Input vec:")
-#    for i in range(len(vec_pair[0].vec)):
-#        print(vec_pair[0].vec[i].to_real(vec_pair[0].k))
-#    print("Output vec:")
-#    for i in range(len(vec_pair[1].vec)):\
-#        print(vec_pair[1].vec[i].to_real(vec_pair[1].k))
-#    print("--------------------------------")
+vectors = simulate_rus(qasm_file, generator=None)
+for vec_pair in vectors:
+    print("Input vec:")
+    for i in range(len(vec_pair[0].vec)):
+        print(vec_pair[0].vec[i].to_real(vec_pair[0].k))
+    print("Output vec:")
+    for i in range(len(vec_pair[1].vec)):\
+        print(vec_pair[1].vec[i].to_real(vec_pair[1].k))
+    print("--------------------------------")
 
 
 try:
-    synthesis(vectors, q, d, "smt.smt2", generator, gate_set)
-    solve_and_extract_circuit("smt.smt2", q, d, "smt.qasm", solver)
+    synthesizer.synthesis(vectors, q, d, "smt.smt2")
+    print(generator.num_of_assertions)
+    print(generator.num_of_bool_variables)
+    print(generator.num_of_int_variables)
+    synthesizer.solve_and_extract_circuit("smt.smt2", q, d, "smt.qasm", solver)
     end_smt = time.time()
     print(f"SMT time: {end_smt - start_smt} seconds")
 except Exception as e:

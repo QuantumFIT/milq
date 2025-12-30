@@ -5,7 +5,7 @@ import time
 import resource
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from synth import synthesis, solve_and_extract_circuit
+from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
 
@@ -26,6 +26,8 @@ else:
 
 
 gen = SMTLibGenerator()
+gate_set = ['I', 'H', 'CX', 'Z', 'CCX', 'CZ', 'X']
+synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 input_vec = Vector(q=2**n, generator=gen,
                 element_representation=Cyclotomic8Dyadic, k=0)
 for i in range(2**n):
@@ -41,12 +43,10 @@ output_vec[3] = Cyclotomic8Dyadic.one(gen).multiply_by_minus_one(gen)
 
 vector_pairs = [(input_vec, output_vec)]
 
-gate_set = ['I', 'H', 'CX', 'Z', 'CCX', 'CZ', 'X']
-
 start_time = time.time()
 try:
-    synthesis(vector_pairs, n, d1, "grover.smt2", gen, gate_set)
-    solve_and_extract_circuit("grover.smt2", n, d1, "grover.qasm", solver)
+    synthesizer.synthesis(vector_pairs, n, d1, "grover.smt2")
+    synthesizer.solve_and_extract_circuit("grover.smt2", n, d1, "grover.qasm", solver)
 
     end_time = time.time()
 

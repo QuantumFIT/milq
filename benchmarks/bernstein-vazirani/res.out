@@ -1,0 +1,55 @@
+2 z3 sat
+Time taken: 0.04386281967163086 seconds
+Memory usage: 27092 KB
+2 cvc5 sat
+Time taken: 0.6693291664123535 seconds
+Memory usage: 27256 KB
+2 yices2 sat
+Time taken: 0.01367044448852539 seconds
+Memory usage: 27264 KB
+2 opensmt sat
+Time taken: 0.06359481811523438 seconds
+Memory usage: 27244 KB
+2 smtinterpol sat
+Time taken: 0.922431468963623 seconds
+Memory usage: 27264 KB
+2 z3alpha sat
+Time taken: 0.11023712158203125 seconds
+Memory usage: 27260 KB
+3 z3 sat
+Time taken: 0.4771449565887451 seconds
+Memory usage: 28160 KB
+3 cvc5 sat
+Time taken: 1.2187449932098389 seconds
+Memory usage: 28408 KB
+3 yices2 sat
+Time taken: 0.30180931091308594 seconds
+Memory usage: 28388 KB
+3 opensmt sat
+Time taken: 0.4854118824005127 seconds
+Memory usage: 28268 KB
+3 smtinterpol sat
+Time taken: 2.9141995906829834 seconds
+Memory usage: 28468 KB
+3 z3alpha sat
+Time taken: 0.5193560123443604 seconds
+Memory usage: 28380 KB
+4 z3 sat
+Time taken: 3.5906736850738525 seconds
+Memory usage: 32460 KB
+4 cvc5 sat
+Time taken: 17.134814262390137 seconds
+Memory usage: 32512 KB
+4 yices2 sat
+Time taken: 21.05294680595398 seconds
+Memory usage: 32440 KB
+4 opensmt sat
+Time taken: 30.305203676223755 seconds
+Memory usage: 32384 KB
+4 smtinterpol sat
+Time taken: 53.62492918968201 seconds
+Memory usage: 32840 KB
+4 z3alpha sat
+Time taken: 17.92786145210266 seconds
+Memory usage: 32256 KB
+5 z3 TMOUT

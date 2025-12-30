@@ -4,13 +4,15 @@ import os
 import time
 import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from synth import synthesis, solve_and_extract_circuit
+from synth import Synthesizer
 from complex_numbers_smtlib import Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
 
 n = 3
 d1 = 16
 gen = SMTLibGenerator()
+gate_set = ['I', 'H', 'S', 'T', 'CX', 'CCX']  # Default gate set for Toffoli
+synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver="z3")
 
 vector_pairs = []
 for state in range(2**n):
@@ -28,7 +30,7 @@ for state in range(2**n):
     vector_pairs.append((input_vector, output_vector))
 
 start_time = time.time()
-synthesis(vector_pairs, n, d1, "toffoli.smt2", gen)
-solve_and_extract_circuit("toffoli.smt2", n, d1, "toffoli.qasm", "z3")
+synthesizer.synthesis(vector_pairs, n, d1, "toffoli.smt2")
+synthesizer.solve_and_extract_circuit("toffoli.smt2", n, d1, "toffoli.qasm", "z3")
 print(f"Time taken: {time.time() - start_time:.2f} s")
 print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")

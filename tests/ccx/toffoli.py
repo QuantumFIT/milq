@@ -3,13 +3,15 @@ import os
 import time
 import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
-from synth import synthesis, solve_and_extract_circuit
+from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
 from smtlib_generator import SMTLibGenerator
 
 n = 3 
 d1 = 4
 gen = SMTLibGenerator()
+gate_set = ['I', 'H', 'S', 'T', 'CX', 'X', 'Y', 'Z', 'CCX']
+synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver="z3")
 
 
 vector_pairs = []
@@ -41,11 +43,9 @@ for state in range(2**n):
     print(output_vec)
     vector_pairs.append((input_vec, output_vec))
 
-gate_set = ['I', 'H', 'S', 'T', 'CX', 'X', 'Y', 'Z', 'CCX']
-
 start_time = time.time()
-synthesis(vector_pairs, n, d1, "ccx.smt2", gen, gate_set)
-solve_and_extract_circuit("ccx.smt2", n, d1, "ccx.qasm", "z3")
+synthesizer.synthesis(vector_pairs, n, d1, "ccx.smt2")
+synthesizer.solve_and_extract_circuit("ccx.smt2", n, d1, "ccx.qasm", "z3")
 end_time = time.time()
 print(f"Time taken: {end_time - start_time} seconds")
 print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")

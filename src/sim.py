@@ -1,4 +1,5 @@
 import numpy as np
+import re
 from complex_numbers_smtlib import Complex, Cyclotomic8Dyadic, Vector
 from smtlib_generator import SMTLibGenerator
 
@@ -14,6 +15,7 @@ def parse_file(qasm_file, complex_representation=None, generator=None):
     vectors = []
     # list of (gate, [0, 1, 2 ... ]) --> (gatestr, qubits_vector)
     parsed_file = []
+    qreg_name = None
     
     for line in lines:
         line = line.strip()
@@ -24,13 +26,15 @@ def parse_file(qasm_file, complex_representation=None, generator=None):
             parts = line.split('[')
             if len(parts) > 1:
                 n_qubits = int(parts[1].split(']')[0])
+                qreg_name = parts[0].split(' ')[1].strip()
                 for i in range(2**n_qubits):
                     vectors.append(Vector(q=2**n_qubits, generator=generator, element_representation=complex_representation, k=0))
         
         if line.startswith('creg'):
             continue
-        
-        if 'q[' in line and not line.startswith('qreg') and not line.startswith('creg'):
+        # Match qreg_name followed by optional whitespace and '['
+        qreg_pattern = re.compile(rf'{re.escape(qreg_name)}\s*\[')
+        if qreg_pattern.search(line) and not line.startswith('qreg') and not line.startswith('creg'):
             gate_line = line.rstrip(';').strip()
             # parse the gate and its qubits as (gate, q1, q2, ...)
             parts = gate_line.split(' ')
@@ -39,7 +43,7 @@ def parse_file(qasm_file, complex_representation=None, generator=None):
             qubits = []
             for part in rest:
                 part = part.strip()
-                if 'q[' in part:
+                if qreg_pattern.search(part):
                     qubits.append(int(part.split('[')[1].split(']')[0]))
             parsed_file.append((gate, qubits))
     return parsed_file, n_qubits, vectors

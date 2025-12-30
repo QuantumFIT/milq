@@ -1,91 +1,104 @@
 import numpy as np
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic, nTuple
-from smtlib_generator import SMTLibGenerator
-from qasm import parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2
+from smtlib_generator import SMTLibGenerator, PortfolioSolver
+from qasm import parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2, parse_dreal, parse_pysmt
 import time
 import resource
 import subprocess
 import os
+from pauli import syn_pauli
+from multiprocessing import cpu_count
+from pathlib import Path
+from pysmt.logics import QF_NRA, QF_LIA
+from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies
+from pysmt.typing import REAL, INT
+from pysmt.solvers.solver import Solver
 
-def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_set=None):
-    """
-    vector_pairs: List of (input_vector, output_vector) pairs for input and its expected output.
-    n: Number of qubits
-    d1: Number of layers (operations)
-    output_file: Filename to write the formula to
-    """
-    if gen is None:
-        raise ValueError()
-    
-    if gate_set is None:
-        raise ValueError()
-    
-    if not vector_pairs:
-        raise ValueError()
 
-    # check which complex representation we are using by the input vectors
-    for pair_idx, (input_vec, output_vec) in enumerate(vector_pairs):
-        if input_vec[0].__class__ != output_vec[0].__class__:
-            raise ValueError()
-        for val in input_vec.vec:
-            if isinstance(val, Complex):
-                complex_representation = Complex
-                break
-            elif isinstance(val, Cyclotomic8Dyadic):
-                complex_representation = Cyclotomic8Dyadic
-                break
-            elif isinstance(val, nTuple):
-                complex_representation = nTuple
-                break
-        if complex_representation is None:
-            raise ValueError()
+class Synthesizer:
+    def __init__(self, gen=None, gate_set=None, solver=None):
+        if gen is None:
+            raise ValueError("gen is required")
+        if gate_set is None:
+            raise ValueError("gate_set is required")
+        if solver is None:
+            raise ValueError("solver is required")
+        self.gen = gen
+        self.gate_set = gate_set
+        self.solver = solver
+        if solver == "dreal":
+            self.gen.dreal = True
+            
+    def add_solvers(self):
+        # register custom solvers for pySMT portfolio solving (TODO change for relative paths, change logics to match the respective solvers)
         
-    
-    vec_len = 2**n
-    
-    for pair_idx, (input_vec, output_vec) in enumerate(vector_pairs):
-        if len(input_vec.vec) != vec_len:
-            raise ValueError()
-        if len(output_vec.vec) != vec_len:
-            raise ValueError()
-    
-    if complex_representation == Complex:
-        inv_sqrt2 = complex_representation.inv_sqrt2(gen)
-        minus1    = complex_representation.minus_one(gen)
-        i_phase   = complex_representation.i_phase(gen)
-        t_phase   = complex_representation.t_phase(gen)
-        one_half  = complex_representation.one_half(gen)
-        i_half    = complex_representation.i_half(gen)
-    else:
-        inv_sqrt2 = None
-        minus1 = None
-        i_phase = None
-        t_phase = None
-        one_half = None
-        i_half = None
-    
+        opensmt_name = "opensmt"
+        opensmt_path = "/home/jakubhavlik/rus-synth/solvers/opensmt/opensmt"
+        opensmt_logics = [QF_LIA]
+        env = get_env()
+        env.factory.add_generic_solver(opensmt_name, opensmt_path, opensmt_logics)
+        
+        yices2_name = "yices2"
+        yices2_path = "/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2"
+        yices2_logics = [QF_LIA]
+        env.factory.add_generic_solver(yices2_name, yices2_path, yices2_logics)
+        
+        smtinterpol_name = "smtinterpol"
+        smtinterpol_path = "/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol"
+        smtinterpol_logics = [QF_LIA]
+        env.factory.add_generic_solver(smtinterpol_name, smtinterpol_path, smtinterpol_logics)
+        
+        cvc5_name = "cvc5"
+        cvc5_path = "/home/jakubhavlik/rus-synth/solvers/cvc5/cvc5"
+        cvc5_logics = [QF_LIA]
+        env.factory.add_generic_solver(cvc5_name, cvc5_path, cvc5_logics)
+        
 
-    def encode_layer(gen, inp, out, layer, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, gate_selections, gate_set):
+    def encode_layer(self, inp, out, layer, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, complex_representation):
         single_sel = {}
         two_sel = {}
         three_sel = {}
         sel_vars = []
+        gate_selections = {}
         supported_single_qubit = ['H','S','Sdg','T','I','Tdg','X','Y','Z','SX','SXdg']
         supported_two_qubit = ['CX','SWAP', 'iSWAP', 'CH','CS','CSdg','CY','CZ','DCX','CSX', 'XCX', 'ECR', 'MAGIC', 'sqrtSWAP', 'isqrtSWAP']
         supported_three_qubit = ['CCX','CSWAP','CCZ', 'RCCX', 'PG']
         
+        def add_implies(sel, expr):
+            if isinstance(self.gen, PortfolioSolver):
+                self.gen.add_assertion(Implies(sel, expr))
+            else:
+                self.gen.add_assertion(f"(=> {sel} {expr})")
+        
+        def add_k_eq(sel, out_k, inp_k):
+            if isinstance(self.gen, PortfolioSolver):
+                k_eq = Equals(out_k, inp_k)
+                self.gen.add_assertion(Implies(sel, k_eq))
+            else:
+                k_eq = f"(= {out_k} {inp_k})"
+                add_implies(sel, k_eq)
+        
+        def add_k_incr(sel, out_k, inp_k, increment):
+            if isinstance(self.gen, PortfolioSolver):
+                k_incr = Equals(out_k, Plus(inp_k, Int(increment)))
+                self.gen.add_assertion(Implies(sel, k_incr))
+            else:
+                k_incr = f"(= {out_k} (+ {inp_k} {increment}))"
+                add_implies(sel, k_incr)
+            
+        
         # todo: ecr (echoed dross resonance), magic, pg
         
         # implicitly add identity to the gate set if not present
-        if 'I' not in gate_set:
-            gate_set.append('I')
+        if 'I' not in self.gate_set:
+            self.gate_set.append('I')
         
-        supported_single_qubit = [gate for gate in supported_single_qubit if gate in gate_set]
-        supported_two_qubit = [gate for gate in supported_two_qubit if gate in gate_set]
-        supported_three_qubit = [gate for gate in supported_three_qubit if gate in gate_set]
+        supported_single_qubit = [gate for gate in supported_single_qubit if gate in self.gate_set]
+        supported_two_qubit = [gate for gate in supported_two_qubit if gate in self.gate_set]
+        supported_three_qubit = [gate for gate in supported_three_qubit if gate in self.gate_set]
         
         # check if the gate set has any unsupported gates
-        unsupported_gates = set(gate_set) - set(supported_single_qubit) - set(supported_two_qubit) - set(supported_three_qubit)
+        unsupported_gates = set(self.gate_set) - set(supported_single_qubit) - set(supported_two_qubit) - set(supported_three_qubit)
         if unsupported_gates:
             raise ValueError(f"Unsupported gates: {unsupported_gates}")
         
@@ -95,7 +108,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 key = (layer, gate, q)
                 if key not in gate_selections:
                     v_name = f"L{layer}_{gate}_q{q}"
-                    v = gen.declare_bool(v_name)
+                    v = self.gen.declare_bool(v_name)
                     gate_selections[key] = v
                 single_sel[(gate, q)] = gate_selections[key]
                 sel_vars.append(gate_selections[key])
@@ -108,7 +121,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     key = (layer, gate, c, t)
                     if key not in gate_selections:
                         v_name = f"L{layer}_{gate}_c{c}t{t}"
-                        v = gen.declare_bool(v_name)
+                        v = self.gen.declare_bool(v_name)
                         gate_selections[key] = v
                     two_sel[(gate, c, t)] = gate_selections[key]
                     sel_vars.append(gate_selections[key])            
@@ -122,34 +135,42 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                         key = (layer, gate, c1, c2, t)
                         if key not in gate_selections:
                             v_name = f"L{layer}_{gate}_c{c1}c{c2}t{t}"
-                            v = gen.declare_bool(v_name)
+                            v = self.gen.declare_bool(v_name)
                             gate_selections[key] = v
                         three_sel[(gate, c1, c2, t)] = gate_selections[key]
                         sel_vars.append(gate_selections[key])
 
         # ---- exactly ONE gate per layer (only add constraints once per layer) ----
         if layer not in gate_selections.get('_constraints_added', set()):
-            at_least = f"(or {' '.join(sel_vars)})"
-            gen.add_assertion(at_least)
-            
-            for i, v1 in enumerate(sel_vars):
-                for v2 in sel_vars[i+1:]:
-                    gen.add_assertion(f"(=> {v1} (not {v2}))")
-                    gen.add_assertion(f"(=> {v2} (not {v1}))")
+            if isinstance(self.gen, PortfolioSolver):
+                at_least = Or(*sel_vars)
+                self.gen.add_assertion(at_least)
+                
+                for i, v1 in enumerate(sel_vars):
+                    for v2 in sel_vars[i+1:]:
+                        self.gen.add_assertion(Implies(v1, Not(v2)))
+                        self.gen.add_assertion(Implies(v2, Not(v1)))
+            else:
+                at_least = f"(or {' '.join(sel_vars)})"
+                self.gen.add_assertion(at_least)
+                
+                for i, v1 in enumerate(sel_vars):
+                    for v2 in sel_vars[i+1:]:
+                        self.gen.add_assertion(f"(=> {v1} (not {v2}))")
+                        self.gen.add_assertion(f"(=> {v2} (not {v1}))")
             
             if '_constraints_added' not in gate_selections:
                 gate_selections['_constraints_added'] = set()
             gate_selections['_constraints_added'].add(layer)
-        
+            
         # ---------------------------------------------------------- I
         for (gate,q), sel in single_sel.items():
             if gate != 'I': continue
             for a in range(vec_len):
                 eq_expr = out[a] == inp[a]
-                gen.add_assertion(f"(=> {sel} {eq_expr})")
+                add_implies(sel, eq_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
 
         # ---------------------------------------------------------- H
         for (gate,q), sel in single_sel.items():
@@ -162,18 +183,17 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if complex_representation == Complex:
                     eq1_expr = out[a] == ((inp[a] + inp[b]) * inv_sqrt2)
                     eq2_expr = out[b] == ((inp[a] + (inp[b] * minus1)) * inv_sqrt2)
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
                 elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                    eq1_expr = out[a] == (inp[a] + inp[b]).divide_by_sqrt2(gen)
-                    eq2_expr = out[b] == (inp[a] + (inp[b].multiply_by_minus_one(gen))).divide_by_sqrt2(gen)
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                    eq1_expr = out[a] == (inp[a] + inp[b]).divide_by_sqrt2(self.gen)
+                    eq2_expr = out[b] == (inp[a] + (inp[b].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen)
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
                     # Increment k when Hadamard is applied
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_incr = f"(= {out.k} (+ {inp.k} 1))"
-                gen.add_assertion(f"(=> {sel} {k_incr})")
-
+                    add_k_incr(sel, out.k, inp.k, 1)
+                    
         # ---------------------------------------------------------- S
         for (gate,q), sel in single_sel.items():
             if gate != 'S': continue
@@ -181,17 +201,16 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 bit = (a >> q) & 1
                 if bit == 0:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * i_phase)
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        add_implies(sel, eq_expr)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == inp[a].multiply_by_i(gen)
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        eq_expr = out[a] == inp[a].multiply_by_i(self.gen)
+                        add_implies(sel, eq_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- Sdg
         for (gate,q), sel in single_sel.items():
@@ -200,17 +219,16 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 bit = (a >> q) & 1
                 if bit == 0:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * i_phase)
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        add_implies(sel, eq_expr)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == inp[a].multiply_by_minus_i(gen)
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        eq_expr = out[a] == inp[a].multiply_by_minus_i(self.gen)
+                        add_implies(sel, eq_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
 
         # ---------------------------------------------------------- T
         for (gate,q), sel in single_sel.items():
@@ -219,17 +237,16 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 bit = (a >> q) & 1
                 if bit == 0:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * t_phase)
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        add_implies(sel, eq_expr)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == inp[a].multiply_by_omega(gen)
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        eq_expr = out[a] == inp[a].multiply_by_omega(self.gen)
+                        add_implies(sel, eq_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
 
         # ---------------------------------------------------------- Tdg
         for (gate,q), sel in single_sel.items():
@@ -238,17 +255,16 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 bit = (a >> q) & 1
                 if bit == 0:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     if complex_representation == Complex:
-                        eq_expr = out[a] == (inp[a] * t_phase.conjugate(gen))
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        eq_expr = out[a] == (inp[a] * t_phase.conjugate(self.gen))
+                        add_implies(sel, eq_expr)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == inp[a].multiply_by_omega_counter(gen)
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        eq_expr = out[a] == inp[a].multiply_by_omega_counter(self.gen)
+                        add_implies(sel, eq_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- X
         for (gate,q), sel in single_sel.items():
@@ -261,12 +277,11 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 # X gate swaps amplitudes: |0> <-> |1>
                 eq1_expr = out[a] == inp[b]
                 eq2_expr = out[b] == inp[a]
-                gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                add_implies(sel, eq1_expr)
+                add_implies(sel, eq2_expr)
             # k stays the same for X gate
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- SX
         for (gate,q), sel in single_sel.items():
@@ -279,15 +294,14 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if complex_representation == Complex:
                     eq1_expr = out[a] == (((inp[a] + inp[b]) * one_half)  + (inp[a] - inp[b]) * i_half)
                     eq2_expr = out[b] == (((inp[a] + inp[b]) * one_half)  + (inp[b] - inp[a]) * i_half)
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
                 elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                    eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(gen))
-                    eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(gen))
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                    k_incr = f"(= {out.k} (+ {inp.k} 2))"
-                    gen.add_assertion(f"(=> {sel} {k_incr})")
+                    eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(self.gen))
+                    eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(self.gen))
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
+                    add_k_incr(sel, out.k, inp.k, 2)
                     
         for (gate,q), sel in single_sel.items():
             if gate != 'SXdg': continue
@@ -299,15 +313,14 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if complex_representation == Complex:
                     eq1_expr = out[a] == (((inp[a] + inp[b]) * one_half)  + (inp[b] - inp[a]) * i_half)
                     eq2_expr = out[b] == (((inp[a] + inp[b]) * one_half)  + (inp[a] - inp[b]) * i_half)
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
                 elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                    eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(gen))
-                    eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(gen))
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                    k_incr = f"(= {out.k} (+ {inp.k} 2))"
-                    gen.add_assertion(f"(=> {sel} {k_incr})")
+                    eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(self.gen))
+                    eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(self.gen))
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
+                    add_k_incr(sel, out.k, inp.k, 2)
         
         # ---------------------------------------------------------- Y
         for (gate,q), sel in single_sel.items():
@@ -321,25 +334,24 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if bit == 0:
                     if complex_representation == Complex:
                         eq1_expr = out[b] == (inp[a] * i_phase)
-                        eq2_expr = out[a] == (inp[b] * i_phase.conjugate(gen))
+                        eq2_expr = out[a] == (inp[b] * i_phase.conjugate(self.gen))
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq1_expr = out[b] == inp[a].multiply_by_i(gen)
-                        eq2_expr = out[a] == inp[b].multiply_by_minus_i(gen)
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        eq1_expr = out[b] == inp[a].multiply_by_i(self.gen)
+                        eq2_expr = out[a] == inp[b].multiply_by_minus_i(self.gen)
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
                 else:
                     if complex_representation == Complex:
-                        eq1_expr = out[b] == (inp[a] * i_phase.conjugate(gen))
+                        eq1_expr = out[b] == (inp[a] * i_phase.conjugate(self.gen))
                         eq2_expr = out[a] == (inp[b] * i_phase)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq1_expr = out[b] == inp[a].multiply_by_minus_i(gen)
-                        eq2_expr = out[a] == inp[b].multiply_by_i(gen)
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        eq1_expr = out[b] == inp[a].multiply_by_minus_i(self.gen)
+                        eq2_expr = out[a] == inp[b].multiply_by_i(self.gen)
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
             # k stays the same for Y gate
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
         
         # ---------------------------------------------------------- Z
         for (gate,q), sel in single_sel.items():
@@ -348,17 +360,16 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 bit = (a >> q) & 1
                 if bit == 0:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1)
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        add_implies(sel, eq_expr)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == inp[a].multiply_by_minus_one(gen)
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        eq_expr = out[a] == inp[a].multiply_by_minus_one(self.gen)
+                        add_implies(sel, eq_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
         
 
         # ---------------------------------------------------------- CX
@@ -368,17 +379,16 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 control_on = ((a >> c) & 1) == 1
                 if not control_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ (1 << t)
                     eq1_expr = out[a] == inp[b]
                     eq2_expr = out[b] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
             # k stays the same for CNOT gate
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- xCX
         for (gate, c, t), sel in two_sel.items():
@@ -387,16 +397,15 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 control_on = ((a >> c) & 1) == 1
                 if control_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ (1 << t)
                     eq1_expr = out[a] == inp[b]
                     eq2_expr = out[b] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- DCX
         # DCX (Double-CNOT) gate: permutation gate with truth table:
@@ -423,12 +432,11 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     b = a ^ (1 << c)
                     
                     eq_expr = out[b] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                     visited.add(a)
             
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- CH
         for (gate, c, t), sel in two_sel.items():
@@ -439,22 +447,21 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 control_on = ((a >> c) & 1) == 1
                 if not control_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ (1 << t)
                     visited.update([a, b])
                     if complex_representation == Complex:
                         eq1_expr = out[a] == ((inp[a] + inp[b]) * inv_sqrt2)
                         eq2_expr = out[b] == ((inp[a] + (inp[b] * minus1)) * inv_sqrt2)
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq1_expr = out[a] == (inp[a] + inp[b]).divide_by_sqrt2(gen)
-                        eq2_expr = out[b] == (inp[a] + (inp[b].multiply_by_minus_one(gen))).divide_by_sqrt2(gen)
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                        k_incr = f"(= {out.k} (+ {inp.k} 1))"
-                        gen.add_assertion(f"(=> {sel} {k_incr})")
+                        eq1_expr = out[a] == (inp[a] + inp[b]).divide_by_sqrt2(self.gen)
+                        eq2_expr = out[b] == (inp[a] + (inp[b].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen)
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
+                    add_k_incr(sel, out.k, inp.k, 1)
         
         # ---------------------------------------------------------- ECR
         for (gate, c, t), sel in two_sel.items():
@@ -464,7 +471,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 target_on = ((a >> t) & 1) == 1
                 if control_on and target_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                         
         # ---------------------------------------------------------- CSX
         for (gate, c, t), sel in two_sel.items():
@@ -475,22 +482,21 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 control_on = ((a >> c) & 1) == 1
                 if not control_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ (1 << t)
                     visited.update([a,b])
                     if complex_representation == Complex:
                         eq1_expr = out[a] == (((inp[a] + inp[b]) * one_half)  + (inp[a] - inp[b]) * i_half)
                         eq2_expr = out[b] == (((inp[a] + inp[b]) * one_half)  + (inp[b] - inp[a]) * i_half)
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(gen))
-                        eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(gen))
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
-                        k_incr = f"(= {out.k} (+ {inp.k} 2))"
-                        gen.add_assertion(f"(=> {sel} {k_incr})")
+                        eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(self.gen))
+                        eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(self.gen))
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
+                    add_k_incr(sel, out.k, inp.k, 2)
                         
         # ---------------------------------------------------------- CY
         for (gate, c, t), sel in two_sel.items():
@@ -502,27 +508,26 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 
                 if not control_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ (1 << t)
                     visited.update([a, b])
                     if control_on and not target_on:
                         # swap and multiply by -i
-                        eq1_expr = out[a] == inp[b].multiply_by_minus_i(gen)
-                        eq2_expr = out[b] == inp[a].multiply_by_i(gen)
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        eq1_expr = out[a] == inp[b].multiply_by_minus_i(self.gen)
+                        eq2_expr = out[b] == inp[a].multiply_by_i(self.gen)
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
                     
                     elif control_on and target_on:
                         # swap and multiply by i
-                        eq1_expr = out[a] == inp[b].multiply_by_i(gen)
-                        eq2_expr = out[b] == inp[a].multiply_by_minus_i(gen)
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        eq1_expr = out[a] == inp[b].multiply_by_i(self.gen)
+                        eq2_expr = out[b] == inp[a].multiply_by_minus_i(self.gen)
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
 
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
         
         # ---------------------------------------------------------- CZ
         for (gate, c, t), sel in two_sel.items():
@@ -535,15 +540,14 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == (inp[a].multiply_by_minus_one(gen))
+                        eq_expr = out[a] == (inp[a].multiply_by_minus_one(self.gen))
                 else:
                     eq_expr = out[a] == inp[a]
 
-                gen.add_assertion(f"(=> {sel} {eq_expr})")
+                add_implies(sel, eq_expr)
 
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
 
         # ---------------------------------------------------------- CS
         for (gate, c, t), sel in two_sel.items():
@@ -556,15 +560,14 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * i_phase)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == (inp[a].multiply_by_i(gen))
+                        eq_expr = out[a] == (inp[a].multiply_by_i(self.gen))
                 else:
                     eq_expr = out[a] == inp[a]
 
-                gen.add_assertion(f"(=> {sel} {eq_expr})")
+                add_implies(sel, eq_expr)
 
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- CSdg
         for (gate, c, t), sel in two_sel.items():
@@ -577,15 +580,14 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1 * i_phase)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == (inp[a].multiply_by_minus_i(gen))
+                        eq_expr = out[a] == (inp[a].multiply_by_minus_i(self.gen))
                 else:
                     eq_expr = out[a] == inp[a]
 
-                gen.add_assertion(f"(=> {sel} {eq_expr})")
+                add_implies(sel, eq_expr)
 
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- SWAP
         for (gate, q1, q2), sel in two_sel.items():
@@ -595,14 +597,13 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 q2_on = ((a >> q2) & 1)
                 if q1_on == q2_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ ((1 << q1) | (1 << q2))
                     eq_expr = out[a] == inp[b]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- iSWAP
         for (gate, q1, q2), sel in two_sel.items():
@@ -612,14 +613,14 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 q2_on = ((a >> q2) & 1)
                 if q1_on == q2_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ ((1 << q1) | (1 << q2))
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[b] * i_phase)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == (inp[b].multiply_by_i(gen))
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        eq_expr = out[a] == (inp[b].multiply_by_i(self.gen))
+                    add_implies(sel, eq_expr)
         
         # ---------------------------------------------------------- sqrtSWAP
         for (gate, q1, q2), sel in two_sel.items():
@@ -631,23 +632,23 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if a in visited: continue
                 if q1_on == q2_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ ((1 << q1) | (1 << q2))
                     visited.update([a, b])
                     if complex_representation == Complex:
                         eq1_expr = out[a] == (((inp[a] + inp[b]) * one_half)  + (inp[a] - inp[b]) * i_half)
                         eq2_expr = out[b] == (((inp[a] + inp[b]) * one_half)  + (inp[b] - inp[a]) * i_half)
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(gen))
-                        eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(gen))
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        eq1_expr = out[a] == (((inp[a] + inp[b]))  + (inp[a] - inp[b]).multiply_by_i(self.gen))
+                        eq2_expr = out[b] == (((inp[a] + inp[b]))  + (inp[b] - inp[a]).multiply_by_i(self.gen))
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} (+ {inp.k} 2))"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_implies(sel, k_eq)
         
         # ---------------------------------------------------------- isqrtSWAP
         for (gate, q1, q2), sel in two_sel.items():
@@ -659,23 +660,23 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 if a in visited: continue
                 if q1_on == q2_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ ((1 << q1) | (1 << q2))
                     visited.update([a, b])
                     if complex_representation == Complex:
                         eq1_expr = out[a] == ((inp[a] + (inp[b] * i_phase)) * inv_sqrt2)
                         eq2_expr = out[b] == (((inp[a] * i_phase) + (inp[b])) * inv_sqrt2)
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq1_expr = out[a] == ((inp[a] + (inp[b].multiply_by_i(gen))))
-                        eq2_expr = out[b] == ((inp[a].multiply_by_i(gen)) + (inp[b]))
-                        gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                        gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                        eq1_expr = out[a] == ((inp[a] + (inp[b].multiply_by_i(self.gen))))
+                        eq2_expr = out[b] == ((inp[a].multiply_by_i(self.gen)) + (inp[b]))
+                        add_implies(sel, eq1_expr)
+                        add_implies(sel, eq2_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                 k_eq = f"(= {out.k} (+ {inp.k} 1))"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_implies(sel, k_eq)
                     
         # ---------------------------------------------------------- CCX
         for (gate, c1, c2, t), sel in three_sel.items():
@@ -685,16 +686,15 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                 control2_on = ((a >> c2) & 1) == 1
                 if not control1_on or not control2_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ (1 << t)
                     eq1_expr = out[a] == inp[b]
                     eq2_expr = out[b] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- RCCX
         for (gate, c1, c2, t), sel in three_sel.items():
@@ -708,20 +708,19 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == (inp[a].multiply_by_minus_one(gen))
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        eq_expr = out[a] == (inp[a].multiply_by_minus_one(self.gen))
+                    add_implies(sel, eq_expr)
                 elif not control1_on or not control2_on:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
                 else:
                     b = a ^ (1 << t)
                     eq1_expr = out[a] == inp[b]
                     eq2_expr = out[b] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq1_expr})")
-                    gen.add_assertion(f"(=> {sel} {eq2_expr})")
+                    add_implies(sel, eq1_expr)
+                    add_implies(sel, eq2_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- CSWAP
         for (gate, c1, c2, t), sel in three_sel.items():
@@ -729,6 +728,7 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
             target1 = c2
             target2 = t
             if gate != 'CSWAP': continue
+            visited = set()
             for a in range(vec_len):
                 control_on = ((a >> control) & 1) == 1
                 target1_on = ((a >> target1) & 1) == 1
@@ -738,19 +738,18 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     # apply swap between target1 and target2
                     if target1_on == target2_on:
                         eq_expr = out[a] == inp[a]
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        add_implies(sel, eq_expr)
                     else:
                         b = a ^ ((1 << target1) | (1 << target2))
                         eq_expr = out[a] == inp[b]
-                        gen.add_assertion(f"(=> {sel} {eq_expr})")
+                        add_implies(sel, eq_expr)
                     
                 else:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
             
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
                 
         # ---------------------------------------------------------- CCZ
         for (gate, c1, c2, t), sel in three_sel.items():
@@ -763,91 +762,355 @@ def synthesis(vector_pairs, n, d1, output_file="formula.smt2", gen=None, gate_se
                     if complex_representation == Complex:
                         eq_expr = out[a] == (inp[a] * minus1)
                     elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                        eq_expr = out[a] == (inp[a].multiply_by_minus_one(gen))
+                        eq_expr = out[a] == (inp[a].multiply_by_minus_one(self.gen))
                 else:
                     eq_expr = out[a] == inp[a]
-                    gen.add_assertion(f"(=> {sel} {eq_expr})")
+                    add_implies(sel, eq_expr)
             if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                k_eq = f"(= {out.k} {inp.k})"
-                gen.add_assertion(f"(=> {sel} {k_eq})")
+                add_k_eq(sel, out.k, inp.k)
 
-    gate_selections = {}
-    
-    for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
-        In = Vector(q=vec_len, name=f"In_{pair_idx}", generator=gen, element_representation=complex_representation, k = input_vector.k, n = input_vector.n)
-        for i, val in enumerate(input_vector.vec):
-            gen.add_assertion(In[i] == val)
-        
-        # Assert that In.k equals the input_vector.k value
-        if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-            if isinstance(input_vector.k, int):
-                gen.add_assertion(f"(= {In.k} {input_vector.k})")
-            elif isinstance(input_vector.k, str) and input_vector.k != In.k:
-                gen.add_assertion(f"(= {In.k} {input_vector.k})")
-        
-        if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-            inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=gen, element_representation=complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(d1 + 1)]
-        else:
-            inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=gen, element_representation=complex_representation) for d in range(d1 + 1)]
-        gen.add_assertion(inter[0] == In)
-        
-        for d in range(d1):
-            encode_layer(gen, inter[d], inter[d+1], d, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, gate_selections, gate_set)
-        
-        Target = Vector(q=vec_len, name=f"Target_{pair_idx}", generator=gen, element_representation=complex_representation, k = output_vector.k, n = output_vector.n)
-        for i, val in enumerate(output_vector.vec):
-            gen.add_assertion(Target[i] == val)
-        
-        # Assert that Target.k equals the output_vector.k value
-        if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-            # If output_vector.k is a literal integer, assert Target.k equals it
-            # If it's already a string (symbolic), it should already be set correctly
-            if isinstance(output_vector.k, int):
-                gen.add_assertion(f"(= {Target.k} {output_vector.k})")
-            # If output_vector.k is a string but not the same as Target.k, assert equality
-            elif isinstance(output_vector.k, str) and output_vector.k != Target.k:
-                gen.add_assertion(f"(= {Target.k} {output_vector.k})")
-                    
-
-        gen.add_assertion(inter[d1] == Target)
-    
-    smtlib_content = gen.generate(complex_representation)
-    with open(output_file, 'w') as f:
-        f.write(smtlib_content)
-
-def solve_and_extract_circuit(smtlib_filename, n, d1, output_qasm="circuit.qasm", solver="z3"):
-    """    
-        smtlib_filename: Path to the SMT-LIB file
+    def synthesis(self, vector_pairs, n, d1, output_file="formula.smt2", pauli=False, pauli_input=None):
+        """
+        vector_pairs: List of (input_vector, output_vector) pairs for input and its expected output.
         n: Number of qubits
-        d1: Number of layers
-        output_qasm: Output filename for QASM circuit
-        solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2
-    """
-    solver_to_filename = {
-        "z3": "z3",
-        "z3alpha": "../../solvers/z3alpha/z3alpha.py",
-        "cvc5": "../../solvers/cvc5/starexec_run_sq",
-        "opensmt": "../../solvers/opensmt/opensmt",
-        "smtinterpol": "../../solvers/smtinterpol/smtinterpol",
-        "yices2": "../../solvers/yices2/yices_smt2"
-    }
-    if solver not in solver_to_filename:
-        raise ValueError(f"Invalid solver: {solver}")
-    try:
-        result = subprocess.run(
-            [solver_to_filename[solver], smtlib_filename],
-            capture_output=True,
-            text=True,
-        )
+        d1: Number of layers (operations)
+        output_file: Filename to write the formula to
+        """
+        self.formula_file = output_file
+        if pauli:
+            syn_pauli(pauli_input, n, d1, output_file)
+            return
+    
+        if n is None or d1 is None:
+            raise ValueError("n and d1 are required")
         
-        parse_map = {
-            "z3": parse_z3,
-            "z3alpha": parse_z3alpha,
-            "cvc5": parse_cvc5,
-            "opensmt": parse_opensmt,
-            "smtinterpol": parse_smtinterpol,
-            "yices2": parse_yices2
+        self.n = n
+        self.d1 = d1
+        
+        if not vector_pairs:
+            raise ValueError("vector_pairs is required")
+
+        # check which complex representation we are using by the input vectors
+        complex_representation = None
+        for pair_idx, (input_vec, output_vec) in enumerate(vector_pairs):
+            if input_vec[0].__class__ != output_vec[0].__class__:
+                raise ValueError("input_vec and output_vec have different complex representations")
+            for val in input_vec.vec:
+                if isinstance(val, Complex):
+                    complex_representation = Complex
+                    break
+                elif isinstance(val, Cyclotomic8Dyadic):
+                    complex_representation = Cyclotomic8Dyadic
+                    break
+                elif isinstance(val, nTuple):
+                    complex_representation = nTuple
+                    break
+            if complex_representation is None:
+                raise ValueError("input_vec and output_vec have different complex representations")
+            
+        
+        vec_len = 2**n
+        
+        for pair_idx, (input_vec, output_vec) in enumerate(vector_pairs):
+            if len(input_vec.vec) != vec_len:
+                raise ValueError("input_vec and output_vec have different lengths")
+            if len(output_vec.vec) != vec_len:
+                raise ValueError("input_vec and output_vec have different lengths")
+        
+        if complex_representation == Complex:
+            inv_sqrt2 = complex_representation.inv_sqrt2(self.gen)
+            minus1    = complex_representation.minus_one(self.gen)
+            i_phase   = complex_representation.i_phase(self.gen)
+            t_phase   = complex_representation.t_phase(self.gen)
+            one_half  = complex_representation.one_half(self.gen)
+            i_half    = complex_representation.i_half(self.gen)
+        else:
+            inv_sqrt2 = None
+            minus1 = None
+            i_phase = None
+            t_phase = None
+            one_half = None
+            i_half = None
+        
+
+        for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
+            In = Vector(q=vec_len, name=f"In_{pair_idx}", generator=self.gen, element_representation=complex_representation, k = input_vector.k, n = input_vector.n)
+            for i, val in enumerate(input_vector.vec):
+                self.gen.add_assertion(In[i] == val)
+            
+            # Assert that In.k equals the input_vector.k value
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
+                if isinstance(input_vector.k, int):
+                    self.gen.add_assertion(f"(= {In.k} {input_vector.k})")
+                elif isinstance(input_vector.k, str) and input_vector.k != In.k:
+                    self.gen.add_assertion(f"(= {In.k} {input_vector.k})")
+            
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
+                inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(d1 + 1)]
+            else:
+                inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=complex_representation) for d in range(d1 + 1)]
+            self.gen.add_assertion(inter[0] == In)
+            
+            for d in range(d1):
+                self.encode_layer(inter[d], inter[d+1], d, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, complex_representation)
+            
+            Target = Vector(q=vec_len, name=f"Target_{pair_idx}", generator=self.gen, element_representation=complex_representation, k = output_vector.k, n = output_vector.n)
+            for i, val in enumerate(output_vector.vec):
+                self.gen.add_assertion(Target[i] == val)
+            
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
+                if isinstance(output_vector.k, int):
+                    self.gen.add_assertion(f"(= {Target.k} {output_vector.k})")
+                elif isinstance(output_vector.k, str) and output_vector.k != Target.k:
+                    self.gen.add_assertion(f"(= {Target.k} {output_vector.k})")
+                        
+
+            # add k rescaling -- only possible in QF_NRA
+            conj_rescaled1 = None
+            rescaled1 = None
+            rescaled2 = None
+            if self.gen.logic == "QF_NRA" and (complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple):
+                rescaled1 = inter[d1].to_real()
+                rescaled2 = Target.to_real()
+                conj_rescaled1 = rescaled1.conjugate()
+
+            # add fidelity for dreal, else, add equality assertion
+            if rescaled1 is not None and rescaled2 is not None:
+                if self.solver == "dreal":
+                    fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
+                    prod = conj_rescaled1 * rescaled2
+                    self.gen.add_assertion(f"(= {fidelity.real} {prod.real})")
+                    self.gen.add_assertion(f"(= {fidelity.imag} {prod.imag})")
+                    self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
+                    self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
+                    self.gen.maximize(f"{fidelity.real}")
+                else:
+                    self.gen.add_assertion(rescaled1 == rescaled2)
+            else:
+                self.gen.add_assertion(inter[d1] == Target)
+        
+        smtlib_content = self.gen.generate(complex_representation)
+        with open(output_file, 'w') as f:
+            f.write(smtlib_content)
+
+
+    def synthesis_gate_optimal(self, vector_pairs, n, d1, output_file="formula.smt2", pauli=False, pauli_input=None, output_qasm="circuit.qasm"):
+        """
+        use incremental solving to get the minimum number of gates in the resulting circuit
+        uses pySMT and Cyclotomic8Dyadic
+        """
+        self.formula_file = output_file
+        if pauli:
+            syn_pauli(pauli_input, n, d1, output_file)
+            return
+    
+        if n is None or d1 is None:
+            raise ValueError("n and d1 are required")
+        
+        self.n = n
+        self.d1 = d1
+        
+        if not vector_pairs:
+            raise ValueError("vector_pairs is required")
+
+        # check which complex representation we are using by the input vectors
+        complex_representation = None
+        for pair_idx, (input_vec, output_vec) in enumerate(vector_pairs):
+            if input_vec[0].__class__ != output_vec[0].__class__:
+                raise ValueError("input_vec and output_vec have different complex representations")
+            for val in input_vec.vec:
+                if isinstance(val, Complex):
+                    complex_representation = Complex
+                    break
+                elif isinstance(val, Cyclotomic8Dyadic):
+                    complex_representation = Cyclotomic8Dyadic
+                    break
+                elif isinstance(val, nTuple):
+                    complex_representation = nTuple
+                    break
+            if complex_representation is None:
+                raise ValueError("input_vec and output_vec have different complex representations")
+            
+        
+        vec_len = 2**n
+        
+        for pair_idx, (input_vec, output_vec) in enumerate(vector_pairs):
+            if len(input_vec.vec) != vec_len:
+                raise ValueError("input_vec and output_vec have different lengths")
+            if len(output_vec.vec) != vec_len:
+                raise ValueError("input_vec and output_vec have different lengths")
+        
+        if complex_representation == Complex:
+            inv_sqrt2 = complex_representation.inv_sqrt2(self.gen)
+            minus1    = complex_representation.minus_one(self.gen)
+            i_phase   = complex_representation.i_phase(self.gen)
+            t_phase   = complex_representation.t_phase(self.gen)
+            one_half  = complex_representation.one_half(self.gen)
+            i_half    = complex_representation.i_half(self.gen)
+        else:
+            inv_sqrt2 = None
+            minus1 = None
+            i_phase = None
+            t_phase = None
+            one_half = None
+            i_half = None
+            
+        self.add_solvers()
+                        
+        with Portfolio(["z3", "cvc5", "yices2", "smtinterpol", "opensmt"],
+                        logic="QF_LIA",
+                        incremental=True,
+                        generate_models=True) as solver:
+            self.gen = PortfolioSolver(solver)
+            # start with gates = 1, incrementally add new layer encodings
+            # check if the circuit is satisfiable
+            
+            
+            # generate all needed vectors and Target (same for all depths)
+            inter_vectors = []
+            target_vectors = []
+            
+            for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
+                # input vector generation
+                In = Vector(q=vec_len, name=f"In_{pair_idx}", generator=self.gen, element_representation=complex_representation, k = input_vector.k, n = input_vector.n)
+                for i, val in enumerate(input_vector.vec):
+                    self.gen.add_assertion(In[i] == val)
+        
+                if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
+                    k = int(input_vector.k)
+                    if self.gen.name == 'PortfolioSolver':
+                        self.gen.add_assertion(Equals(In.k, Int(k)))
+                    else:
+                        k = input_vector.k
+                        self.gen.add_assertion(f"(= {In.k} {k})")
+                            
+                # intermediate vectors generation
+                if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
+                    inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(d1 + 1)]
+                else:
+                    inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=complex_representation) for d in range(d1 + 1)]
+                
+                # connect inter[0] to input
+                self.gen.add_assertion(inter[0] == In)
+                inter_vectors.append(inter)
+                # generate target vector and connect it to output values
+                Target = Vector(q=vec_len, name=f"Target_{pair_idx}", generator=self.gen, element_representation=complex_representation, k = output_vector.k, n = output_vector.n)
+                for i, val in enumerate(output_vector.vec):
+                    self.gen.add_assertion(Target[i] == val)
+                
+                if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
+                    k = int(output_vector.k)
+                    if self.gen.name == 'PortfolioSolver':
+                        self.gen.add_assertion(Equals(Target.k, Int(k)))
+                    else:
+                        self.gen.add_assertion(f"(= {Target.k} {k})")
+                target_vectors.append(Target)
+            
+            depth = 1
+            solved = False
+            while depth <= d1 and not solved:
+                print(f"Trying depth {depth}...")
+                for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
+                    inter = inter_vectors[pair_idx]
+                    # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
+                    self.encode_layer(inter[depth-1], inter[depth], depth-1, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, complex_representation)
+                self.gen.solver.push()
+                
+                # inter[depth] == Target
+                for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
+                    inter = inter_vectors[pair_idx]
+                    Target = target_vectors[pair_idx]
+                    
+                    if self.gen.logic == "QF_NRA" and (complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple):
+                        rescaled1 = inter[depth].to_real()
+                        rescaled2 = Target.to_real()
+                        self.gen.add_assertion(rescaled1 == rescaled2)
+                    else:
+                        self.gen.add_assertion(inter[depth] == Target)
+                
+                result = self.gen.solver.solve()
+                
+                if result:
+                    solved = True
+                    model = self.gen.solver.get_model()
+                else:
+                    self.gen.solver.pop()
+                    depth += 1
+            
+            if not solved:
+                print("unsat")
+                return False
+            else:
+                parse_pysmt(model, n, d1, output_qasm, result)
+                return True
+
+                
+
+    def solve_and_extract_circuit(self, smtlib_filename, n, d1, output_qasm="circuit.qasm", solver=None) -> bool:
+        """    
+            smtlib_filename: Path to the SMT-LIB file
+            n: Number of qubits
+            d1: Number of layers
+            output_qasm: Output filename for QASM circuit
+            solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2, dreal (experimental)
+        """
+        solver_to_filename = {
+            "z3": "z3",
+            "z3alpha": "../../solvers/z3alpha/z3alpha.py",
+            "cvc5": "../../solvers/cvc5/starexec_run_sq",
+            "opensmt": "../../solvers/opensmt/opensmt",
+            "smtinterpol": "../../solvers/smtinterpol/smtinterpol",
+            "yices2": "../../solvers/yices2/yices_smt2",
+            "dreal": "/opt/dreal/4.21.06.2/bin/dreal"
         }
-        parse_map[solver](result.stdout, n, d1, output_qasm, result)
-    except Exception as e:
-        raise ValueError(f"Error: {e}")
+        
+        if solver is None:
+            solver = self.solver
+        
+        if smtlib_filename is None and hasattr(self, 'formula_file') and self.formula_file is not None:
+            smtlib_filename = self.formula_file
+        elif smtlib_filename is None:
+            raise ValueError("smtlib_filename is None")
+        
+        if n is None and hasattr(self, 'n') and self.n is not None:
+            n = self.n
+        elif n is None:
+            raise ValueError("n is None")
+        
+        if d1 is None and hasattr(self, 'd1') and self.d1 is not None:
+            d1 = self.d1
+        elif d1 is None:
+            raise ValueError("d1 is None")
+        
+        if solver != "dreal" and hasattr(self.gen, 'dreal') and self.gen.dreal:
+            raise ValueError("solver is not dreal but the generator is configured for dreal")
+
+        jobs = cpu_count()
+        if jobs is None:
+            jobs = 1
+        args = {
+            "dreal": [ "-j",  str(jobs), "--precision", "1e-6"]
+        }
+        if solver not in solver_to_filename:
+            raise ValueError(f"Invalid solver: {solver}")
+        try:
+            result = subprocess.run(
+                [solver_to_filename[solver], smtlib_filename] + args.get(solver, []),
+                capture_output=True,
+                text=True,
+            )
+            print(result.stdout)
+            parse_map = {
+                "z3": parse_z3,
+                "z3alpha": parse_z3alpha,
+                "cvc5": parse_cvc5,
+                "opensmt": parse_opensmt,
+                "smtinterpol": parse_smtinterpol,
+                "yices2": parse_yices2,
+                "dreal": parse_dreal
+            }
+            parse_map[solver](result.stdout, n, d1, output_qasm, result)
+            return True
+        except Exception as e:
+            raise ValueError(f"Error: {e}")
+            return False

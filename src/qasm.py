@@ -1,4 +1,4 @@
-def save_to_qasm(n, d1, m, filename):
+def save_to_qasm(n, d1, gate_assignments, filename):
     with open(filename, 'w') as f:
         f.write("OPENQASM 2.0;\n")
         f.write("include \"qelib1.inc\";\n")
@@ -17,11 +17,9 @@ def save_to_qasm(n, d1, m, filename):
             # L{d}_CX_c{c}t{t} -> cx q[c],q[t];
             # L{d}_CCX_c{c1}c{c2}t{t} -> ccx q[c1],q[c2],q[t];
             if "_CCX_c" in name and "t" in name:
-                # Parse L{d}_CCX_c{c1}c{c2}t{t}
-                # Example: L0_CCX_c0c1t2 -> c1=0, c2=1, t=2
                 tail = name.split("_CCX_c")[1]
                 # tail is like "0c1t2"
-                # Split by 'c' to get ["0", "1t2"]
+                # split by 'c' to get ["0", "1t2"]
                 parts = tail.split("c")
                 if len(parts) >= 2:
                     c1 = int(parts[0])
@@ -34,8 +32,6 @@ def save_to_qasm(n, d1, m, filename):
                         f.write(f"ccx q[{c1}],q[{c2}],q[{t}];\n")
                         return
             if "_RCCX_c" in name and "t" in name:
-                # Parse L{d}_RCCX_c{c1}c{c2}t{t}
-                # Example: L0_RCCX_c0c1t2 -> c1=0, c2=1, t=2
                 tail = name.split("_RCCX_c")[1]
                 parts = tail.split("c")
                 if len(parts) >= 2:
@@ -49,12 +45,9 @@ def save_to_qasm(n, d1, m, filename):
                         return
             if "_CSWAP_c" in name and "t" in name:
                 tail = name.split("_CSWAP_c")[1]
-                # tail is like "0c1t2"
-                # Split by 'c' to get ["0", "1t2"]
                 parts = tail.split("c")
                 if len(parts) >= 2:
                     c1 = int(parts[0])
-                    # parts[1] is like "1t2", split by 't'
                     rest = parts[1]
                     t_part = rest.split("t")
                     if len(t_part) >= 2:
@@ -105,7 +98,6 @@ def save_to_qasm(n, d1, m, filename):
                 q = int(name.split("_S_q")[1])
                 f.write(f"s q[{q}];\n")
                 return
-            # Check Tdg before T to avoid substring match
             if "_Tdg_q" in name:
                 q = int(name.split("_Tdg_q")[1])
                 f.write(f"tdg q[{q}];\n")
@@ -217,10 +209,10 @@ def save_to_qasm(n, d1, m, filename):
                 t = int(t_str)
                 f.write(f"isqrtswap q[{c}],q[{t}];\n")
                 return
+        
         for d in range(d1):
-            for decl in sorted(m.decls(), key=lambda dcl: dcl.name()):
-                name = decl.name()
-                if f"L{d}_" in name and str(m[decl]) == "True":
+            for name in sorted(gate_assignments.keys()):
+                if f"L{d}_" in name and gate_assignments.get(name) is True:
                     emit_gate(name)
     return True
 
@@ -258,24 +250,7 @@ def parse_z3(model_output, n, d1, output_qasm, result):
                 i += 1
             
             if gate_assignments:
-                class SimpleModel:
-                    def __init__(self, assignments):
-                        self.assignments = assignments
-                    def decls(self):
-                        class Decl:
-                            def __init__(self, name):
-                                self.name_val = name
-                            def name(self):
-                                return self.name_val
-                        return [Decl(name) for name in self.assignments.keys()]
-                    def __getitem__(self, decl):
-                        class Value:
-                            def __str__(self):
-                                return "True"
-                        return Value()
-                
-                m = SimpleModel(gate_assignments)
-                save_to_qasm(n, d1, m, output_qasm)
+                save_to_qasm(n, d1, gate_assignments, output_qasm)
         else:
             raise ValueError("Solver returned UNSAT")
     else:
@@ -285,7 +260,6 @@ def parse_z3alpha(model_output, n, d1, output_qasm, result):
     parse_z3(model_output, n, d1, output_qasm, result)
 
 def parse_cvc5(model_output, n, d1, output_qasm, result):
-    """Parse cvc5 solver output - handles cvc5-specific format with parentheses wrapping."""
     if result.returncode != 0:
         raise ValueError(f"Solver returned error: {result.stderr}")
     
@@ -321,24 +295,7 @@ def parse_cvc5(model_output, n, d1, output_qasm, result):
         i += 1
     
     if gate_assignments:
-        class SimpleModel:
-            def __init__(self, assignments):
-                self.assignments = assignments
-            def decls(self):
-                class Decl:
-                    def __init__(self, name):
-                        self.name_val = name
-                    def name(self):
-                        return self.name_val
-                return [Decl(name) for name in self.assignments.keys()]
-            def __getitem__(self, decl):
-                class Value:
-                    def __str__(self):
-                        return "True"
-                return Value()
-        
-        m = SimpleModel(gate_assignments)
-        save_to_qasm(n, d1, m, output_qasm)
+        save_to_qasm(n, d1, gate_assignments, output_qasm)
     else:
         raise ValueError("No gate assignments found in solver output")
 
@@ -375,3 +332,62 @@ def parse_smtinterpol(model_output, n, d1, output_qasm, result):
 
 def parse_yices2(model_output, n, d1, output_qasm, result):
     parse_cvc5(model_output, n, d1, output_qasm, result)
+    
+def parse_dreal(model_output, n, d1, output_qasm, result):    
+    # should start with "delta-sat with delta = ..."
+    # then come assignments LX_GATE_qY : True 
+    
+    if not model_output.startswith("delta-sat with delta = "):
+        raise ValueError(f"Solver returned error: {model_output}")
+    
+    model_lines = result.stdout.split('\n')
+    gate_assignments = {}
+    i = 0
+    while i < len(model_lines):
+        line = model_lines[i].strip()
+        if 'define-fun' in line.lower() and 'L' in line and '_' in line:
+            try:
+                if line.startswith('(define-fun'):
+                    start = line.find('define-fun')
+                    if start >= 0:
+                        start += len('define-fun')
+                        while start < len(line) and line[start] in ' \t':
+                            start += 1
+                        end = line.find('()', start)
+                        if end > start:
+                            var_name = line[start:end].strip()
+                            if var_name.startswith('L') and '_' in var_name:
+                                is_true = 'true' in line.lower()           
+                                if is_true:
+                                    gate_assignments[var_name] = True
+            except Exception:
+                pass
+        i += 1
+    
+    if gate_assignments:
+        save_to_qasm(n, d1, gate_assignments, output_qasm)
+    else:
+        raise ValueError("No gate assignments found in solver output")
+    
+def parse_pysmt(model, n, d1, output_qasm, result):
+    gate_assignments = {}
+    
+    for item in model:
+        if isinstance(item, tuple) and len(item) >= 2:
+            var_obj, value_obj = item[0], item[1]
+            variable = str(var_obj)
+            value_str = str(value_obj)
+        else:
+            variable = str(item)
+            try:
+                value_obj = model.get_value(item)
+                value_str = str(value_obj)
+            except:
+                continue
+        if variable.startswith("L") and "_" in variable and value_str.lower() == "true":
+            gate_assignments[variable] = True
+    
+    if gate_assignments:
+        save_to_qasm(n, d1, gate_assignments, output_qasm)
+    else:
+        raise ValueError("No gate assignments found in solver output")

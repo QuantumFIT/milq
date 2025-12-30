@@ -1,4 +1,5 @@
 import numpy as np
+from pysmt.shortcuts import Plus, Minus, Times, Equals, And, Real, Int
 
 class Complex:
     def __init__(self, a=None, b=None, name=None, generator=None):
@@ -19,26 +20,48 @@ class Complex:
                 self.real = a
                 self.imag = b
 
+    def _use_pysmt(self):
+        if self.generator is not None and self.generator.name == 'PortfolioSolver':
+            return True
+        return False
+    
     def __add__(self, other):
-        real_expr = f"(+ {self.real} {other.real})"
-        imag_expr = f"(+ {self.imag} {other.imag})"
+        if self._use_pysmt():
+            real_expr = Plus(self.real, other.real)
+            imag_expr = Plus(self.imag, other.imag)
+        else:
+            real_expr = f"(+ {self.real} {other.real})"
+            imag_expr = f"(+ {self.imag} {other.imag})"
         return Complex(a=real_expr, b=imag_expr, generator=self.generator)
     
     def __sub__(self, other):
-        real_expr = f"(- {self.real} {other.real})"
-        imag_expr = f"(- {self.imag} {other.imag})"
+        if self._use_pysmt():
+            real_expr = Minus(self.real, other.real)
+            imag_expr = Minus(self.imag, other.imag)
+        else:
+            real_expr = f"(- {self.real} {other.real})"
+            imag_expr = f"(- {self.imag} {other.imag})"
         return Complex(a=real_expr, b=imag_expr, generator=self.generator)
 
     def __mul__(self, other):
         # (a + bi) * (c + di) = (ac - bd) + (ad + bc)i
-        real_expr = f"(- (* {self.real} {other.real}) (* {self.imag} {other.imag}))"
-        imag_expr = f"(+ (* {self.real} {other.imag}) (* {self.imag} {other.real}))"
+        if self._use_pysmt():
+            real_expr = Minus(Times(self.real, other.real), Times(self.imag, other.imag))
+            imag_expr = Plus(Times(self.real, other.imag), Times(self.imag, other.real))
+        else:
+            real_expr = f"(- (* {self.real} {other.real}) (* {self.imag} {other.imag}))"
+            imag_expr = f"(+ (* {self.real} {other.imag}) (* {self.imag} {other.real}))"
         return Complex(a=real_expr, b=imag_expr, generator=self.generator)
     
     def __eq__(self, other):
-        real_eq = f"(= {self.real} {other.real})"
-        imag_eq = f"(= {self.imag} {other.imag})"
-        return f"(and {real_eq} {imag_eq})"
+        if self._use_pysmt():
+            real_eq = Equals(self.real, other.real)
+            imag_eq = Equals(self.imag, other.imag)
+            return And(real_eq, imag_eq)
+        else:
+            real_eq = f"(= {self.real} {other.real})"
+            imag_eq = f"(= {self.imag} {other.imag})"
+            return f"(and {real_eq} {imag_eq})"
 
     def __repr__(self):
         return f"({self.real} + {self.imag}j)"
@@ -46,8 +69,12 @@ class Complex:
     def copy(self):
         return Complex(a=self.real, b=self.imag, generator=self.generator)
 
-    def conjugate(self, generator):
-        return Complex(a=self.real, b=f"(- 0 {self.imag})", generator=self.generator)
+    def conjugate(self):
+        if self._use_pysmt():
+            imag_expr = Minus(Real(0), self.imag)
+        else:
+            imag_expr = f"(- 0 {self.imag})"
+        return Complex(a=self.real, b=imag_expr, generator=self.generator)
 
     @classmethod
     def zero(cls, generator):
@@ -110,6 +137,29 @@ class Cyclotomic8Dyadic:
             self.b = generator.format_integer(b)
             self.c = generator.format_integer(c)
             self.d = generator.format_integer(d)
+    
+    def _use_pysmt(self):
+        if self.generator is None or self.generator.name != 'PortfolioSolver':
+            return False
+        return True
+    
+    def _to_pysmt_expr(self, value):
+        if isinstance(value, str):
+            if self.generator is not None and hasattr(self.generator, 'symbols') and value in self.generator.symbols:
+                return self.generator.symbols[value]
+            try:
+                if '.' in value:
+                    return Real(float(value))
+                else:
+                    return Int(int(value))
+            except:
+                raise ValueError(f"Failed to convert {value} to pysmt expression")
+        elif isinstance(value, int):
+            return Int(value)
+        elif isinstance(value, float):
+            return Real(value)
+        else:
+            return value
             
     def copy(self):
         return Cyclotomic8Dyadic(a=self.a, b=self.b, c=self.c, d=self.d, generator=self.generator)
@@ -120,6 +170,23 @@ class Cyclotomic8Dyadic:
     def __add__(self, other):
         if self.generator is None:
             return Cyclotomic8Dyadic(a=self.a + other.a, b=self.b + other.b, c=self.c + other.c, d=self.d + other.d)
+        elif self._use_pysmt():
+            # Convert to pysmt expressions if they're strings
+            a1 = self._to_pysmt_expr(self.a)
+            a2 = self._to_pysmt_expr(other.a)
+            b1 = self._to_pysmt_expr(self.b)
+            b2 = self._to_pysmt_expr(other.b)
+            c1 = self._to_pysmt_expr(self.c)
+            c2 = self._to_pysmt_expr(other.c)
+            d1 = self._to_pysmt_expr(self.d)
+            d2 = self._to_pysmt_expr(other.d)
+            return Cyclotomic8Dyadic(
+                a = Plus(a1, a2),
+                b = Plus(b1, b2),
+                c = Plus(c1, c2),
+                d = Plus(d1, d2),
+                generator=self.generator
+            )
         else:
             return Cyclotomic8Dyadic(
                 a = f"(+ {self.a} {other.a})",
@@ -132,6 +199,23 @@ class Cyclotomic8Dyadic:
     def __sub__(self, other):
         if self.generator is None:
             return Cyclotomic8Dyadic(a=self.a - other.a, b=self.b - other.b, c=self.c - other.c, d=self.d - other.d)
+        elif self._use_pysmt():
+            # Convert to pysmt expressions if they're strings
+            a1 = self._to_pysmt_expr(self.a)
+            a2 = self._to_pysmt_expr(other.a)
+            b1 = self._to_pysmt_expr(self.b)
+            b2 = self._to_pysmt_expr(other.b)
+            c1 = self._to_pysmt_expr(self.c)
+            c2 = self._to_pysmt_expr(other.c)
+            d1 = self._to_pysmt_expr(self.d)
+            d2 = self._to_pysmt_expr(other.d)
+            return Cyclotomic8Dyadic(
+                a = Minus(a1, a2),
+                b = Minus(b1, b2),
+                c = Minus(c1, c2),
+                d = Minus(d1, d2),
+                generator=self.generator
+            )
         else:
             return Cyclotomic8Dyadic(
                 a = f"(- {self.a} {other.a})",
@@ -154,6 +238,27 @@ class Cyclotomic8Dyadic:
                 c=self.a * other.c + self.b * other.b + self.c * other.a - self.d * other.d, 
                 d=self.a * other.d + self.b * other.c + self.c * other.b + self.d * other.a
             )
+        elif self._use_pysmt():
+            # a = a1*a2 - b1*d2 - c1*c2 - d1*b2
+            # b = a1*b2 + b1*a2 + c1*d2 - d1*c2
+            # c = a1*c2 + b1*b2 + c1*a2 - d1*d2
+            # d = a1*d2 + b1*c2 + c1*b2 + d1*a2
+            # Convert to pysmt expressions if they're strings
+            a1 = self._to_pysmt_expr(self.a)
+            a2 = self._to_pysmt_expr(other.a)
+            b1 = self._to_pysmt_expr(self.b)
+            b2 = self._to_pysmt_expr(other.b)
+            c1 = self._to_pysmt_expr(self.c)
+            c2 = self._to_pysmt_expr(other.c)
+            d1 = self._to_pysmt_expr(self.d)
+            d2 = self._to_pysmt_expr(other.d)
+            return Cyclotomic8Dyadic(
+                a = Minus(Minus(Minus(Times(a1, a2), Times(b1, d2)), Times(c1, c2)), Times(d1, b2)),
+                b = Minus(Plus(Plus(Times(a1, b2), Times(b1, a2)), Times(c1, d2)), Times(d1, c2)),
+                c = Minus(Plus(Plus(Times(a1, c2), Times(b1, b2)), Times(c1, a2)), Times(d1, d2)),
+                d = Plus(Plus(Times(a1, d2), Times(b1, c2)), Plus(Times(c1, b2), Times(d1, a2))),
+                generator=self.generator
+            )
         else:
             return Cyclotomic8Dyadic(
             a = f"(- (* {self.a} {other.a}) (* {self.b} {other.d}) (* {self.c} {other.c}) (* {self.d} {other.b}))",
@@ -164,13 +269,30 @@ class Cyclotomic8Dyadic:
             )
     
     def __eq__(self, other):
-        eqs = [
-            f"(= {self.a} {other.a})",
-            f"(= {self.b} {other.b})",
-            f"(= {self.c} {other.c})",
-            f"(= {self.d} {other.d})",
-        ]
-        return "(and " + " ".join(eqs) + ")"
+        if self._use_pysmt():
+            # Convert to pysmt expressions if they're strings
+            a1 = self._to_pysmt_expr(self.a)
+            a2 = self._to_pysmt_expr(other.a)
+            b1 = self._to_pysmt_expr(self.b)
+            b2 = self._to_pysmt_expr(other.b)
+            c1 = self._to_pysmt_expr(self.c)
+            c2 = self._to_pysmt_expr(other.c)
+            d1 = self._to_pysmt_expr(self.d)
+            d2 = self._to_pysmt_expr(other.d)
+            return And(
+                Equals(a1, a2),
+                Equals(b1, b2),
+                Equals(c1, c2),
+                Equals(d1, d2)
+            )
+        else:
+            eqs = [
+                f"(= {self.a} {other.a})",
+                f"(= {self.b} {other.b})",
+                f"(= {self.c} {other.c})",
+                f"(= {self.d} {other.d})",
+            ]
+            return "(and " + " ".join(eqs) + ")"
 
     def __repr__(self):
         num = f"{self.a} + {self.b} ω + {self.c} ω² + {self.d} ω³"
@@ -218,6 +340,15 @@ class Cyclotomic8Dyadic:
     def multiply_by_omega(self, generator):
         if self.generator is None:
             return Cyclotomic8Dyadic(a=-self.d, b=self.a, c=self.b, d=self.c)
+        elif self._use_pysmt():
+            d_val = self._to_pysmt_expr(self.d)
+            return Cyclotomic8Dyadic(
+                a = Minus(Int(0), d_val),
+                b = self._to_pysmt_expr(self.a),
+                c = self._to_pysmt_expr(self.b),
+                d = self._to_pysmt_expr(self.c),
+                generator=self.generator
+            )
         else:
             return Cyclotomic8Dyadic(
                 a = f"(- 0 {self.d})",
@@ -230,6 +361,15 @@ class Cyclotomic8Dyadic:
     def multiply_by_omega_counter(self, generator):
         if self.generator is None:
             return Cyclotomic8Dyadic(a=self.b, b=self.c, c=self.d, d=-self.a)
+        elif self._use_pysmt():
+            a_val = self._to_pysmt_expr(self.a)
+            return Cyclotomic8Dyadic(
+                a = self._to_pysmt_expr(self.b),
+                b = self._to_pysmt_expr(self.c),
+                c = self._to_pysmt_expr(self.d),
+                d = Minus(Int(0), a_val),
+                generator=self.generator
+            )
         else:
             return Cyclotomic8Dyadic(
             a = f"{self.b}",
@@ -242,6 +382,14 @@ class Cyclotomic8Dyadic:
     def multiply_by_i(self, generator):
         if self.generator is None:
             return Cyclotomic8Dyadic(a=-self.c, b=-self.d, c=self.a, d=self.b)
+        elif self._use_pysmt():
+            return Cyclotomic8Dyadic(
+                a = Minus(Int(0), self._to_pysmt_expr(self.c)),
+                b = Minus(Int(0), self._to_pysmt_expr(self.d)),
+                c = self._to_pysmt_expr(self.a),
+                d = self._to_pysmt_expr(self.b),
+                generator=self.generator
+            )
         else:
             return Cyclotomic8Dyadic(
             a = f"(- 0 {self.c})",
@@ -254,6 +402,14 @@ class Cyclotomic8Dyadic:
     def multiply_by_minus_i(self, generator):
         if self.generator is None:
             return Cyclotomic8Dyadic(a=self.c, b=self.d, c=-self.a, d=-self.b)
+        elif self._use_pysmt():
+            return Cyclotomic8Dyadic(
+                a = self._to_pysmt_expr(self.c),
+                b = self._to_pysmt_expr(self.d),
+                c = Minus(Int(0), self._to_pysmt_expr(self.a)),
+                d = Minus(Int(0), self._to_pysmt_expr(self.b)),
+                generator=self.generator
+            )
         else:
             return Cyclotomic8Dyadic(
             a = f"{self.c}",
@@ -266,6 +422,14 @@ class Cyclotomic8Dyadic:
     def multiply_by_minus_one(self, generator):
         if self.generator is None:
             return Cyclotomic8Dyadic(a=-self.a, b=-self.b, c=-self.c, d=-self.d)
+        elif self._use_pysmt():
+            return Cyclotomic8Dyadic(
+                a = Minus(Int(0), self._to_pysmt_expr(self.a)),
+                b = Minus(Int(0), self._to_pysmt_expr(self.b)),
+                c = Minus(Int(0), self._to_pysmt_expr(self.c)),
+                d = Minus(Int(0), self._to_pysmt_expr(self.d)),
+                generator=self.generator
+            )
         else:
             return Cyclotomic8Dyadic(
             a = f"(- 0 {self.a})",
@@ -278,6 +442,15 @@ class Cyclotomic8Dyadic:
     def divide_by_sqrt2(self, generator):
         if self.generator is None:
             return Cyclotomic8Dyadic(a=self.a, b=self.b, c=self.c, d=self.d)
+        elif self._use_pysmt():
+            # divide_by_sqrt2 is a no-op for Cyclotomic8Dyadic (just returns self)
+            return Cyclotomic8Dyadic(
+                a = self.a,
+                b = self.b,
+                c = self.c,
+                d = self.d,
+                generator=self.generator
+            )
         else:
             return Cyclotomic8Dyadic(
             a = f"{self.a}",
@@ -289,12 +462,61 @@ class Cyclotomic8Dyadic:
             
     def to_real(self, k):
         # omega = (1 + i) / sqrt(2)
-        real = (self.a + ((self.b - self.d)/np.sqrt(2))) / np.sqrt(2)**k
-        imag = (self.c + ((self.b + self.d)/np.sqrt(2))) / np.sqrt(2)**k
-        return Complex(a=real, b=imag, generator=self.generator)
-    
+        # real = (a + ((b - d)/sqrt(2))) / sqrt(2)^k
+        # imag = (c + ((b + d)/sqrt(2))) / sqrt(2)^k
+        if self.generator is None:
+            real = (self.a + ((self.b - self.d)/np.sqrt(2))) / np.sqrt(2)**k
+            imag = (self.c + ((self.b + self.d)/np.sqrt(2))) / np.sqrt(2)**k
+            return Complex(a=real, b=imag, generator=self.generator)
+        else:
+            # Declare sqrt2 if not already declared
+            if "sqrt2" not in self.generator.declared_names:
+                sqrt2 = self.generator.declare_real("sqrt2")
+                self.generator.add_assertion(f"(= (* {sqrt2} {sqrt2}) 2.0)")
+            else:
+                sqrt2 = "sqrt2"
+            
+
+            if hasattr(self.generator, 'dreal') and self.generator.dreal:
+                if isinstance(k, int) and k == 0:
+                    sqrt2_k = "1.0"
+                else:
+                    sqrt2_k = f"(pow {sqrt2} {k})"
+            else:
+                raise ValueError("dreal missing")
+            
+            b_minus_d = f"(- {self.b} {self.d})"
+            b_minus_d_over_sqrt2 = f"(/ {b_minus_d} {sqrt2})"
+            real_numerator = f"(+ {self.a} {b_minus_d_over_sqrt2})"
+            
+            b_plus_d = f"(+ {self.b} {self.d})"
+            b_plus_d_over_sqrt2 = f"(/ {b_plus_d} {sqrt2})"
+            imag_numerator = f"(+ {self.c} {b_plus_d_over_sqrt2})"
+            
+            real = f"(/ {real_numerator} {sqrt2_k})"
+            imag = f"(/ {imag_numerator} {sqrt2_k})"
+            
+            return Complex(a=real, b=imag, generator=self.generator)
+
     def conjugate(self):
-        pass
+        if self.generator is None:
+            return Cyclotomic8Dyadic(a=self.a, b=-self.d, c=-self.c, d=-self.b, generator=self.generator)
+        elif self._use_pysmt():
+            return Cyclotomic8Dyadic(
+                a = self._to_pysmt_expr(self.a),
+                b = Minus(Int(0), self._to_pysmt_expr(self.d)),
+                c = Minus(Int(0), self._to_pysmt_expr(self.c)),
+                d = Minus(Int(0), self._to_pysmt_expr(self.b)),
+                generator=self.generator
+            )
+        else:
+            return Cyclotomic8Dyadic(
+            a = f"{self.a}",
+            b = f"(- 0 {self.d})",
+            c = f"(- 0 {self.c})",
+            d = f"(- 0 {self.b})",
+            generator=self.generator
+        )
     
 # ------------------------------------------------------------------------------------------------ #
     
@@ -322,6 +544,11 @@ class nTuple:
             self.elements = [generator.declare_integer(f"{safe}_{i}") for i in range(n)]
         else:
             self.elements = [generator.format_integer(e) for e in elements]
+    
+    def _use_pysmt(self):
+        if self.generator is not None and self.generator.name == 'PortfolioSolver':
+            return True
+        return False
             
     def copy(self):
         return nTuple(elements=self.elements.copy(), n=self.n, generator=self.generator)
@@ -331,30 +558,87 @@ class nTuple:
 
     def __add__(self, other):
         if self.generator is None:
-            return nTuple(elements=self.elements + other.elements)
+            return nTuple(elements=[self.elements[i] + other.elements[i] for i in range(self.n)], n=self.n, generator=self.generator)
+        elif self._use_pysmt():
+            return nTuple(elements=[Plus(self._to_pysmt_expr(self.elements[i]), self._to_pysmt_expr(other.elements[i])) for i in range(self.n)], n=self.n, generator=self.generator)
         else:
             return nTuple(elements=[f"(+ {self.elements[i]} {other.elements[i]})" for i in range(self.n)], n=self.n, generator=self.generator)
 
     def __sub__(self, other):
         if self.generator is None:
-            return nTuple(elements=self.elements - other.elements)
+            return nTuple(elements=[self.elements[i] - other.elements[i] for i in range(self.n)], n=self.n, generator=self.generator)
+        elif self._use_pysmt():
+            return nTuple(elements=[Minus(self._to_pysmt_expr(self.elements[i]), self._to_pysmt_expr(other.elements[i])) for i in range(self.n)], n=self.n, generator=self.generator)
         else:
             return nTuple(elements=[f"(- {self.elements[i]} {other.elements[i]})" for i in range(self.n)], n=self.n, generator=self.generator)
 
     def __mul__(self, other):
-        elements = [0] * self.n
-        for i in range(self.n):
-            for j in range(other.n):
-                target_index = (i + j) % self.n
-                amplitude = self.elements[i] * other.elements[j]
-                elements[target_index] += amplitude
-        return nTuple(elements=elements, n=self.n, generator=self.generator)
+        if self.generator is None:
+            elements = [0] * self.n
+            for i in range(self.n):
+                for j in range(other.n):
+                    target_index = (i + j) % self.n
+                    amplitude = self.elements[i] * other.elements[j]
+                    elements[target_index] += amplitude
+            return nTuple(elements=elements, n=self.n, generator=self.generator)
+        elif self._use_pysmt():
+            elements = [None] * self.n
+            for i in range(self.n):
+                elements[i] = Int(0)
+            for i in range(self.n):
+                for j in range(other.n):
+                    target_index = (i + j) % self.n
+                    e1 = self._to_pysmt_expr(self.elements[i])
+                    e2 = self._to_pysmt_expr(other.elements[j])
+                    amplitude = Times(e1, e2)
+                    if elements[target_index] is None or (isinstance(elements[target_index], int) and elements[target_index] == 0):
+                        elements[target_index] = amplitude
+                    else:
+                        elements[target_index] = Plus(elements[target_index], amplitude)
+            return nTuple(elements=elements, n=self.n, generator=self.generator)
+        else:
+            elements = [0] * self.n
+            for i in range(self.n):
+                for j in range(other.n):
+                    target_index = (i + j) % self.n
+                    amplitude = f"(* {self.elements[i]} {other.elements[j]})"
+                    if elements[target_index] == 0:
+                        elements[target_index] = amplitude
+                    else:
+                        elements[target_index] = f"(+ {elements[target_index]} {amplitude})"
+            return nTuple(elements=elements, n=self.n, generator=self.generator)
+    
+    def _to_pysmt_expr(self, value):
+        """Convert a value to pysmt expression if needed"""
+        if isinstance(value, str):
+            # Check if it's a symbol name
+            if self.generator is not None and hasattr(self.generator, 'symbols') and value in self.generator.symbols:
+                return self.generator.symbols[value]
+            # Try to parse as number
+            try:
+                if '.' in value:
+                    return Real(float(value))
+                else:
+                    return Int(int(value))
+            except:
+                # Can't convert, return as-is (will cause error later)
+                return value
+        # Already a pysmt formula or number
+        return value
     
     def __eq__(self, other):
-        eqs = [
-            f"(= {self.elements[i]} {other.elements[i]})" for i in range(self.n)
-        ]
-        return f"(and {' '.join(eqs)})"
+        if self._use_pysmt():
+            eqs = []
+            for i in range(self.n):
+                e1 = self._to_pysmt_expr(self.elements[i])
+                e2 = self._to_pysmt_expr(other.elements[i])
+                eqs.append(Equals(e1, e2))
+            return And(*eqs)
+        else:
+            eqs = [
+                f"(= {self.elements[i]} {other.elements[i]})" for i in range(self.n)
+            ]
+            return f"(and {' '.join(eqs)})"
 
     def __repr__(self):
         return f"({', '.join(str(e) for e in self.elements)})"
@@ -413,6 +697,13 @@ class nTuple:
             for i in range(shifts, self.n):
                 elems[i] = self.elements[i - shifts]
             return nTuple(elements=elems, n=self.n, generator=self.generator)
+        elif self._use_pysmt():
+            elems = [None] * self.n
+            for i in range(shifts):
+                elems[i] = Minus(Int(0), self._to_pysmt_expr(self.elements[self.n - shifts + i]))
+            for i in range(shifts, self.n):
+                elems[i] = self._to_pysmt_expr(self.elements[i - shifts])
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
         else:
             elems = [0] * self.n
             for i in range(shifts):
@@ -429,6 +720,13 @@ class nTuple:
             elems = [0] * self.n
             for i in range(shifts):
                 elems[self.n - shifts + i] = -self.elements[i]
+            for i in range(shifts, self.n):
+                elems[i - shifts] = self.elements[i]
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
+        elif self._use_pysmt():
+            elems = [None] * self.n
+            for i in range(shifts):
+                elems[self.n - shifts + i] = Minus(Int(0), self.elements[i])
             for i in range(shifts, self.n):
                 elems[i - shifts] = self.elements[i]
             return nTuple(elements=elems, n=self.n, generator=self.generator)
@@ -449,6 +747,13 @@ class nTuple:
             for i in range(shifts, self.n):
                 elems[i] = self.elements[i - shifts]
             return nTuple(elements=elems, n=self.n, generator=self.generator)
+        elif self._use_pysmt():
+            elems = [None] * self.n
+            for i in range(shifts):
+                elems[i] = Minus(Int(0), self._to_pysmt_expr(self.elements[self.n - shifts + i]))
+            for i in range(shifts, self.n):
+                elems[i] = self._to_pysmt_expr(self.elements[i - shifts])
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
         else:
             elems = [0] * self.n
             for i in range(shifts):
@@ -466,6 +771,13 @@ class nTuple:
             for i in range(shifts, self.n):
                 elems[i - shifts] = self.elements[i]
             return nTuple(elements=elems, n=self.n, generator=self.generator)
+        elif self._use_pysmt():
+            elems = [None] * self.n
+            for i in range(shifts):
+                elems[self.n - shifts + i] = Minus(Int(0), self._to_pysmt_expr(self.elements[i]))
+            for i in range(shifts, self.n):
+                elems[i - shifts] = self._to_pysmt_expr(self.elements[i])
+            return nTuple(elements=elems, n=self.n, generator=self.generator)
         else:
             elems = [0] * self.n
             for i in range(shifts):
@@ -477,11 +789,16 @@ class nTuple:
     def multiply_by_minus_one(self, generator):
         if self.generator is None:
             return nTuple(elements=[-self.elements[i] for i in range(self.n)], n=self.n, generator=self.generator)
+        elif self._use_pysmt():
+            return nTuple(elements=[Minus(Int(0), self._to_pysmt_expr(self.elements[i])) for i in range(self.n)], n=self.n, generator=self.generator)
         else:
             return nTuple(elements=[f"(- 0 {self.elements[i]})" for i in range(self.n)], n=self.n, generator=self.generator)
         
     def divide_by_sqrt2(self, generator):
         if self.generator is None:
+            return nTuple(elements=self.elements, n=self.n, generator=self.generator)
+        elif self._use_pysmt():
+            # divide_by_sqrt2 is a no-op for nTuple (just returns self)
             return nTuple(elements=self.elements, n=self.n, generator=self.generator)
         else:
             return nTuple(elements=[f"{self.elements[i]}" for i in range(self.n)], n=self.n, generator=self.generator)
@@ -542,6 +859,7 @@ class Vector:
         self.n = n
         
         self.vec = []
+        self.name = name
         for i in range(q):
             if symbolic:
                 # Only create named symbolic elements if name is provided
@@ -575,13 +893,35 @@ class Vector:
     
     def __setitem__(self, i, value):
         self.vec[i] = value
+        
+    def _to_pysmt_expr(self, value):
+        if isinstance(value, str):
+            if self.generator is not None and hasattr(self.generator, 'symbols') and value in self.generator.symbols:
+                return self.generator.symbols[value]
+            try:
+                if '.' in value:
+                    return Real(float(value))
+                else:
+                    return Int(int(value))
+            except:
+                raise ValueError(f"Failed to convert {value} to pysmt expression")
+        return value
+    
+    def _use_pysmt(self):
+        if self.generator is not None and self.generator.name == 'PortfolioSolver':
+            return True
+        return False
     
     def __eq__(self, other):
         eqs = [self.vec[i] == other.vec[i] for i in range(len(self.vec))]
-        # Also compare k if both vectors have it (for Cyclotomic8Dyadic)
         if self.k is not None and other.k is not None:
-            eqs.append(f"(= {self.k} {other.k})")
-        return f"(and {' '.join(eqs)})"
+            if self._use_pysmt():
+                eqs.append(Equals(self.k, other.k))
+                return And(*eqs)
+            else:
+                eqs.append(f"(= {self.k} {other.k})")
+                return f"(and { ' '.join(eqs) })"
+                
     
     def __repr__(self):
         return f"[{', '.join(str(v) for v in self.vec)}], k={self.k}"
@@ -594,20 +934,36 @@ class Vector:
         return new_vec
 
     def to_real(self):
-        assert self.element_representation == Cyclotomic8Dyadic
-        new_vec = Vector(q=len(self.vec), generator=self.generator, element_representation=Complex, k=self.k)
+        if self.element_representation == Complex:
+            return self
+        name = None
+        if self.name is not None:
+            name = f"Rescaled_{self.name}"
+                    
+        new_vec = Vector(q=len(self.vec), generator=self.generator, name=name, element_representation=Complex, k=self.k)
         for i in range(len(self.vec)):
             new_vec[i] = self.vec[i].to_real(self.k)
+        return new_vec
+    
+    def conjugate(self):
+        name = None
+        if self.name is not None:
+            name = f"Conjugate_{self.name}"
+        new_vec = Vector(q=len(self.vec), generator=self.generator, name=name, element_representation=self.element_representation, k=self.k)
+        for i in range(len(self.vec)):
+            new_vec[i] = self.vec[i].conjugate()
         return new_vec
     
     def __len__(self):
         return len(self.vec)
     
     def __mul__(self, other):
-        # inner product of two quantum states
-        res = Vector(q=len(self.vec), generator=self.generator, element_representation=self.element_representation, k=self.k, n=self.n)
-        i = 0
-        while i < len(self.vec):
-            res[i] = self.vec[i].conjugate(self.generator) * other.vec[i]
-            i += 1
-        return res
+        if len(self.vec) == 0:
+            return Complex.zero(self.generator)
+        
+        sum_complex = self.vec[0].conjugate() * other.vec[0]
+        for i in range(1, len(self.vec)):
+            product = self.vec[i].conjugate() * other.vec[i]
+            sum_complex = sum_complex + product
+        
+        return sum_complex

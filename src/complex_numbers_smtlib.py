@@ -477,13 +477,13 @@ class Cyclotomic8Dyadic:
                 sqrt2 = "sqrt2"
             
 
-            if hasattr(self.generator, 'dreal') and self.generator.dreal:
+            if hasattr(self.generator, 'rescaling') and self.generator.rescaling:
                 if isinstance(k, int) and k == 0:
                     sqrt2_k = "1.0"
                 else:
                     sqrt2_k = f"(pow {sqrt2} {k})"
             else:
-                raise ValueError("dreal missing")
+                raise ValueError("rescaling missing")
             
             b_minus_d = f"(- {self.b} {self.d})"
             b_minus_d_over_sqrt2 = f"(/ {b_minus_d} {sqrt2})"

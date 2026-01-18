@@ -4,7 +4,7 @@ from pysmt.shortcuts import Real, Int, Bool, Symbol
 from pysmt.typing import REAL, INT, BOOL
 
 class SMTLibGenerator:
-    def __init__(self, dreal=True):
+    def __init__(self, rescaling=True):
         self.declarations = []
         self.declared_names = set()
         self.assertions = []
@@ -15,8 +15,8 @@ class SMTLibGenerator:
         self.num_of_assertions = 0
         self.num_of_bool_variables = 0
         self.num_of_int_variables = 0
-        self.dreal = dreal
-        self.logic = "QF_NRA" if dreal else None
+        self.rescaling = rescaling
+        self.logic = "QF_NRA" if rescaling else None
     
     def declare_real(self, name):
         if name not in self.declared_names:
@@ -25,8 +25,8 @@ class SMTLibGenerator:
         return name
     
     def declare_integer(self, name):
-        # in dreal, use reals in any representation
-        if self.dreal:
+        # in nra, use reals in any representation
+        if self.rescaling:
             return self.declare_real(name)
             
         if name not in self.declared_names:
@@ -100,7 +100,7 @@ class SMTLibGenerator:
         if complex_representation is None:
             raise ValueError()
         
-        if self.dreal:
+        if self.rescaling:
             self.logic = "QF_NRA"
         elif complex_representation == Complex:
             self.logic = "QF_NRA"

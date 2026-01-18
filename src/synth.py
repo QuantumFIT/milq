@@ -10,13 +10,13 @@ from pauli import syn_pauli
 from multiprocessing import cpu_count
 from pathlib import Path
 from pysmt.logics import QF_NRA, QF_LIA
-from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies
+from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE
 from pysmt.typing import REAL, INT
 from pysmt.solvers.solver import Solver
 
 
 class Synthesizer:
-    def __init__(self, gen=None, gate_set=None, solver=None):
+    def __init__(self, gen=None, gate_set=None, solver=None, fidelity_threshold=1.0):
         if gen is None:
             raise ValueError("gen is required")
         if gate_set is None:
@@ -26,8 +26,9 @@ class Synthesizer:
         self.gen = gen
         self.gate_set = gate_set
         self.solver = solver
+        self.fidelity_threshold = fidelity_threshold
         if solver == "dreal":
-            self.gen.dreal = True
+            self.gen.rescaling = True
             
     def add_solvers(self):
         # register custom solvers for pySMT portfolio solving (TODO change for relative paths, change logics to match the respective solvers)
@@ -40,18 +41,23 @@ class Synthesizer:
         
         yices2_name = "yices2"
         yices2_path = "/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2"
-        yices2_logics = [QF_LIA]
+        yices2_logics = [QF_LIA, QF_NRA]
         env.factory.add_generic_solver(yices2_name, yices2_path, yices2_logics)
         
         smtinterpol_name = "smtinterpol"
         smtinterpol_path = "/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol"
-        smtinterpol_logics = [QF_LIA]
+        smtinterpol_logics = [QF_LIA, QF_NRA]
         env.factory.add_generic_solver(smtinterpol_name, smtinterpol_path, smtinterpol_logics)
         
         cvc5_name = "cvc5"
         cvc5_path = "/home/jakubhavlik/rus-synth/solvers/cvc5/cvc5"
-        cvc5_logics = [QF_LIA]
+        cvc5_logics = [QF_LIA, QF_NRA]
         env.factory.add_generic_solver(cvc5_name, cvc5_path, cvc5_logics)
+        
+        dreal_name = "dreal"
+        dreal_path = "/home/jakubhavlik/rus-synth/solvers/dreal/run_dreal.sh"
+        dreal_logics = [QF_NRA]
+        env.factory.add_generic_solver(dreal_name, dreal_path, dreal_logics)
         
 
     def encode_layer(self, inp, out, layer, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, complex_representation):
@@ -883,7 +889,8 @@ class Synthesizer:
                     self.gen.add_assertion(f"(= {fidelity.imag} {prod.imag})")
                     self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
                     self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
-                    self.gen.maximize(f"{fidelity.real}")
+                    #self.gen.maximize(f"{fidelity.real}"
+                    self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
                 else:
                     self.gen.add_assertion(rescaled1 == rescaled2)
             else:
@@ -956,9 +963,17 @@ class Synthesizer:
             i_half = None
             
         self.add_solvers()
-                        
-        with Portfolio(["z3", "cvc5", "yices2", "smtinterpol", "opensmt"],
-                        logic="QF_LIA",
+        logic = ""
+        solvers = []
+        if self.gen.rescaling:
+            logic = "QF_NRA"
+            solvers = ["z3", "cvc5", "yices2", "smtinterpol"]
+        else:
+            logic = "QF_LIA"
+            solvers = ["z3", "cvc5", "yices2", "smtinterpol", "opensmt"]
+
+        with Portfolio(solvers,
+                        logic=logic,
                         incremental=True,
                         generate_models=True) as solver:
             self.gen = PortfolioSolver(solver)
@@ -1024,12 +1039,30 @@ class Synthesizer:
                     if self.gen.logic == "QF_NRA" and (complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple):
                         rescaled1 = inter[depth].to_real()
                         rescaled2 = Target.to_real()
-                        self.gen.add_assertion(rescaled1 == rescaled2)
+                        conj1_rescaled = rescaled1.conjugate()
+                        
+                        fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
+                        prod = conj1_rescaled * rescaled2
+                        if self.gen.name == 'PortfolioSolver':
+                            self.gen.add_assertion(Equals(fidelity.real, prod.real))
+                            self.gen.add_assertion(Equals(fidelity.imag, prod.imag))
+                            self.gen.add_assertion(GE(fidelity.real, 0.0))
+                            self.gen.add_assertion(LE(fidelity.real, 1.0))
+                            self.gen.add_assertion(GE(fidelity.real, self.fidelity_threshold))
+                        else:
+                            self.gen.add_assertion(f"(= {fidelity.real} {prod.real})")
+                            self.gen.add_assertion(f"(= {fidelity.imag} {prod.imag})")
+                            self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
+                            self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
+                            #self.gen.maximize(f"{fidelity.real}"
+                            self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
                     else:
                         self.gen.add_assertion(inter[depth] == Target)
                 
+                print(f"Solving with {self.gen.name}...")
                 result = self.gen.solver.solve()
                 
+                print(f"Result: {result}")
                 if result:
                     solved = True
                     model = self.gen.solver.get_model()
@@ -1082,14 +1115,14 @@ class Synthesizer:
         elif d1 is None:
             raise ValueError("d1 is None")
         
-        if solver != "dreal" and hasattr(self.gen, 'dreal') and self.gen.dreal:
+        if solver != "dreal" and hasattr(self.gen, 'rescaling') and self.gen.rescaling:
             raise ValueError("solver is not dreal but the generator is configured for dreal")
 
         jobs = cpu_count()
         if jobs is None:
             jobs = 1
         args = {
-            "dreal": [ "-j",  str(jobs), "--precision", "1e-6"]
+            "dreal": [ "-j",  str(jobs), "--precision", "1e-6", "--produce-models"]
         }
         if solver not in solver_to_filename:
             raise ValueError(f"Invalid solver: {solver}")
@@ -1100,6 +1133,7 @@ class Synthesizer:
                 text=True,
             )
             print(result.stdout)
+            print(result.stderr)
             parse_map = {
                 "z3": parse_z3,
                 "z3alpha": parse_z3alpha,

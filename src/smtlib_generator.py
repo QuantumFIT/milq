@@ -4,11 +4,11 @@ from pysmt.shortcuts import Real, Int, Bool, Symbol
 from pysmt.typing import REAL, INT, BOOL
 
 class SMTLibGenerator:
-    def __init__(self, rescaling=True):
+    def __init__(self, rescaling=True, rescaling_tmp=False):
         self.declarations = []
         self.declared_names = set()
         self.assertions = []
-        self.optimize_objectives = []  # List of ("maximize" or "minimize", expression)
+        self.optimize_objectives = []
         self.var_counter = 0
         self.name = "SMTLibGenerator"
         
@@ -16,6 +16,7 @@ class SMTLibGenerator:
         self.num_of_bool_variables = 0
         self.num_of_int_variables = 0
         self.rescaling = rescaling
+        self.rescaling_tmp = rescaling_tmp
         self.logic = "QF_NRA" if rescaling else None
     
     def declare_real(self, name):
@@ -121,7 +122,8 @@ class SMTLibGenerator:
             lines.append("")
         
         for assertion in self.assertions:
-            lines.append(f"(assert {assertion})")
+            if assertion is not None:
+                lines.append(f"(assert {assertion})")
         
         for opt_type, expression in self.optimize_objectives:
             lines.append(f"({opt_type} {expression})")

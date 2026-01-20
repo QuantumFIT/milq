@@ -10,27 +10,13 @@ from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic, nTuple
 from smtlib_generator import SMTLibGenerator
 from sim import simulate_circuit
 
-if len(sys.argv) > 1:
-    n = int(sys.argv[1])
-    d1 = int(sys.argv[2])
-    solver = sys.argv[3]
-    s = sys.argv[4]
-    k_glob = int(sys.argv[5])
-    a = int(sys.argv[6])
-else:
-    n = 3
-    d1 = 8
-    solver = "dreal"
-    s = "101"
-    k_glob = 6
-    a = 2**n
-assert(2*n == k_glob)
-assert(d1 == (2*n + 1 + (n // 2)))
-assert(len(s) == n)
-assert(a == 2**n)
+n = 1
+d1 = 2
+solver = "dreal"
 
+res = simulate_circuit("test.qasm", complex_representation=Cyclotomic8Dyadic, generator=None)
 gen = SMTLibGenerator(rescaling=True, rescaling_tmp=True)
-gate_set = ['H', 'S', 'CX', 'Z', 'T']
+gate_set = ['H', 'X']
 synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 input_vec = Vector(q=2**n, generator=gen, element_representation=Cyclotomic8Dyadic, k=0)
 for i in range(2**n):
@@ -39,17 +25,17 @@ input_vec[0] = Cyclotomic8Dyadic.one(gen)
 
 # "mock" hadamard output -- check rescaling
 output_vec = Vector(q=2**n, generator=gen, element_representation=Cyclotomic8Dyadic, k=1)
-for i in range(2**n):
-    output_vec[i] = Cyclotomic8Dyadic.zero(gen)
-idx = int(s, 2)
-output_vec[idx] = Cyclotomic8Dyadic.one(gen)
+output_vec[0] = Cyclotomic8Dyadic.one(gen)
+output_vec[0].a = 1
+output_vec[1] = Cyclotomic8Dyadic.one(gen)
+output_vec[1].a = -1
 
 vectors = [(input_vec, output_vec)]
 
 start_time = time.time()
 try:
-    synthesizer.synthesis(vectors, n, d1, "bv.smt2")
-    synthesizer.solve_and_extract_circuit("bv.smt2", n, d1, "bv.qasm", solver)
+    synthesizer.synthesis(vectors, n, d1, "minimal.smt2")
+    synthesizer.solve_and_extract_circuit("minimal.smt2", n, d1, "minimal.qasm", solver)
 
     end_time = time.time()
 

@@ -75,6 +75,9 @@ class Complex:
         else:
             imag_expr = f"(- 0 {self.imag})"
         return Complex(a=self.real, b=imag_expr, generator=self.generator)
+    
+    def to_real(self):
+        return self
 
     @classmethod
     def zero(cls, generator):
@@ -236,14 +239,9 @@ class Cyclotomic8Dyadic:
                 a=self.a * other.a - self.b * other.d - self.c * other.c - self.d * other.b, 
                 b=self.a * other.b + self.b * other.a + self.c * other.d - self.d * other.c, 
                 c=self.a * other.c + self.b * other.b + self.c * other.a - self.d * other.d, 
-                d=self.a * other.d + self.b * other.c + self.c * other.b + self.d * other.a
+                d=self.a * other.d + self.b * other.c + self.c * other.b + self.d * other.a,
             )
         elif self._use_pysmt():
-            # a = a1*a2 - b1*d2 - c1*c2 - d1*b2
-            # b = a1*b2 + b1*a2 + c1*d2 - d1*c2
-            # c = a1*c2 + b1*b2 + c1*a2 - d1*d2
-            # d = a1*d2 + b1*c2 + c1*b2 + d1*a2
-            # Convert to pysmt expressions if they're strings
             a1 = self._to_pysmt_expr(self.a)
             a2 = self._to_pysmt_expr(other.a)
             b1 = self._to_pysmt_expr(self.b)
@@ -254,16 +252,16 @@ class Cyclotomic8Dyadic:
             d2 = self._to_pysmt_expr(other.d)
             return Cyclotomic8Dyadic(
                 a = Minus(Minus(Minus(Times(a1, a2), Times(b1, d2)), Times(c1, c2)), Times(d1, b2)),
-                b = Minus(Plus(Plus(Times(a1, b2), Times(b1, a2)), Times(c1, d2)), Times(d1, c2)),
+                b = Minus(Minus(Plus(Times(a1, b2), Times(b1, a2)), Times(c1, d2)), Times(d1, c2)),
                 c = Minus(Plus(Plus(Times(a1, c2), Times(b1, b2)), Times(c1, a2)), Times(d1, d2)),
-                d = Plus(Plus(Times(a1, d2), Times(b1, c2)), Plus(Times(c1, b2), Times(d1, a2))),
+                d = Plus(Plus(Plus(Times(a1, d2), Times(b1, c2)), Times(c1, b2)), Times(d1, a2)),
                 generator=self.generator
             )
         else:
             return Cyclotomic8Dyadic(
             a = f"(- (* {self.a} {other.a}) (* {self.b} {other.d}) (* {self.c} {other.c}) (* {self.d} {other.b}))",
-            b = f"(+ (* {self.a} {other.b}) (* {self.b} {other.a}) (* {self.c} {other.d}) (* {self.d} {other.c}))",
-            c = f"(+ (* {self.a} {other.c}) (* {self.b} {other.b}) (* {self.c} {other.a}) (* {self.d} {other.d}))",
+            b = f"(- (- (+ (* {self.a} {other.b}) (* {self.b} {other.a})) (* {self.c} {other.d})) (* {self.d} {other.c}))",
+            c = f"(- (+ (+ (* {self.a} {other.c}) (* {self.b} {other.b})) (* {self.c} {other.a})) (* {self.d} {other.d}))",
             d = f"(+ (* {self.a} {other.d}) (* {self.b} {other.c}) (* {self.c} {other.b}) (* {self.d} {other.a}))",
             generator=self.generator
             )
@@ -460,7 +458,7 @@ class Cyclotomic8Dyadic:
             generator=self.generator
         )
             
-    def to_real(self, k):
+    def to_real(self, k): 
         # omega = (1 + i) / sqrt(2)
         # real = (a + ((b - d)/sqrt(2))) / sqrt(2)^k
         # imag = (c + ((b + d)/sqrt(2))) / sqrt(2)^k
@@ -497,6 +495,23 @@ class Cyclotomic8Dyadic:
             imag = f"(/ {imag_numerator} {sqrt2_k})"
             
             return Complex(a=real, b=imag, generator=self.generator)
+        
+    def abs2(self, k):
+        # a = a/2^(k/2)
+        # b = b/2^(k/2)
+        # c = c/2^(k/2)
+        # d = d/2^(k/2)
+        # res = a^2 + b^2 + c^2 + d^2 + sqrt(2)*(a * (b-d) + c * (b+d))
+        a_squared = f"(pow {self.a} 2)"
+        b_squared = f"(pow {self.b} 2)"
+        c_squared = f"(pow {self.c} 2)"
+        d_squared = f"(pow {self.d} 2)"
+        two_to_k_minus_half = f"(pow 2 (- {k} 0.5))"
+        two_to_k = f"(pow 2 {k})"
+        left_term = f"(/ (+ {a_squared} {b_squared} {c_squared} {d_squared}) {two_to_k} )"
+        right_term = f"(/ (+ (+ (- (* {self.a} {self.b}) (* {self.a} {self.c})) (* {self.c} {self.b})) (* {self.c} {self.d})) {two_to_k_minus_half})"
+        return f"(+ {left_term} {right_term})"
+        
 
     def conjugate(self):
         if self.generator is None:
@@ -609,21 +624,16 @@ class nTuple:
             return nTuple(elements=elements, n=self.n, generator=self.generator)
     
     def _to_pysmt_expr(self, value):
-        """Convert a value to pysmt expression if needed"""
         if isinstance(value, str):
-            # Check if it's a symbol name
             if self.generator is not None and hasattr(self.generator, 'symbols') and value in self.generator.symbols:
                 return self.generator.symbols[value]
-            # Try to parse as number
             try:
                 if '.' in value:
                     return Real(float(value))
                 else:
                     return Int(int(value))
             except:
-                # Can't convert, return as-is (will cause error later)
                 return value
-        # Already a pysmt formula or number
         return value
     
     def __eq__(self, other):
@@ -713,9 +723,7 @@ class nTuple:
             return nTuple(elements=elems, n=self.n, generator=self.generator)
         
     def multiply_by_omega_counter(self, generator):
-        # HERE omega is e^(ipi/4) -- T gate phase
         shifts = int(self.n/4) 
-        # swap the sign of the first shifts numbers, shift to the left by shifts 
         if self.generator is None:
             elems = [0] * self.n
             for i in range(shifts):
@@ -862,14 +870,12 @@ class Vector:
         self.name = name
         for i in range(q):
             if symbolic:
-                # Only create named symbolic elements if name is provided
                 if name is not None:
                     if element_representation == nTuple:
                         self.vec.append(element_representation(name=f"{name}_{i}", n=n, generator=generator))
                     else:
                         self.vec.append(element_representation(name=f"{name}_{i}", generator=generator))
                 else:
-                    # If no name, create non-symbolic (literal) elements
                     if element_representation == Cyclotomic8Dyadic:
                         self.vec.append(element_representation.zero(generator))
                     elif element_representation == nTuple:
@@ -946,10 +952,7 @@ class Vector:
         return new_vec
     
     def conjugate(self):
-        name = None
-        if self.name is not None:
-            name = f"Conjugate_{self.name}"
-        new_vec = Vector(q=len(self.vec), generator=self.generator, name=name, element_representation=self.element_representation, k=self.k)
+        new_vec = Vector(q=len(self.vec), generator=self.generator, element_representation=self.element_representation, k=self.k)
         for i in range(len(self.vec)):
             new_vec[i] = self.vec[i].conjugate()
         return new_vec
@@ -957,13 +960,23 @@ class Vector:
     def __len__(self):
         return len(self.vec)
     
-    def __mul__(self, other):
+    def __mul__(self, other) -> tuple[any, any]:
         if len(self.vec) == 0:
-            return Complex.zero(self.generator)
-        
-        sum_complex = self.vec[0].conjugate() * other.vec[0]
-        for i in range(1, len(self.vec)):
-            product = self.vec[i].conjugate() * other.vec[i]
-            sum_complex = sum_complex + product
-        
-        return sum_complex
+            raise ValueError("Vector is empty")
+    
+        dot_vec = Vector(q=len(self.vec), generator=self.generator, element_representation=self.element_representation, k=self.k, n=self.n, name=f"Dot_Product")
+        gen = self.generator if self.generator is not None else other.generator
+        for i in range(len(self.vec)):
+            gen.add_assertion(dot_vec[i] == self.vec[i] * other.vec[i])
+            
+        sum_var = self.element_representation(name=f"Dot_Sum", generator=gen)
+        sum = dot_vec[0]
+        for i in range(1, len(dot_vec)):
+            sum = sum + dot_vec[i]
+        gen.add_assertion(sum_var == sum)
+        k_final = f"(+ {self.k} {other.k})"
+        if self.element_representation == Cyclotomic8Dyadic or self.element_representation == nTuple:
+            gen.add_assertion(f"(= {dot_vec.k} {k_final})")
+        # because multiplication does not need rescaling (it scales to k1 + k2), and k is shared by all elements of a vector
+        # the k of the result is the sum of k's of the vectors
+        return sum_var, k_final

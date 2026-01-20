@@ -875,26 +875,43 @@ class Synthesizer:
             conj_rescaled1 = None
             rescaled1 = None
             rescaled2 = None
-            if self.gen.logic == "QF_NRA" and (complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple):
-                rescaled1 = inter[d1].to_real()
-                rescaled2 = Target.to_real()
-                conj_rescaled1 = rescaled1.conjugate()
-
-            # add fidelity for dreal, else, add equality assertion
-            if rescaled1 is not None and rescaled2 is not None:
+            tmp_rescale = self.gen.rescaling_tmp
+            if tmp_rescale:
                 if self.solver == "dreal":
+                    print("ble")
                     fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
-                    prod = conj_rescaled1 * rescaled2
-                    self.gen.add_assertion(f"(= {fidelity.real} {prod.real})")
-                    self.gen.add_assertion(f"(= {fidelity.imag} {prod.imag})")
+                    conjugate = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Conjugate")
+                    self.gen.add_assertion(conjugate == inter[d1].conjugate())
+                    prod, k_final = conjugate * Target
+                    prod_real = prod.abs2(k_final) # abs2 <==> fidelity
+                    self.gen.add_assertion(f"(= {fidelity.real} {prod_real})")
                     self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
                     self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
                     #self.gen.maximize(f"{fidelity.real}"
                     self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
                 else:
-                    self.gen.add_assertion(rescaled1 == rescaled2)
+                    self.gen.add_assertion(inter[d1] == Target)
             else:
-                self.gen.add_assertion(inter[d1] == Target)
+                if self.gen.logic == "QF_NRA":
+                    rescaled1 = inter[d1].to_real()
+                    rescaled2 = Target.to_real()
+                    conj_rescaled1 = rescaled1.conjugate()                
+
+                # add fidelity for dreal, else, add equality assertion
+                if rescaled1 is not None and rescaled2 is not None:
+                    if self.solver == "dreal":
+                        fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
+                        prod, _ = conj_rescaled1 * rescaled2
+                        self.gen.add_assertion(f"(= {fidelity.real} {prod.real})")
+                        self.gen.add_assertion(f"(= {fidelity.imag} {prod.imag})")
+                        self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
+                        self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
+                        #self.gen.maximize(f"{fidelity.real}"
+                        self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
+                    else:
+                        self.gen.add_assertion(rescaled1 == rescaled2)
+                else:
+                    self.gen.add_assertion(inter[d1] == Target)
         
         smtlib_content = self.gen.generate(complex_representation)
         with open(output_file, 'w') as f:
@@ -1124,6 +1141,7 @@ class Synthesizer:
         args = {
             "dreal": [ "-j",  str(jobs), "--precision", "1e-6", "--produce-models"]
         }
+        print(jobs)
         if solver not in solver_to_filename:
             raise ValueError(f"Invalid solver: {solver}")
         try:

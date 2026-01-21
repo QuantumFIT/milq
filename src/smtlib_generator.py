@@ -4,7 +4,7 @@ from pysmt.shortcuts import Real, Int, Bool, Symbol
 from pysmt.typing import REAL, INT, BOOL
 
 class SMTLibGenerator:
-    def __init__(self, rescaling=True, rescaling_tmp=False):
+    def __init__(self, rescaling=False, rescaling_tmp=False, logic="QF_NIA"):
         self.declarations = []
         self.declared_names = set()
         self.assertions = []
@@ -17,7 +17,10 @@ class SMTLibGenerator:
         self.num_of_int_variables = 0
         self.rescaling = rescaling
         self.rescaling_tmp = rescaling_tmp
-        self.logic = "QF_NRA" if rescaling else None
+        if rescaling:
+            self.logic = "QF_NRA"
+        else:
+            self.logic = logic
     
     def declare_real(self, name):
         if name not in self.declared_names:
@@ -47,12 +50,58 @@ class SMTLibGenerator:
         self.num_of_assertions += 1
         self.assertions.append(assertion)
     
+    def enumerate_powers_of_2(self, n):
+        self.declare_integer(f"pow2")
+        self.declare_integer(f"k")
+        # (assert (=> (= k i) (= pow2 (2**i)))
+        #k = floor(n/2)
+        self.add_assertion(f"(= k (div n 2))")
+        for i in range(n):
+            self.add_assertion(f"(=> (= k {i}) (= pow2 {2**i}))")
+            
+    def add_rescaling(self, r1, r2, v1, v2):
+        # pow2 * M(or I) * v1 = r1
+        def multiply_by_m_scaled(result_vec, source_vec, pow2_var):
+            eqs = []
+            for i in range(len(result_vec.vec)):
+                eqs.append(f"(= {result_vec.vec[i].a} (* {pow2_var} (- {source_vec.vec[i].b} {source_vec.vec[i].d})))")
+                eqs.append(f"(= {result_vec.vec[i].b} (* {pow2_var} (+ {source_vec.vec[i].a} {source_vec.vec[i].c})))")
+                eqs.append(f"(= {result_vec.vec[i].c} (* {pow2_var} (+ {source_vec.vec[i].b} {source_vec.vec[i].d})))")
+                eqs.append(f"(= {result_vec.vec[i].d} (* {pow2_var} (- {source_vec.vec[i].c} {source_vec.vec[i].a})))")
+            return f"(and {' '.join(eqs)})"
+        
+        def multiply_by_identity_scaled(result_vec, source_vec, pow2_var):
+            eqs = []
+            for i in range(len(result_vec.vec)):
+                eqs.append(f"(= {result_vec.vec[i].a} (* {pow2_var} {source_vec.vec[i].a}))")
+                eqs.append(f"(= {result_vec.vec[i].b} (* {pow2_var} {source_vec.vec[i].b}))")
+                eqs.append(f"(= {result_vec.vec[i].c} (* {pow2_var} {source_vec.vec[i].c}))")
+                eqs.append(f"(= {result_vec.vec[i].d} (* {pow2_var} {source_vec.vec[i].d}))")
+            return f"(and {' '.join(eqs)})"
+
+        def multiply_by_itentity_unscaled(result_vec, source_vec):
+            eqs = []
+            for i in range(len(result_vec.vec)):
+                eqs.append(f"(= {result_vec.vec[i].a} {source_vec.vec[i].a})")
+                eqs.append(f"(= {result_vec.vec[i].b} {source_vec.vec[i].b})")
+                eqs.append(f"(= {result_vec.vec[i].c} {source_vec.vec[i].c})")
+                eqs.append(f"(= {result_vec.vec[i].d} {source_vec.vec[i].d})")
+            return f"(and {' '.join(eqs)})"
+        
+        r1_multiply_by_m = f"(and {multiply_by_m_scaled(r1, v1, "pow2")} {multiply_by_itentity_unscaled(r2, v2)})"
+        r1_multiply_by_i = f"(and {multiply_by_identity_scaled(r1, v1, "pow2")} {multiply_by_itentity_unscaled(r2, v2)})"
+        r2_multiply_by_m = f"(and {multiply_by_m_scaled(r2, v2, "pow2")} {multiply_by_itentity_unscaled(r1, v1)})"
+        r2_multiply_by_i = f"(and {multiply_by_identity_scaled(r2, v2, "pow2")} {multiply_by_itentity_unscaled(r1, v1)})"
+        
+        rescale_vec1 = f"(ite (= (mod n 2) 0) {r1_multiply_by_i} {r1_multiply_by_m})"
+        rescale_vec2 = f"(ite (= (mod n 2) 0) {r2_multiply_by_i} {r2_multiply_by_m})"
+        self.add_assertion(f"(ite (< {v1.k} {v2.k}) {rescale_vec1} {rescale_vec2})")
+        
+    
     def maximize(self, expression):
-        """Add a maximize objective for optimization"""
         self.optimize_objectives.append(("maximize", expression))
     
     def minimize(self, expression):
-        """Add a minimize objective for optimization"""
         self.optimize_objectives.append(("minimize", expression))
     
     def format_real(self, value):
@@ -106,9 +155,9 @@ class SMTLibGenerator:
         elif complex_representation == Complex:
             self.logic = "QF_NRA"
         elif complex_representation == Cyclotomic8Dyadic:
-            self.logic = "QF_LIA"
+            self.logic = "QF_NIA"
         elif complex_representation == nTuple:
-            self.logic = "QF_LIA"
+            self.logic = "QF_NIA"
         else:
             raise ValueError()
         

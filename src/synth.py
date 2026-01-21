@@ -41,17 +41,17 @@ class Synthesizer:
         
         yices2_name = "yices2"
         yices2_path = "/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2"
-        yices2_logics = [QF_LIA, QF_NRA]
+        yices2_logics = [QF_LIA, QF_NRA, QF_NIA]
         env.factory.add_generic_solver(yices2_name, yices2_path, yices2_logics)
         
         smtinterpol_name = "smtinterpol"
         smtinterpol_path = "/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol"
-        smtinterpol_logics = [QF_LIA, QF_NRA]
+        smtinterpol_logics = [QF_LIA, QF_NRA, QF_NIA]
         env.factory.add_generic_solver(smtinterpol_name, smtinterpol_path, smtinterpol_logics)
         
         cvc5_name = "cvc5"
         cvc5_path = "/home/jakubhavlik/rus-synth/solvers/cvc5/cvc5"
-        cvc5_logics = [QF_LIA, QF_NRA]
+        cvc5_logics = [QF_LIA, QF_NRA, QF_NIA]
         env.factory.add_generic_solver(cvc5_name, cvc5_path, cvc5_logics)
         
         dreal_name = "dreal"
@@ -856,6 +856,8 @@ class Synthesizer:
             else:
                 inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=complex_representation) for d in range(d1 + 1)]
             self.gen.add_assertion(inter[0] == In)
+            if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
+                self.gen.add_assertion(f"(= {inter[0].k} {In.k})")
             
             for d in range(d1):
                 self.encode_layer(inter[d], inter[d+1], d, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, complex_representation)
@@ -878,10 +880,10 @@ class Synthesizer:
             tmp_rescale = self.gen.rescaling_tmp
             if tmp_rescale:
                 if self.solver == "dreal":
-                    print("ble")
                     fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
                     conjugate = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Conjugate")
                     self.gen.add_assertion(conjugate == inter[d1].conjugate())
+                    self.gen.add_assertion(f"(= {conjugate.k} {inter[d1].k})")
                     prod, k_final = conjugate * Target
                     prod_real = prod.abs2(k_final) # abs2 <==> fidelity
                     self.gen.add_assertion(f"(= {fidelity.real} {prod_real})")
@@ -911,7 +913,19 @@ class Synthesizer:
                     else:
                         self.gen.add_assertion(rescaled1 == rescaled2)
                 else:
-                    self.gen.add_assertion(inter[d1] == Target)
+                    # QF_LIA and QF_NIA branch
+                    # rescaling -- add enumeration of all possible powers of 2,
+                    # calculate 2^(floor(n/2)) * M * vector
+                    # n == abs(last_k - target_k)
+                    self.gen.declare_integer(f"n")
+                    self.gen.add_assertion(f"(ite (< {inter[d1].k} {Target.k}) (= n (- {Target.k} {inter[d1].k})) (= n (- {inter[d1].k} {Target.k})))")
+                    self.gen.enumerate_powers_of_2(d1 + 1)
+                    # after that, rescale the vectors -- create 2 new vectors, the one with lower k gets rescaled, the other one just gets copied
+                    # then, compare them
+                    rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[d1].name}")
+                    rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
+                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target)
+                    self.gen.add_assertion(rescaled1 == rescaled2)
         
         smtlib_content = self.gen.generate(complex_representation)
         with open(output_file, 'w') as f:

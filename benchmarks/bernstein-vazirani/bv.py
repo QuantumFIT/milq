@@ -19,7 +19,7 @@ if len(sys.argv) > 1:
 else:
     n = 3
     d1 = 8
-    solver = "cvc5"
+    solver = "yices2"
     s = "101"
     k_glob = 6
     a = 2**n
@@ -29,7 +29,7 @@ assert(len(s) == n)
 assert(a == 2**n)
 
 
-gen = SMTLibGenerator(dreal=False)
+gen = SMTLibGenerator(logic="QF_NIA")
 synthesizer = Synthesizer(gen=gen, gate_set=['I', 'H', 'CX', 'Z'], solver=solver)
 
 

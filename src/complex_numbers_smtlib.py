@@ -925,9 +925,10 @@ class Vector:
                 eqs.append(Equals(self.k, other.k))
                 return And(*eqs)
             else:
-                eqs.append(f"(= {self.k} {other.k})")
+                # TODO rescaling -- remove this
+                #eqs.append(f"(= {self.k} {other.k})")
                 return f"(and { ' '.join(eqs) })"
-                
+    
     
     def __repr__(self):
         return f"[{', '.join(str(v) for v in self.vec)}], k={self.k}"

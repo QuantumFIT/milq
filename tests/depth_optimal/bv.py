@@ -7,7 +7,7 @@ import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
 from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic, nTuple
-from smtlib_generator import SMTLibGenerator
+from smtlib_generator import SMTLibGenerator, PortfolioSolver
 
 if len(sys.argv) > 1:
     n = int(sys.argv[1])
@@ -29,8 +29,8 @@ assert(len(s) == n)
 assert(a == 2**n)
 
 
-gen = SMTLibGenerator()
-synthesizer = Synthesizer(gen=gen, gate_set=['H'], solver=solver)
+gen = SMTLibGenerator(rescaling=True)
+synthesizer = Synthesizer(gen=gen, gate_set=['I', 'H', 'CX', 'Z'], solver=solver)
 
 
 input_vec = Vector(q=2**n, generator=gen,
@@ -40,20 +40,17 @@ for i in range(2**n):
 input_vec[0] = Cyclotomic8Dyadic.one(gen)
 
 
-k_glob = 0
 
 output_vec = Vector(q=2**n, generator=gen,
                     element_representation=Cyclotomic8Dyadic, k=k_glob)
 for i in range(2**n):
     output_vec[i] = Cyclotomic8Dyadic.zero(gen)
-    
-output_vec[0] = Cyclotomic8Dyadic.one(gen)
 
-#s_index = int(s, 2)
-#output_vec[s_index] = Cyclotomic8Dyadic.one(gen)
-#output_vec[s_index].a = a
+s_index = int(s, 2)
+output_vec[s_index] = Cyclotomic8Dyadic.one(gen)
+output_vec[s_index].a = a
 
-#vector_pairs = [(input_vec, output_vec)]
+vector_pairs = [(input_vec, output_vec)]
 
 
 gate_set = ['I', 'H', 'CX', 'Z']

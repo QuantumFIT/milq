@@ -9,8 +9,8 @@ import os
 from pauli import syn_pauli
 from multiprocessing import cpu_count
 from pathlib import Path
-from pysmt.logics import QF_NRA, QF_LIA
-from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE
+from pysmt.logics import QF_NRA, QF_LIA, QF_NIA
+from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Minus
 from pysmt.typing import REAL, INT
 from pysmt.solvers.solver import Solver
 
@@ -877,9 +877,10 @@ class Synthesizer:
             conj_rescaled1 = None
             rescaled1 = None
             rescaled2 = None
-            tmp_rescale = self.gen.rescaling_tmp
-            if tmp_rescale:
-                if self.solver == "dreal":
+            approximate_equivalence = self.gen.approximate_equivalence
+            if approximate_equivalence:
+                # FIDELITY
+                if self.gen.logic == "QF_NRA": 
                     fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
                     conjugate = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Conjugate")
                     self.gen.add_assertion(conjugate == inter[d1].conjugate())
@@ -892,27 +893,12 @@ class Synthesizer:
                     #self.gen.maximize(f"{fidelity.real}"
                     self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
                 else:
-                    self.gen.add_assertion(inter[d1] == Target)
+                    raise ValueError("approximate equivalence not supported for non NRA")
             else:
+                # EXACT EQUIVALENCE
                 if self.gen.logic == "QF_NRA":
-                    rescaled1 = inter[d1].to_real()
-                    rescaled2 = Target.to_real()
-                    conj_rescaled1 = rescaled1.conjugate()                
-
-                # add fidelity for dreal, else, add equality assertion
-                if rescaled1 is not None and rescaled2 is not None:
-                    if self.solver == "dreal":
-                        fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
-                        prod, _ = conj_rescaled1 * rescaled2
-                        self.gen.add_assertion(f"(= {fidelity.real} {prod.real})")
-                        self.gen.add_assertion(f"(= {fidelity.imag} {prod.imag})")
-                        self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
-                        self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
-                        #self.gen.maximize(f"{fidelity.real}"
-                        self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
-                    else:
-                        self.gen.add_assertion(rescaled1 == rescaled2)
-                else:
+                    pass
+                elif self.gen.logic == "QF_NIA":
                     # QF_LIA and QF_NIA branch
                     # rescaling -- add enumeration of all possible powers of 2,
                     # calculate 2^(floor(n/2)) * M * vector
@@ -926,6 +912,10 @@ class Synthesizer:
                     rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
                     self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target)
                     self.gen.add_assertion(rescaled1 == rescaled2)
+                elif self.gen.logic == "QF_LIA":
+                    self.gen.add_assertion(rescaled1 == rescaled2)
+                else:
+                    raise ValueError("invalid logic")
         
         smtlib_content = self.gen.generate(complex_representation)
         with open(output_file, 'w') as f:
@@ -997,7 +987,7 @@ class Synthesizer:
         logic = ""
         solvers = []
         if self.gen.rescaling:
-            logic = "QF_NRA"
+            logic = "QF_NIA"
             solvers = ["z3", "cvc5", "yices2", "smtinterpol"]
         else:
             logic = "QF_LIA"
@@ -1009,10 +999,7 @@ class Synthesizer:
                         generate_models=True) as solver:
             self.gen = PortfolioSolver(solver)
             # start with gates = 1, incrementally add new layer encodings
-            # check if the circuit is satisfiable
-            
-            
-            # generate all needed vectors and Target (same for all depths)
+            # check if the circuit is satisfiable            
             inter_vectors = []
             target_vectors = []
             
@@ -1035,9 +1022,13 @@ class Synthesizer:
                     inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(d1 + 1)]
                 else:
                     inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=complex_representation) for d in range(d1 + 1)]
-                
-                # connect inter[0] to input
                 self.gen.add_assertion(inter[0] == In)
+                if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
+                    if self.gen.name == 'PortfolioSolver':
+                        self.gen.add_assertion(Equals(inter[0].k, In.k))
+                    else:
+                        self.gen.add_assertion(f"(= {inter[0].k} {In.k})")
+                
                 inter_vectors.append(inter)
                 # generate target vector and connect it to output values
                 Target = Vector(q=vec_len, name=f"Target_{pair_idx}", generator=self.gen, element_representation=complex_representation, k = output_vector.k, n = output_vector.n)
@@ -1055,7 +1046,7 @@ class Synthesizer:
             depth = 1
             solved = False
             while depth <= d1 and not solved:
-                print(f"Trying depth {depth}...")
+                print(f"Solving with depth {depth}...")
                 for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
                     inter = inter_vectors[pair_idx]
                     # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
@@ -1087,6 +1078,18 @@ class Synthesizer:
                             self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
                             #self.gen.maximize(f"{fidelity.real}"
                             self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
+                    elif self.gen.logic == "QF_NIA":
+                        # rescaling allowed
+                        if complex_representation == Cyclotomic8Dyadic:
+                            self.gen.declare_integer("n")
+                            self.gen.add_assertion(Ite(LT(inter[depth].k, Target.k), Equals(self.gen.symbols["n"], Minus(Target.k, inter[depth].k)), Equals(self.gen.symbols["n"], Minus(inter[depth].k, Target.k))))
+                            self.gen.enumerate_powers_of_2(depth + 1)
+                            # after that, rescale the vectors -- create 2 new vectors, the one with lower k gets rescaled, the other one just gets copied
+                            # then, compare them
+                            rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[depth].name}")
+                            rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
+                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target)
+                            self.gen.add_assertion(rescaled1 == rescaled2)
                     else:
                         self.gen.add_assertion(inter[depth] == Target)
                 
@@ -1155,7 +1158,6 @@ class Synthesizer:
         args = {
             "dreal": [ "-j",  str(jobs), "--precision", "1e-6", "--produce-models"]
         }
-        print(jobs)
         if solver not in solver_to_filename:
             raise ValueError(f"Invalid solver: {solver}")
         try:

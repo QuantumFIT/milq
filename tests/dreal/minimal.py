@@ -15,7 +15,7 @@ d1 = 2
 solver = "dreal"
 
 res = simulate_circuit("test.qasm", complex_representation=Cyclotomic8Dyadic, generator=None)
-gen = SMTLibGenerator(rescaling=True, rescaling_tmp=True)
+gen = SMTLibGenerator(approximate_equivalence=False, logic="QF_NRA")
 gate_set = ['H', 'X']
 synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 input_vec = Vector(q=2**n, generator=gen, element_representation=Cyclotomic8Dyadic, k=0)

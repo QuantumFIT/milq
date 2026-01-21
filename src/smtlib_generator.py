@@ -59,6 +59,12 @@ class SMTLibGenerator:
         self.add_assertion(f"(= k (div n 2))")
         for i in range(n):
             self.add_assertion(f"(=> (= k {i}) (= pow2 {2**i}))")
+    
+    def enumerate_k_values(self, n):
+        eqs = []
+        for i in range(n):
+            eqs.append(f"(= k {i})")
+        self.add_assertion(f"(or {' '.join(eqs)})")
             
     def add_rescaling(self, r1, r2, v1, v2):
         # pow2 * M(or I) * v1 = r1
@@ -94,8 +100,14 @@ class SMTLibGenerator:
         r2_multiply_by_m = f"(and {multiply_by_m_scaled(r2, v2, "pow2")} {multiply_by_identity_unscaled(r1, v1)})"
         r2_multiply_by_i = f"(and {multiply_by_identity_scaled(r2, v2, "pow2")} {multiply_by_identity_unscaled(r1, v1)})"
         
-        rescale_vec1 = f"(ite (= (mod n 2) 0) {r1_multiply_by_i} {r1_multiply_by_m})"
-        rescale_vec2 = f"(ite (= (mod n 2) 0) {r2_multiply_by_i} {r2_multiply_by_m})"
+        rescale_vec1 = ""
+        rescale_vec2 = ""
+        if self.logic == "QF_NIA":
+            rescale_vec1 = f"(ite (= (mod n 2) 0) {r1_multiply_by_i} {r1_multiply_by_m})"
+            rescale_vec2 = f"(ite (= (mod n 2) 0) {r2_multiply_by_i} {r2_multiply_by_m})"
+        else:
+            rescale_vec1 = f"(ite is_even {r1_multiply_by_i} {r1_multiply_by_m})"
+            rescale_vec2 = f"(ite is_even {r2_multiply_by_i} {r2_multiply_by_m})"
         self.add_assertion(f"(ite (< {v1.k} {v2.k}) {rescale_vec1} {rescale_vec2})")
         
     

@@ -91,10 +91,7 @@ class Synthesizer:
             else:
                 k_incr = f"(= {out_k} (+ {inp_k} {increment}))"
                 add_implies(sel, k_incr)
-            
-        
-        # todo: ecr (echoed dross resonance), magic, pg
-        
+                
         # implicitly add identity to the gate set if not present
         if 'I' not in self.gate_set:
             self.gate_set.append('I')
@@ -781,6 +778,7 @@ class Synthesizer:
         n: Number of qubits
         d1: Number of layers (operations)
         output_file: Filename to write the formula to
+        TODO: rescaling with multiple vectors
         """
         self.formula_file = output_file
         if pauli:
@@ -897,7 +895,26 @@ class Synthesizer:
             else:
                 # EXACT EQUIVALENCE
                 if self.gen.logic == "QF_NRA":
-                    pass
+                    # since there is no floor(n/2) in dreal, do 2k <= n < 2*(k+1) where k = floor(n/2)
+                    # check for odd/even r = n - 2k, r is in <0, 2)
+                    # then, if r == 0, its even, if r == 1, its odd
+                    self.gen.declare_real(f"n")
+                    self.gen.add_assertion(f"(ite (< {inter[d1].k} {Target.k}) (= n (- {Target.k} {inter[d1].k})) (= n (- {inter[d1].k} {Target.k})))")
+                    self.gen.declare_real(f"k")
+                    self.gen.add_assertion(f"(and (>= n (* 2 k)) (< n (* 2 (+ k 1))))")
+                    rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[d1].name}")
+                    rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
+                    # enumerate possible k's <0, d1/2>
+                    # calculate the power and parity check (n - 2k) == 0 if even
+                    self.gen.enumerate_k_values(d1//2)
+                    self.gen.declare_real(f"pow2")
+                    self.gen.add_assertion(f"(= pow2 (pow 2 k))")
+                    self.gen.declare_real(f"r")
+                    self.gen.add_assertion(f"(= r (- n (* 2 k)))")
+                    self.gen.declare_bool(f"is_even")
+                    self.gen.add_assertion(f"(ite (= r 0) (= is_even true) (= is_even false))")
+                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target)
+                    self.gen.add_assertion(rescaled1 == rescaled2)
                 elif self.gen.logic == "QF_NIA":
                     # QF_LIA and QF_NIA branch
                     # rescaling -- add enumeration of all possible powers of 2,

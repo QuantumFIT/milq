@@ -29,7 +29,7 @@ assert(d1 == (2*n + 1 + (n // 2)))
 assert(len(s) == n)
 assert(a == 2**n)
 
-gen = SMTLibGenerator(rescaling=True, rescaling_tmp=True)
+gen = SMTLibGenerator(approximate_equivalence=False, logic="QF_NRA")
 gate_set = ['H', 'S', 'CX', 'Z', 'T']
 synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 input_vec = Vector(q=2**n, generator=gen, element_representation=Cyclotomic8Dyadic, k=0)

@@ -1001,14 +1001,8 @@ class Synthesizer:
             i_half = None
             
         self.add_solvers()
-        logic = ""
-        solvers = []
-        if self.gen.rescaling:
-            logic = "QF_NIA"
-            solvers = ["z3", "cvc5", "yices2", "smtinterpol"]
-        else:
-            logic = "QF_LIA"
-            solvers = ["z3", "cvc5", "yices2", "smtinterpol", "opensmt"]
+        logic = "QF_NIA"
+        solvers = ["z3", "cvc5", "yices2", "smtinterpol"]
 
         with Portfolio(solvers,
                         logic=logic,
@@ -1045,7 +1039,6 @@ class Synthesizer:
                         self.gen.add_assertion(Equals(inter[0].k, In.k))
                     else:
                         self.gen.add_assertion(f"(= {inter[0].k} {In.k})")
-                
                 inter_vectors.append(inter)
                 # generate target vector and connect it to output values
                 Target = Vector(q=vec_len, name=f"Target_{pair_idx}", generator=self.gen, element_representation=complex_representation, k = output_vector.k, n = output_vector.n)
@@ -1059,7 +1052,6 @@ class Synthesizer:
                     else:
                         self.gen.add_assertion(f"(= {Target.k} {k})")
                 target_vectors.append(Target)
-            
             depth = 1
             solved = False
             while depth <= d1 and not solved:
@@ -1109,10 +1101,9 @@ class Synthesizer:
                             self.gen.add_assertion(rescaled1 == rescaled2)
                     else:
                         self.gen.add_assertion(inter[depth] == Target)
-                
                 print(f"Solving with {self.gen.name}...")
                 result = self.gen.solver.solve()
-                
+                                
                 print(f"Result: {result}")
                 if result:
                     solved = True
@@ -1183,8 +1174,6 @@ class Synthesizer:
                 capture_output=True,
                 text=True,
             )
-            print(result.stdout)
-            print(result.stderr)
             parse_map = {
                 "z3": parse_z3,
                 "z3alpha": parse_z3alpha,

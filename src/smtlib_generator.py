@@ -361,6 +361,7 @@ class PortfolioSolver:
             self.add_assertion(And(Equals(x, Plus(Times(y, q), r)), GE(r, Int(0)), LT(r, y)))
             return r
         
+        
         rescale_vec1 = Ite(Equals(Mod(self.symbols["n"], Int(2)), Int(0)), r1_multiply_by_i, r1_multiply_by_m)
         rescale_vec2 = Ite(Equals(Mod(self.symbols["n"], Int(2)), Int(0)), r2_multiply_by_i, r2_multiply_by_m)
         self.add_assertion(Ite(LT(v1.k, v2.k), rescale_vec1, rescale_vec2))

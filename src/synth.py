@@ -1021,13 +1021,12 @@ class Synthesizer:
                     self.gen.add_assertion(In[i] == val)
         
                 if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                    k = int(input_vector.k)
                     if self.gen.name == 'PortfolioSolver':
-                        self.gen.add_assertion(Equals(In.k, Int(k)))
+                        input_k_expr = self.gen.format_integer(input_vector.k)
+                        self.gen.add_assertion(Equals(In.k, input_k_expr))
                     else:
-                        k = input_vector.k
-                        self.gen.add_assertion(f"(= {In.k} {k})")
-                            
+                        self.gen.add_assertion(f"(= {In.k} {int(input_vector.k)})")
+
                 # intermediate vectors generation
                 if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
                     inter = [Vector(q=vec_len, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(d1 + 1)]
@@ -1046,16 +1045,15 @@ class Synthesizer:
                     self.gen.add_assertion(Target[i] == val)
                 
                 if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                    k = int(output_vector.k)
                     if self.gen.name == 'PortfolioSolver':
-                        self.gen.add_assertion(Equals(Target.k, Int(k)))
+                        output_k_expr = self.gen.format_integer(output_vector.k)
+                        self.gen.add_assertion(Equals(Target.k, output_k_expr))
                     else:
-                        self.gen.add_assertion(f"(= {Target.k} {k})")
+                        self.gen.add_assertion(f"(= {Target.k} {int(output_vector.k)})")
                 target_vectors.append(Target)
             depth = 1
             solved = False
             while depth <= d1 and not solved:
-                #print(f"Solving with depth {depth}...")
                 for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
                     inter = inter_vectors[pair_idx]
                     # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]

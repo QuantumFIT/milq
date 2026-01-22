@@ -6,7 +6,7 @@ import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
 from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
-from smtlib_generator import SMTLibGenerator
+from smtlib_generator import SMTLibGenerator, PortfolioSolver
 
 
 # optional sys arguments n, d1, solver
@@ -15,10 +15,10 @@ if len(sys.argv) > 1:
     d1 = int(sys.argv[2])
     solver = sys.argv[3]
 else:
-    n = 1
+    n = 2
     d1 = n
     solver = "z3"
-gen = SMTLibGenerator(approximate_equivalence=False, logic="QF_NIA")
+gen = PortfolioSolver()
 gate_set = ['I', 'H', 'S', 'T', 'CX']
 synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 
@@ -64,11 +64,10 @@ for q in range(2**n):
     
     vector_pairs.append((input_vec, output_vec))
 
-
 start_time = time.time()
 try:
-    synthesizer.synthesis(vector_pairs, n, d1, "ghzall.smt2")
-    synthesizer.solve_and_extract_circuit("ghzall.smt2", n, d1, "ghzall.qasm", solver)
+    synthesizer.synthesis_gate_optimal(vector_pairs, n, d1, "ghzall.smt2")
+    #synthesizer.solve_and_extract_circuit("ghzall.smt2", n, d1, "ghzall.qasm", solver)
     end_time = time.time()
     print(f"sat")
     print(f"Time taken: {end_time - start_time} seconds")

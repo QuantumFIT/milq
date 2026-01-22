@@ -51,22 +51,22 @@ class SMTLibGenerator:
         self.num_of_assertions += 1
         self.assertions.append(assertion)
     
-    def enumerate_powers_of_2(self, n):
-        self.declare_integer(f"pow2")
-        self.declare_integer(f"k")
+    def enumerate_powers_of_2(self, n, pair_idx):
+        self.declare_integer(f"pow2{pair_idx}")
+        self.declare_integer(f"k{pair_idx}")
         # (assert (=> (= k i) (= pow2 (2**i)))
         #k = floor(n/2)
-        self.add_assertion(f"(= k (div n 2))")
+        self.add_assertion(f"(= k{pair_idx} (div n{pair_idx} 2))")
         for i in range(n):
-            self.add_assertion(f"(=> (= k {i}) (= pow2 {2**i}))")
+            self.add_assertion(f"(=> (= k{pair_idx} {i}) (= pow2{pair_idx} {2**i}))")
     
-    def enumerate_k_values(self, n):
+    def enumerate_k_values(self, n, pair_idx):
         eqs = []
         for i in range(n):
-            eqs.append(f"(= k {i})")
+            eqs.append(f"(= k{pair_idx} {i})")
         self.add_assertion(f"(or {' '.join(eqs)})")
             
-    def add_rescaling(self, r1, r2, v1, v2):
+    def add_rescaling(self, r1, r2, v1, v2, pair_idx):
         # pow2 * M(or I) * v1 = r1
         def multiply_by_m_scaled(result_vec, source_vec, pow2_var):
             eqs = []
@@ -95,16 +95,17 @@ class SMTLibGenerator:
                 eqs.append(f"(= {result_vec.vec[i].d} {source_vec.vec[i].d})")
             return f"(and {' '.join(eqs)})"
         
-        r1_multiply_by_m = f"(and {multiply_by_m_scaled(r1, v1, "pow2")} {multiply_by_identity_unscaled(r2, v2)})"
-        r1_multiply_by_i = f"(and {multiply_by_identity_scaled(r1, v1, "pow2")} {multiply_by_identity_unscaled(r2, v2)})"
-        r2_multiply_by_m = f"(and {multiply_by_m_scaled(r2, v2, "pow2")} {multiply_by_identity_unscaled(r1, v1)})"
-        r2_multiply_by_i = f"(and {multiply_by_identity_scaled(r2, v2, "pow2")} {multiply_by_identity_unscaled(r1, v1)})"
+        pow2_var = f"pow2{pair_idx}"
+        r1_multiply_by_m = f"(and {multiply_by_m_scaled(r1, v1, pow2_var)} {multiply_by_identity_unscaled(r2, v2)})"
+        r1_multiply_by_i = f"(and {multiply_by_identity_scaled(r1, v1, pow2_var)} {multiply_by_identity_unscaled(r2, v2)})"
+        r2_multiply_by_m = f"(and {multiply_by_m_scaled(r2, v2, pow2_var)} {multiply_by_identity_unscaled(r1, v1)})"
+        r2_multiply_by_i = f"(and {multiply_by_identity_scaled(r2, v2, pow2_var)} {multiply_by_identity_unscaled(r1, v1)})"
         
-        rescale_vec1 = ""
-        rescale_vec2 = ""
+        rescale_vec1 = f""
+        rescale_vec2 = f""
         if self.logic == "QF_NIA":
-            rescale_vec1 = f"(ite (= (mod n 2) 0) {r1_multiply_by_i} {r1_multiply_by_m})"
-            rescale_vec2 = f"(ite (= (mod n 2) 0) {r2_multiply_by_i} {r2_multiply_by_m})"
+            rescale_vec1 = f"(ite (= (mod n{pair_idx} 2) 0) {r1_multiply_by_i} {r1_multiply_by_m})"
+            rescale_vec2 = f"(ite (= (mod n{pair_idx} 2) 0) {r2_multiply_by_i} {r2_multiply_by_m})"
         else:
             rescale_vec1 = f"(ite is_even {r1_multiply_by_i} {r1_multiply_by_m})"
             rescale_vec2 = f"(ite is_even {r2_multiply_by_i} {r2_multiply_by_m})"
@@ -265,14 +266,20 @@ class PortfolioSolver:
         self.solver.add_assertion(assertion)
         self.num_of_assertions += 1
         
-    def enumerate_powers_of_2(self, n):
-        self.declare_integer(f"pow2")
-        self.declare_integer(f"k")
+    def enumerate_powers_of_2(self, n, pair_idx):
+        self.declare_integer(f"pow2{pair_idx}")
+        self.declare_integer(f"k{pair_idx}")
         # (assert (=> (= k i) (= pow2 (2**i)))
         for i in range(n):
-            self.add_assertion(Implies(Equals(self.symbols["k"], Int(i)), Equals(self.symbols["pow2"], Int(2**i))))
+            self.add_assertion(Implies(Equals(self.symbols[f"k{pair_idx}"], Int(i)), Equals(self.symbols[f"pow2{pair_idx}"], Int(2**i))))
             
-    def add_rescaling(self, r1, r2, v1, v2):
+    def enumerate_k_values(self, n, pair_idx):
+        eqs = []
+        for i in range(n):
+            eqs.append(f"(= k{pair_idx} {i})")
+        self.add_assertion(f"(or {' '.join(eqs)})")
+            
+    def add_rescaling(self, r1, r2, v1, v2, pair_idx):
         # pow2 * M(or I) * v1 = r1
         
         # sometimes .solve() was throwing errors, because some values are not represented as pysmt expressions properly
@@ -346,7 +353,7 @@ class PortfolioSolver:
             return And(*eqs)
         
         
-        pow2 = self.symbols["pow2"]
+        pow2 = self.symbols[f"pow2{pair_idx}"]
         r1_multiply_by_m = And(multiply_by_m_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))
         r1_multiply_by_i = And(multiply_by_identity_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))
         r2_multiply_by_m = And(multiply_by_m_scaled(r2, v2, pow2), multiply_by_identity_unscaled(r1, v1))
@@ -356,12 +363,12 @@ class PortfolioSolver:
         # x mod y = r <=> x = y * q + r, r in <0, y>
         # so we can use this to define Mod
         def Mod(x, y):
-            q = self.declare_integer(f"q_mod_{self.num_of_int_variables}")
-            r = self.declare_integer(f"r_mod_{self.num_of_int_variables}")
+            q = self.declare_integer(f"q_mod_{pair_idx}_{self.num_of_int_variables}")
+            r = self.declare_integer(f"r_mod_{pair_idx}_{self.num_of_int_variables}")
             self.add_assertion(And(Equals(x, Plus(Times(y, q), r)), GE(r, Int(0)), LT(r, y)))
             return r
         
         
-        rescale_vec1 = Ite(Equals(Mod(self.symbols["n"], Int(2)), Int(0)), r1_multiply_by_i, r1_multiply_by_m)
-        rescale_vec2 = Ite(Equals(Mod(self.symbols["n"], Int(2)), Int(0)), r2_multiply_by_i, r2_multiply_by_m)
+        rescale_vec1 = Ite(Equals(Mod(self.symbols[f"n{pair_idx}"], Int(2)), Int(0)), r1_multiply_by_i, r1_multiply_by_m)
+        rescale_vec2 = Ite(Equals(Mod(self.symbols[f"n{pair_idx}"], Int(2)), Int(0)), r2_multiply_by_i, r2_multiply_by_m)
         self.add_assertion(Ite(LT(v1.k, v2.k), rescale_vec1, rescale_vec2))

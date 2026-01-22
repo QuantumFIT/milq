@@ -1,6 +1,6 @@
 #!/bin/bash
 
-solvers=(z3 cvc5 yices2 opensmt smtinterpol z3alpha)
+solvers=(dreal)
 max_q=6
 timeout=300
 

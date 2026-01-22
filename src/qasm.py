@@ -310,7 +310,6 @@ def parse_smtinterpol(model_output, n, d1, output_qasm, result):
     for line in lines:
         line_stripped = line.strip()
         line_lower = line_stripped.lower()
-        
         if line_lower in ['sat', 'unsat']:
             filtered_lines.append(line_stripped)
             found_result = True

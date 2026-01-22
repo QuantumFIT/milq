@@ -898,36 +898,36 @@ class Synthesizer:
                     # since there is no floor(n/2) in dreal, do 2k <= n < 2*(k+1) where k = floor(n/2)
                     # check for odd/even r = n - 2k, r is in <0, 2)
                     # then, if r == 0, its even, if r == 1, its odd
-                    self.gen.declare_real(f"n")
-                    self.gen.add_assertion(f"(ite (< {inter[d1].k} {Target.k}) (= n (- {Target.k} {inter[d1].k})) (= n (- {inter[d1].k} {Target.k})))")
-                    self.gen.declare_real(f"k")
-                    self.gen.add_assertion(f"(and (>= n (* 2 k)) (< n (* 2 (+ k 1))))")
+                    self.gen.declare_real(f"n{pair_idx}")
+                    self.gen.add_assertion(f"(ite (< {inter[d1].k} {Target.k}) (= n{pair_idx} (- {Target.k} {inter[d1].k})) (= n{pair_idx} (- {inter[d1].k} {Target.k})))")
+                    self.gen.declare_real(f"k{pair_idx}")
+                    self.gen.add_assertion(f"(and (>= n{pair_idx} (* 2 k{pair_idx})) (< n{pair_idx} (* 2 (+ k{pair_idx} 1))))")
                     rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[d1].name}")
                     rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
                     # enumerate possible k's <0, d1/2>
                     # calculate the power and parity check (n - 2k) == 0 if even
                     self.gen.enumerate_k_values(d1//2)
-                    self.gen.declare_real(f"pow2")
-                    self.gen.add_assertion(f"(= pow2 (pow 2 k))")
+                    self.gen.declare_real(f"pow2{pair_idx}")
+                    self.gen.add_assertion(f"(= pow2{pair_idx} (pow 2 k{pair_idx})))")
                     self.gen.declare_real(f"r")
-                    self.gen.add_assertion(f"(= r (- n (* 2 k)))")
-                    self.gen.declare_bool(f"is_even")
-                    self.gen.add_assertion(f"(ite (= r 0) (= is_even true) (= is_even false))")
-                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target)
+                    self.gen.add_assertion(f"(= r (- n{pair_idx} (* 2 k{pair_idx})))")
+                    self.gen.declare_bool(f"is_even{pair_idx}")
+                    self.gen.add_assertion(f"(ite (= r 0) (= is_even{pair_idx} true) (= is_even{pair_idx} false))")
+                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target, pair_idx)
                     self.gen.add_assertion(rescaled1 == rescaled2)
                 elif self.gen.logic == "QF_NIA":
                     # QF_LIA and QF_NIA branch
                     # rescaling -- add enumeration of all possible powers of 2,
                     # calculate 2^(floor(n/2)) * M * vector
                     # n == abs(last_k - target_k)
-                    self.gen.declare_integer(f"n")
-                    self.gen.add_assertion(f"(ite (< {inter[d1].k} {Target.k}) (= n (- {Target.k} {inter[d1].k})) (= n (- {inter[d1].k} {Target.k})))")
-                    self.gen.enumerate_powers_of_2(d1 + 1)
+                    self.gen.declare_integer(f"n{pair_idx}")
+                    self.gen.add_assertion(f"(ite (< {inter[d1].k} {Target.k}) (= n{pair_idx} (- {Target.k} {inter[d1].k})) (= n{pair_idx} (- {inter[d1].k} {Target.k})))")
+                    self.gen.enumerate_powers_of_2(d1 + 1, pair_idx)
                     # after that, rescale the vectors -- create 2 new vectors, the one with lower k gets rescaled, the other one just gets copied
                     # then, compare them
                     rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[d1].name}")
                     rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
-                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target)
+                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target, pair_idx)
                     self.gen.add_assertion(rescaled1 == rescaled2)
                 elif self.gen.logic == "QF_LIA":
                     self.gen.add_assertion(rescaled1 == rescaled2)
@@ -1055,7 +1055,7 @@ class Synthesizer:
             depth = 1
             solved = False
             while depth <= d1 and not solved:
-                print(f"Solving with depth {depth}...")
+                #print(f"Solving with depth {depth}...")
                 for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
                     inter = inter_vectors[pair_idx]
                     # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
@@ -1090,21 +1090,21 @@ class Synthesizer:
                     elif self.gen.logic == "QF_NIA":
                         # rescaling allowed
                         if complex_representation == Cyclotomic8Dyadic:
-                            self.gen.declare_integer("n")
-                            self.gen.add_assertion(Ite(LT(inter[depth].k, Target.k), Equals(self.gen.symbols["n"], Minus(Target.k, inter[depth].k)), Equals(self.gen.symbols["n"], Minus(inter[depth].k, Target.k))))
-                            self.gen.enumerate_powers_of_2(depth + 1)
+                            self.gen.declare_integer(f"n{pair_idx}")
+                            self.gen.add_assertion(Ite(LT(inter[depth].k, Target.k), Equals(self.gen.symbols[f"n{pair_idx}"], Minus(Target.k, inter[depth].k)), Equals(self.gen.symbols[f"n{pair_idx}"], Minus(inter[depth].k, Target.k))))
+                            self.gen.enumerate_powers_of_2(depth + 1, pair_idx)
                             # after that, rescale the vectors -- create 2 new vectors, the one with lower k gets rescaled, the other one just gets copied
                             # then, compare them
                             rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[depth].name}")
                             rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
-                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target)
+                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx)
                             self.gen.add_assertion(rescaled1 == rescaled2)
                     else:
                         self.gen.add_assertion(inter[depth] == Target)
-                print(f"Solving with {self.gen.name}...")
+                #print(f"Solving with {self.gen.name}...")
                 result = self.gen.solver.solve()
                                 
-                print(f"Result: {result}")
+                #print(f"Result: {result}")
                 if result:
                     solved = True
                     model = self.gen.solver.get_model()

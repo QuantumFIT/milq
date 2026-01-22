@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#solvers=(z3 cvc5 yices2 opensmt smtinterpol z3alpha)
-solvers=(z3)
+solvers=(Portfolio_binary)
+#solvers=(z3)
 max_q=10
 timeout=300
 

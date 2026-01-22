@@ -15,10 +15,10 @@ if len(sys.argv) > 1:
     d1 = int(sys.argv[2])
     solver = sys.argv[3]
 else:
-    n = 2
+    n = 1
     d1 = n
     solver = "z3"
-gen = SMTLibGenerator()
+gen = SMTLibGenerator(approximate_equivalence=False, logic="QF_NIA")
 gate_set = ['I', 'H', 'S', 'T', 'CX']
 synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 

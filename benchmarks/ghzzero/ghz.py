@@ -17,8 +17,8 @@ if len(sys.argv) > 1:
 else:
     n = 2
     d1 = n
-    solver = "z3"
-gen = SMTLibGenerator()
+    solver = ""
+gen = SMTLibGenerator(approximate_equivalence=False, logic="QF_NIA")
 gate_set = ['I', 'H', 'S', 'T', 'CX']
 synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 
@@ -52,19 +52,12 @@ vector_pairs = [(input_vec, output_vec)]
 
 start_time = time.time()
 try:
-    synthesizer.synthesis(vector_pairs, n, d1, "ghzzero.smt2")
+    synthesizer.synthesis_gate_optimal(vector_pairs, n, d1, "ghzzero.smt2")
     #synthesizer.solve_and_extract_circuit("ghzzero.smt2", n, d1, "ghzzero.qasm", solver)
     end_time = time.time()
-    #print(f"sat")
-    #print(f"Time taken: {end_time - start_time} seconds")
-    #print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")
-    print(f"Number of assertions: {gen.num_of_assertions}")
-    print(f"Number of bool variables: {gen.num_of_bool_variables}")
-    print(f"Number of int variables: {gen.num_of_int_variables}")
-    print(f"Number of qubits: {n}")
-    print(f"Number of gates: {d1}")
-    print(f"Gate set size: {len(gate_set)}")
-    print(f"Number of vector pairs: {len(vector_pairs)}")
+    print(f"sat")
+    print(f"Time taken: {end_time - start_time} seconds")
+    print(f"Memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")
     
 except Exception:
     print(f"unsat")

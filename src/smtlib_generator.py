@@ -66,7 +66,7 @@ class SMTLibGenerator:
             eqs.append(f"(= k{pair_idx} {i})")
         self.add_assertion(f"(or {' '.join(eqs)})")
             
-    def add_rescaling(self, r1, r2, v1, v2, pair_idx):
+    def add_rescaling(self, r1, r2, v1, v2, pair_idx, d1):
         # pow2 * M(or I) * v1 = r1
         def multiply_by_m_scaled(result_vec, source_vec, pow2_var):
             eqs = []
@@ -106,10 +106,59 @@ class SMTLibGenerator:
         if self.logic == "QF_NIA":
             rescale_vec1 = f"(ite (= (mod n{pair_idx} 2) 0) {r1_multiply_by_i} {r1_multiply_by_m})"
             rescale_vec2 = f"(ite (= (mod n{pair_idx} 2) 0) {r2_multiply_by_i} {r2_multiply_by_m})"
+            self.add_assertion(f"(ite (< {v1.k} {v2.k}) {rescale_vec1} {rescale_vec2})")
+        elif self.logic == "QF_LIA":
+            # enumerate all rescaling outcomes based on
+            for i in range(d1 // 2):
+                pow2_var = f"{2 ** i}"
+                r1_multiply_by_m = f"(and {multiply_by_m_scaled(r1, v1, pow2_var)} {multiply_by_identity_unscaled(r2, v2)})"
+                r1_multiply_by_i = f"(and {multiply_by_identity_scaled(r1, v1, pow2_var)} {multiply_by_identity_unscaled(r2, v2)})"
+                r2_multiply_by_m = f"(and {multiply_by_m_scaled(r2, v2, pow2_var)} {multiply_by_identity_unscaled(r1, v1)})"
+                r2_multiply_by_i = f"(and {multiply_by_identity_scaled(r2, v2, pow2_var)} {multiply_by_identity_unscaled(r1, v1)})"
+                rescale_vec1 = f"(ite (= (mod n{pair_idx} 2) 0) {r1_multiply_by_i} {r1_multiply_by_m})"
+                rescale_vec2 = f"(ite (= (mod n{pair_idx} 2) 0) {r2_multiply_by_i} {r2_multiply_by_m})"
+                rescale_formula = f"(=> (= k{pair_idx} {i}) (ite (< {v1.k} {v2.k}) {rescale_vec1} {rescale_vec2}))"
+                self.add_assertion(rescale_formula)
+        
         else:
             rescale_vec1 = f"(ite is_even {r1_multiply_by_i} {r1_multiply_by_m})"
             rescale_vec2 = f"(ite is_even {r2_multiply_by_i} {r2_multiply_by_m})"
-        self.add_assertion(f"(ite (< {v1.k} {v2.k}) {rescale_vec1} {rescale_vec2})")
+            self.add_assertion(f"(ite (< {v1.k} {v2.k}) {rescale_vec1} {rescale_vec2})")
+            
+    def remove_identities(self, gate_set, n, depth):
+        #f"L{layer}_{gate}_q{q}" single qubit
+        #f"L{layer}_{gate}_c{c}t{t}" two qubit
+        #f"L{layer}_{gate}_c{c1}c{c2}t{t}" three qubit
+        for i in range(1, depth):
+            for q in range(n):
+                if 'H' in gate_set:
+                    prev_layer = f"L{i - 1}_H_q{q}"
+                    curr_layer = f"L{i}_H_q{q}"
+                    # not in this layer or the next layer
+                    self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
+                if 'Z' in gate_set:
+                    prev_layer = f"L{i - 1}_Z_q{q}"
+                    curr_layer = f"L{i}_Z_q{q}"
+                    # not in this layer or the next layer
+                    self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
+                if 'X' in gate_set:
+                    prev_layer = f"L{i - 1}_X_q{q}"
+                    curr_layer = f"L{i}_X_q{q}"
+                    # not in this layer or the next layer
+                    self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
+                if 'Y' in gate_set:
+                    prev_layer = f"L{i - 1}_Y_q{q}"
+                    curr_layer = f"L{i}_Y_q{q}"
+                    # not in this layer or the next layer
+                    self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
+                if 'CX' in gate_set:
+                    for q2 in range(n):
+                        if q2 == q: continue
+                        prev_layer = f"L{i - 1}_CX_c{q}t{q2}"
+                        curr_layer = f"L{i}_CX_c{q}t{q2}"
+                        # not in this layer or the next layer
+                        self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
+            
         
     
     def maximize(self, expression):
@@ -162,17 +211,6 @@ class SMTLibGenerator:
     
     def generate(self, complex_representation=None):
         if complex_representation is None:
-            raise ValueError()
-        
-        if self.rescaling:
-            self.logic = "QF_NRA"
-        elif complex_representation == Complex:
-            self.logic = "QF_NRA"
-        elif complex_representation == Cyclotomic8Dyadic:
-            self.logic = "QF_NIA"
-        elif complex_representation == nTuple:
-            self.logic = "QF_NIA"
-        else:
             raise ValueError()
         
         lines = [f"(set-logic {self.logic})"]

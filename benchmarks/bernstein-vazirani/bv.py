@@ -19,7 +19,7 @@ if len(sys.argv) > 1:
 else:
     n = 3
     d1 = 8
-    solver = "dreal"
+    solver = "opensmt"
     s = "101"
     k_glob = 6
     a = 2**n
@@ -29,7 +29,7 @@ assert(len(s) == n)
 assert(a == 2**n)
 
 
-gen = SMTLibGenerator(logic="QF_NRA", approximate_equivalence=False)
+gen = SMTLibGenerator(logic="QF_LIA", approximate_equivalence=False)
 synthesizer = Synthesizer(gen=gen, gate_set=['I', 'H', 'CX', 'Z'], solver=solver)
 
 
@@ -52,8 +52,6 @@ output_vec[s_index].a = a
 
 vector_pairs = [(input_vec, output_vec)]
 
-
-gate_set = ['I', 'H', 'CX', 'Z']
 
 start_time = time.time()
 try:

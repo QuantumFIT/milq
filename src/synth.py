@@ -906,17 +906,17 @@ class Synthesizer:
                     rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
                     # enumerate possible k's <0, d1/2>
                     # calculate the power and parity check (n - 2k) == 0 if even
-                    self.gen.enumerate_k_values(d1//2)
+                    self.gen.enumerate_k_values(d1//2, pair_idx)
                     self.gen.declare_real(f"pow2{pair_idx}")
                     self.gen.add_assertion(f"(= pow2{pair_idx} (pow 2 k{pair_idx})))")
                     self.gen.declare_real(f"r")
                     self.gen.add_assertion(f"(= r (- n{pair_idx} (* 2 k{pair_idx})))")
                     self.gen.declare_bool(f"is_even{pair_idx}")
                     self.gen.add_assertion(f"(ite (= r 0) (= is_even{pair_idx} true) (= is_even{pair_idx} false))")
-                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target, pair_idx)
+                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target, pair_idx, d1)
                     self.gen.add_assertion(rescaled1 == rescaled2)
                 elif self.gen.logic == "QF_NIA":
-                    # QF_LIA and QF_NIA branch
+                    # QF_NIA branch
                     # rescaling -- add enumeration of all possible powers of 2,
                     # calculate 2^(floor(n/2)) * M * vector
                     # n == abs(last_k - target_k)
@@ -927,12 +927,23 @@ class Synthesizer:
                     # then, compare them
                     rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[d1].name}")
                     rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
-                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target, pair_idx)
+                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target, pair_idx, d1)
                     self.gen.add_assertion(rescaled1 == rescaled2)
                 elif self.gen.logic == "QF_LIA":
+                    # QF_LIA branch -- same rescaling as QF_NIA, but enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
+                    self.gen.declare_integer(f"n{pair_idx}")
+                    self.gen.declare_integer(f"k{pair_idx}")
+                    self.gen.add_assertion(f"(= k{pair_idx} (div n{pair_idx} 2))")
+                    self.gen.add_assertion(f"(ite (< {inter[d1].k} {Target.k}) (= n{pair_idx} (- {Target.k} {inter[d1].k})) (= n{pair_idx} (- {inter[d1].k} {Target.k})))")
+                    rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[d1].name}")
+                    rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
+                    self.gen.add_rescaling(rescaled1, rescaled2, inter[d1], Target, pair_idx, d1)
                     self.gen.add_assertion(rescaled1 == rescaled2)
                 else:
                     raise ValueError("invalid logic")
+        
+        # add constraining rules - no H H, Tdg T, ...
+        self.gen.remove_identities(self.gate_set, n, d1)
         
         smtlib_content = self.gen.generate(complex_representation)
         with open(output_file, 'w') as f:
@@ -1095,7 +1106,7 @@ class Synthesizer:
                             # then, compare them
                             rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[depth].name}")
                             rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
-                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx)
+                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, depth)
                             self.gen.add_assertion(rescaled1 == rescaled2)
                     else:
                         self.gen.add_assertion(inter[depth] == Target)

@@ -10,7 +10,7 @@ from pauli import syn_pauli
 from multiprocessing import cpu_count
 from pathlib import Path
 from pysmt.logics import QF_NRA, QF_LIA, QF_NIA
-from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Minus
+from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Minus, Div, Times
 from pysmt.typing import REAL, INT
 from pysmt.solvers.solver import Solver
 
@@ -1012,8 +1012,8 @@ class Synthesizer:
             i_half = None
             
         self.add_solvers()
-        logic = "QF_NIA"
-        solvers = ["z3", "cvc5", "yices2", "smtinterpol"]
+        logic = "QF_LIA"
+        solvers = ["z3", "cvc5", "yices2", "smtinterpol", "opensmt"]
 
         with Portfolio(solvers,
                         logic=logic,
@@ -1065,6 +1065,7 @@ class Synthesizer:
             depth = 1
             solved = False
             while depth <= d1 and not solved:
+                print("Trying depth: ", depth)
                 for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
                     inter = inter_vectors[pair_idx]
                     # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
@@ -1108,15 +1109,30 @@ class Synthesizer:
                             rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
                             self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, depth)
                             self.gen.add_assertion(rescaled1 == rescaled2)
+                    elif self.gen.logic == "QF_LIA":
+                            self.gen.declare_integer(f"n{pair_idx}")
+                            self.gen.declare_integer(f"k{pair_idx}")
+                            n_sym = self.gen.symbols[f"n{pair_idx}"]
+                            k_sym = self.gen.symbols[f"k{pair_idx}"]
+                            self.gen.add_assertion(And(
+                                LE(Times(k_sym, Int(2)), n_sym),
+                                LT(n_sym, Times(Plus(k_sym, Int(1)), Int(2)))
+                            ))
+                            self.gen.add_assertion(Ite(LT(inter[depth].k, Target.k), Equals(self.gen.symbols[f"n{pair_idx}"], Minus(Target.k, inter[depth].k)), Equals(self.gen.symbols[f"n{pair_idx}"], Minus(inter[depth].k, Target.k))))
+                            rescaled1 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled1_{inter[depth].name}")
+                            rescaled2 = Vector(q=vec_len, generator=self.gen, element_representation=complex_representation, k=0, n=n, name=f"Rescaled2_{Target.name}")
+                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, d1)
+                            self.gen.add_assertion(rescaled1 == rescaled2)
                     else:
                         self.gen.add_assertion(inter[depth] == Target)
-                #print(f"Solving with {self.gen.name}...")
+                print(f"Solving with {self.gen.name}...")
                 result = self.gen.solver.solve()
                                 
                 #print(f"Result: {result}")
                 if result:
                     solved = True
                     model = self.gen.solver.get_model()
+                    print(model)
                 else:
                     self.gen.solver.pop()
                     depth += 1

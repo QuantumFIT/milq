@@ -117,9 +117,8 @@ class SMTLibGenerator:
                 r2_multiply_by_i = f"(and {multiply_by_identity_scaled(r2, v2, pow2_var)} {multiply_by_identity_unscaled(r1, v1)})"
                 rescale_vec1 = f"(ite (= (mod n{pair_idx} 2) 0) {r1_multiply_by_i} {r1_multiply_by_m})"
                 rescale_vec2 = f"(ite (= (mod n{pair_idx} 2) 0) {r2_multiply_by_i} {r2_multiply_by_m})"
-                rescale_formula = f"(=> (= k{pair_idx} {i}) (ite (< {v1.k} {v2.k}) {rescale_vec1} {rescale_vec2}))"
+                rescale_formula = f"(=> (= k{pair_idx} {i}) (ite (= {v1.k} {v2.k}) {v1 == v2} (ite (< {v1.k} {v2.k}) {rescale_vec1} {rescale_vec2})))"
                 self.add_assertion(rescale_formula)
-        
         else:
             rescale_vec1 = f"(ite is_even {r1_multiply_by_i} {r1_multiply_by_m})"
             rescale_vec2 = f"(ite is_even {r2_multiply_by_i} {r2_multiply_by_m})"
@@ -236,7 +235,7 @@ class SMTLibGenerator:
         return "\n".join(lines)
     
 class PortfolioSolver:
-    def __init__(self, solver=None):
+    def __init__(self, solver=None, logic="QF_LIA"):
         self.solver = solver
         self.declarations = []
         self.declared_names = set()
@@ -249,7 +248,7 @@ class PortfolioSolver:
         self.num_of_bool_variables = 0
         self.num_of_int_variables = 0
         self.num_of_real_variables = 0
-        self.logic = "QF_NIA"
+        self.logic = logic
         self.Symbol = Symbol
         self.REAL = REAL
         self.INT = INT
@@ -317,7 +316,7 @@ class PortfolioSolver:
             eqs.append(f"(= k{pair_idx} {i})")
         self.add_assertion(f"(or {' '.join(eqs)})")
             
-    def add_rescaling(self, r1, r2, v1, v2, pair_idx):
+    def add_rescaling(self, r1, r2, v1, v2, pair_idx, d1):
         # pow2 * M(or I) * v1 = r1
         
         # sometimes .solve() was throwing errors, because some values are not represented as pysmt expressions properly
@@ -391,12 +390,6 @@ class PortfolioSolver:
             return And(*eqs)
         
         
-        pow2 = self.symbols[f"pow2{pair_idx}"]
-        r1_multiply_by_m = And(multiply_by_m_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))
-        r1_multiply_by_i = And(multiply_by_identity_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))
-        r2_multiply_by_m = And(multiply_by_m_scaled(r2, v2, pow2), multiply_by_identity_unscaled(r1, v1))
-        r2_multiply_by_i = And(multiply_by_identity_scaled(r2, v2, pow2), multiply_by_identity_unscaled(r1, v1))
-        
         # pysmt doesnt have Mod shortcut
         # x mod y = r <=> x = y * q + r, r in <0, y>
         # so we can use this to define Mod
@@ -406,7 +399,27 @@ class PortfolioSolver:
             self.add_assertion(And(Equals(x, Plus(Times(y, q), r)), GE(r, Int(0)), LT(r, y)))
             return r
         
-        
-        rescale_vec1 = Ite(Equals(Mod(self.symbols[f"n{pair_idx}"], Int(2)), Int(0)), r1_multiply_by_i, r1_multiply_by_m)
-        rescale_vec2 = Ite(Equals(Mod(self.symbols[f"n{pair_idx}"], Int(2)), Int(0)), r2_multiply_by_i, r2_multiply_by_m)
-        self.add_assertion(Ite(LT(v1.k, v2.k), rescale_vec1, rescale_vec2))
+        if self.logic == "QF_LIA":
+            if (d1 // 2) == 0:
+                d1 = 2
+            for i in range(d1 // 2):
+                pow2 = to_pysmt(2 ** i)
+                r1_multiply_by_m = And(multiply_by_m_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))
+                r1_multiply_by_i = And(multiply_by_identity_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))
+                r2_multiply_by_m = And(multiply_by_m_scaled(r2, v2, pow2), multiply_by_identity_unscaled(r1, v1))
+                r2_multiply_by_i = And(multiply_by_identity_scaled(r2, v2, pow2), multiply_by_identity_unscaled(r1, v1))
+                rescale_vec1 = Ite(Equals(Mod(self.symbols[f"n{pair_idx}"], Int(2)), Int(0)), r1_multiply_by_i, r1_multiply_by_m)
+                rescale_vec2 = Ite(Equals(Mod(self.symbols[f"n{pair_idx}"], Int(2)), Int(0)), r2_multiply_by_i, r2_multiply_by_m)
+                rescale_formula = Implies(Equals(self.symbols[f"k{pair_idx}"], Int(i)), Ite(LT(v1.k, v2.k), rescale_vec1, rescale_vec2))
+                same_k_formula = Ite(Equals(v1.k, v2.k), v1 == v2, rescale_formula)
+                self.add_assertion(same_k_formula)
+        elif self.logic == "QF_NIA":
+            pow2 = self.symbols[f"pow2{pair_idx}"]
+            r1_multiply_by_m = And(multiply_by_m_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))
+            r1_multiply_by_i = And(multiply_by_identity_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))
+            r2_multiply_by_m = And(multiply_by_m_scaled(r2, v2, pow2), multiply_by_identity_unscaled(r1, v1))
+            r2_multiply_by_i = And(multiply_by_identity_scaled(r2, v2, pow2), multiply_by_identity_unscaled(r1, v1))
+            rescale_vec1 = Ite(Equals(Mod(self.symbols[f"n{pair_idx}"], Int(2)), Int(0)), r1_multiply_by_i, r1_multiply_by_m)
+            rescale_vec2 = Ite(Equals(Mod(self.symbols[f"n{pair_idx}"], Int(2)), Int(0)), r2_multiply_by_i, r2_multiply_by_m)
+            same_k_formula = Ite(Equals(v1.k, v2.k), v1 == v2, Ite(LT(v1.k, v2.k), rescale_vec1, rescale_vec2))
+            self.add_assertion(same_k_formula)

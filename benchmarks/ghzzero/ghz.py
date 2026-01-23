@@ -6,7 +6,7 @@ import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
 from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
-from smtlib_generator import SMTLibGenerator
+from smtlib_generator import SMTLibGenerator, PortfolioSolver
 
 
 # optional sys arguments n, d1, solver
@@ -15,10 +15,10 @@ if len(sys.argv) > 1:
     d1 = int(sys.argv[2])
     solver = sys.argv[3]
 else:
-    n = 2
+    n = 5
     d1 = n
-    solver = ""
-gen = SMTLibGenerator(approximate_equivalence=False, logic="QF_NIA")
+    solver = "z3"
+gen = SMTLibGenerator(logic="QF_LIA")
 gate_set = ['I', 'H', 'S', 'T', 'CX']
 synthesizer = Synthesizer(gen=gen, gate_set=gate_set, solver=solver)
 
@@ -50,10 +50,14 @@ output_vec[2**n - 1] = Cyclotomic8Dyadic.one(gen)
 
 vector_pairs = [(input_vec, output_vec)]
 
+for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
+    print(f"Input vector {pair_idx}: {input_vector.vec}")
+    print(f"Output vector {pair_idx}: {output_vector.vec}")
+
 start_time = time.time()
 try:
-    synthesizer.synthesis_gate_optimal(vector_pairs, n, d1, "ghzzero.smt2")
-    #synthesizer.solve_and_extract_circuit("ghzzero.smt2", n, d1, "ghzzero.qasm", solver)
+    synthesizer.synthesis(vector_pairs, n, d1, "ghzzero.smt2")
+    synthesizer.solve_and_extract_circuit("ghzzero.smt2", n, d1, "ghzzero.qasm", solver)
     end_time = time.time()
     print(f"sat")
     print(f"Time taken: {end_time - start_time} seconds")

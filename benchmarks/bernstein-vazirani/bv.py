@@ -7,7 +7,7 @@ import resource
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
 from synth import Synthesizer
 from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic, nTuple
-from smtlib_generator import SMTLibGenerator
+from smtlib_generator import SMTLibGenerator, PortfolioSolver
 
 if len(sys.argv) > 1:
     n = int(sys.argv[1])
@@ -29,7 +29,7 @@ assert(len(s) == n)
 assert(a == 2**n)
 
 
-gen = SMTLibGenerator(logic="QF_LIA", approximate_equivalence=False)
+gen = SMTLibGenerator(logic="QF_LIA")
 synthesizer = Synthesizer(gen=gen, gate_set=['I', 'H', 'CX', 'Z'], solver=solver)
 
 

@@ -1070,6 +1070,7 @@ class Synthesizer:
                     inter = inter_vectors[pair_idx]
                     # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
                     self.encode_layer(inter[depth-1], inter[depth], depth-1, n, vec_len, inv_sqrt2, minus1, i_phase, t_phase, one_half, i_half, complex_representation)
+                    self.gen.add_constraints(self.gate_set, depth-1, n)
                 self.gen.solver.push()
                 
                 # inter[depth] == Target
@@ -1132,7 +1133,6 @@ class Synthesizer:
                 if result:
                     solved = True
                     model = self.gen.solver.get_model()
-                    print(model)
                 else:
                     self.gen.solver.pop()
                     depth += 1

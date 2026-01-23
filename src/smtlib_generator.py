@@ -133,29 +133,24 @@ class SMTLibGenerator:
                 if 'H' in gate_set:
                     prev_layer = f"L{i - 1}_H_q{q}"
                     curr_layer = f"L{i}_H_q{q}"
-                    # not in this layer or the next layer
                     self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
                 if 'Z' in gate_set:
                     prev_layer = f"L{i - 1}_Z_q{q}"
                     curr_layer = f"L{i}_Z_q{q}"
-                    # not in this layer or the next layer
                     self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
                 if 'X' in gate_set:
                     prev_layer = f"L{i - 1}_X_q{q}"
                     curr_layer = f"L{i}_X_q{q}"
-                    # not in this layer or the next layer
                     self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
                 if 'Y' in gate_set:
                     prev_layer = f"L{i - 1}_Y_q{q}"
                     curr_layer = f"L{i}_Y_q{q}"
-                    # not in this layer or the next layer
                     self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
                 if 'CX' in gate_set:
                     for q2 in range(n):
                         if q2 == q: continue
                         prev_layer = f"L{i - 1}_CX_c{q}t{q2}"
                         curr_layer = f"L{i}_CX_c{q}t{q2}"
-                        # not in this layer or the next layer
                         self.add_assertion(f"(or (not {prev_layer}) (not {curr_layer}))")
             
         
@@ -423,3 +418,35 @@ class PortfolioSolver:
             rescale_vec2 = Ite(Equals(Mod(self.symbols[f"n{pair_idx}"], Int(2)), Int(0)), r2_multiply_by_i, r2_multiply_by_m)
             same_k_formula = Ite(Equals(v1.k, v2.k), v1 == v2, Ite(LT(v1.k, v2.k), rescale_vec1, rescale_vec2))
             self.add_assertion(same_k_formula)
+    
+    def add_constraints(self, gate_set, last_encoded_layer, qubits):
+        if last_encoded_layer < 1:
+            return
+    
+        #f"L{layer}_{gate}_q{q}" single qubit
+        #f"L{layer}_{gate}_c{c}t{t}" two qubit
+        #f"L{layer}_{gate}_c{c1}c{c2}t{t}" three qubit
+        i = last_encoded_layer
+        for q in range(qubits):
+            if 'H' in gate_set:
+                prev_layer = f"L{i - 1}_H_q{q}"
+                curr_layer = f"L{i}_H_q{q}"
+                self.add_assertion(Or(Not(self.symbols[prev_layer]), Not(self.symbols[curr_layer])))
+            if 'Z' in gate_set:
+                prev_layer = f"L{i - 1}_Z_q{q}"
+                curr_layer = f"L{i}_Z_q{q}"
+                self.add_assertion(Or(Not(self.symbols[prev_layer]), Not(self.symbols[curr_layer])))
+            if 'X' in gate_set:
+                prev_layer = f"L{i - 1}_X_q{q}"
+                curr_layer = f"L{i}_X_q{q}"
+                self.add_assertion(Or(Not(self.symbols[prev_layer]), Not(self.symbols[curr_layer])))
+            if 'Y' in gate_set:
+                prev_layer = f"L{i - 1}_Y_q{q}"
+                curr_layer = f"L{i}_Y_q{q}"
+                self.add_assertion(Or(Not(self.symbols[prev_layer]), Not(self.symbols[curr_layer])))
+            if 'CX' in gate_set:
+                for q2 in range(qubits):
+                    if q2 == q: continue
+                    prev_layer = f"L{i - 1}_CX_c{q}t{q2}"
+                    curr_layer = f"L{i}_CX_c{q}t{q2}"
+                    self.add_assertion(Or(Not(self.symbols[prev_layer]), Not(self.symbols[curr_layer])))

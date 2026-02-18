@@ -1,302 +1,302 @@
-import numpy as np
 import re
-from complex_numbers_smtlib import Complex, Cyclotomic8Dyadic, Vector
-from smtlib_generator import SMTLibGenerator
+from complex_numbers_smtlib import Complex, Vector, nTuple
+from complex_numbers_smtlib import Cyclotomic8Dyadic as FiveTuple
+from gates import GateSet
 
-def parse_file(qasm_file, complex_representation=None, generator=None):
-    if complex_representation is None:
-        complex_representation = Cyclotomic8Dyadic
-    with open(qasm_file, 'r') as f:
-        qasm_content = f.read()
-    
-    lines = qasm_content.split('\n')
-    n_qubits = None
-    gates = []
-    vectors = []
-    # list of (gate, [0, 1, 2 ... ]) --> (gatestr, qubits_vector)
-    parsed_file = []
-    qreg_name = None
-    
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith('//') or line.startswith('OPENQASM') or line.startswith('include'):
-            continue
+
+class Simulator:
+    def __init__(self, qasm_file, complex_representation=FiveTuple):
+        self.qasm_file = qasm_file
+        self.complex_representation = complex_representation
+        self.stats = {}
+        self.stats['gate_set'] = GateSet()
+        self.stats['d'] = 0
+        self.stats['q'] = 0
+        self.stats['qreg'] = ''
+
+    def parse_file(self):
+        with open(self.qasm_file, 'r') as f:
+            qasm_content = f.read()
         
-        if line.startswith('qreg'):
-            parts = line.split('[')
-            if len(parts) > 1:
-                n_qubits = int(parts[1].split(']')[0])
-                qreg_name = parts[0].split(' ')[1].strip()
-                for i in range(2**n_qubits):
-                    vectors.append(Vector(q=2**n_qubits, generator=generator, element_representation=complex_representation, k=0))
-        
-        if line.startswith('creg'):
-            continue
-        # Match qreg_name followed by optional whitespace and '['
-        qreg_pattern = re.compile(rf'{re.escape(qreg_name)}\s*\[')
-        if qreg_pattern.search(line) and not line.startswith('qreg') and not line.startswith('creg'):
-            gate_line = line.rstrip(';').strip()
-            # parse the gate and its qubits as (gate, q1, q2, ...)
-            parts = gate_line.split(' ')
-            gate = parts[0]
-            rest = ' '.join(parts[1:]).split(',')
-            qubits = []
-            for part in rest:
-                part = part.strip()
-                if qreg_pattern.search(part):
-                    qubits.append(int(part.split('[')[1].split(']')[0]))
-            parsed_file.append((gate, qubits))
-    return parsed_file, n_qubits, vectors
-        
+        lines = qasm_content.split('\n')
+        vectors = []
+        gates = []
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('//') or line.startswith('OPENQASM') or line.startswith('include'):
+                continue
+            if line.startswith('qreg'):
+                parts = line.split('[')
+                if len(parts) > 1:
+                    self.stats['q'] = int(parts[1].split(']')[0])
+                    self.stats['qreg'] = parts[0].split(' ')[1].strip()
+                    for i in range(2**self.stats['q']):
+                        vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
+                        vec[i] = self.complex_representation.one(None)
+                        vectors.append(vec)
+                continue
+            
+            if line.startswith('creg'):
+                continue
+            qreg_name = self.stats['qreg']
+            qreg_pattern = re.compile(rf'{re.escape(f"{qreg_name}")}\s*\[')
+            if qreg_pattern.search(line):
+                gate_line = line.rstrip(';').strip()
+                # parse the gate and its qubits as (gate, q1, q2, ...)
+                parts = gate_line.split(' ')
+                gate = parts[0].lower()
+                if gate not in self.stats['gate_set']:
+                    self.stats['gate_set'].append(gate)
+                rest = ' '.join(parts[1:]).split(',')
+                qubits = []
+                for part in rest:
+                    part = part.strip()
+                    if qreg_pattern.search(part):
+                        qubits.append(int(part.split('[')[1].split(']')[0]))
+                gates.append((gate, qubits))
+                self.stats['d'] += 1
+                continue
 
-def simulate(vectors, parsed_file, complex_representation, n_qubits, generator=None):
-    # save the input vectors
-    
-    input_vectors = []
-    for i, vector in enumerate(vectors):
-        input_vectors.append(vector.copy())
+            raise Exception(f"Failed to parse input file")
+        return gates, vectors
+            
 
-    # constants declarations
-    if complex_representation == Complex:
-        inv_sqrt2 = complex_representation.inv_sqrt2(generator)
-        minus1    = complex_representation.minus_one(generator)
-        i_phase   = complex_representation.i_phase(generator)
-        t_phase   = complex_representation.t_phase(generator)
-        one_half  = complex_representation.one_half(generator)
-        i_half    = complex_representation.i_half(generator)
-    else:
-        inv_sqrt2 = None
-        minus1 = None
-        i_phase = None
-        t_phase = None
-        one_half = None
-        i_half = None
-
-    
-    for (op, qubits) in parsed_file:
+    def simulate(self, vectors, parsed_file):        
+        input_vectors = []
         for i, vector in enumerate(vectors):
-            # apply the gate to each of the vectors
-            new_vec = vector.copy()
-            if op == 'h':
-                # hadamard
-                visited = set()
-                for a in range(len(vector)):
-                    if a in visited: continue
-                    b = a ^ (1 << qubits[0])
-                    visited.update([a,b])
-                    if complex_representation == Complex:
-                        new_vec[a] = ((vector[a] + vector[b]) * inv_sqrt2)
-                        new_vec[b] = ((vector[a] + (vector[b] * minus1)) * inv_sqrt2)
-                    elif complex_representation == Cyclotomic8Dyadic:
-                        new_vec[a] = (vector[a] + vector[b]).divide_by_sqrt2(generator)
-                        new_vec[b] = (vector[a] + (vector[b].multiply_by_minus_one(generator))).divide_by_sqrt2(generator)
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = int(vector.k) + 1
-                
-            elif op == 'id':
-                for a in range(len(vector)):
-                    new_vec[a] = vector[a]
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = vector.k
-            
-            elif op == 's':
-                for a in range(len(vector)):
-                    bit = (a >> qubits[0]) & 1
-                    if bit == 0:
-                        new_vec[a] = vector[a]
-                    else:
-                        if complex_representation == Complex:
-                            new_vec[a] = vector[a] * i_phase
-                        elif complex_representation == Cyclotomic8Dyadic:
-                            new_vec[a] = vector[a].multiply_by_i(generator)
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = vector.k
-            
-            elif op == 'sdg':
-                for a in range(len(vector)):
-                    bit = (a >> qubits[0]) & 1
-                    if bit == 0:
-                        new_vec[a] = vector[a]
-                    else:
-                        if complex_representation == Complex:
-                            new_vec[a] = vector[a] * i_phase
-                        elif complex_representation == Cyclotomic8Dyadic:
-                            new_vec[a] = vector[a].multiply_by_minus_i(generator)
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = vector.k
+            input_vectors.append(vector.copy())
 
-            elif op == 't':
-                for a in range(len(vector)):
-                    bit = (a >> qubits[0]) & 1
-                    if bit == 0:
-                        new_vec[a] = vector[a]
-                    else:
-                        if complex_representation == Complex:
-                            new_vec[a] = vector[a] * t_phase
-                        elif complex_representation == Cyclotomic8Dyadic:
-                            new_vec[a] = vector[a].multiply_by_omega(generator)
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = vector.k
+        # constants declarations
+        if self.complex_representation == Complex:
+            inv_sqrt2 = self.complex_representation.inv_sqrt2(None)
+            minus1    = self.complex_representation.minus_one(None)
+            i_phase   = self.complex_representation.i_phase(None)
+            t_phase   = self.complex_representation.t_phase(None)
+            one_half  = self.complex_representation.one_half(None)
+            i_half    = self.complex_representation.i_half(None)
 
-            elif op == 'tdg':                
-                for a in range(len(vector)):
-                    bit = (a >> qubits[0]) & 1
-                    if bit == 0:
+        for (op, qubits) in parsed_file:
+            for i, vector in enumerate(vectors):
+                # apply the gate to each of the vectors
+                new_vec = vector.copy()
+                if op == 'h':
+                    visited = set()
+                    for a in range(len(vector)):
+                        if a in visited: continue
+                        b = a ^ (1 << qubits[0])
+                        visited.update([a, b])
+                        if self.complex_representation == Complex:
+                            new_vec[a] = ((vector[a] + vector[b]) * inv_sqrt2)
+                            new_vec[b] = ((vector[a] + (vector[b] * minus1)) * inv_sqrt2)
+                        elif self.complex_representation == FiveTuple:
+                            new_vec[a] = (vector[a] + vector[b]).divide_by_sqrt2(None)
+                            new_vec[b] = (vector[a] + (vector[b].multiply_by_minus_one(None))).divide_by_sqrt2(None)
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = int(vector.k) + 1
+                    
+                elif op == 'id':
+                    for a in range(len(vector)):
                         new_vec[a] = vector[a]
-                    else:
-                        if complex_representation == Complex:
-                            new_vec[a] = vector[a] * t_phase
-                        elif complex_representation == Cyclotomic8Dyadic:
-                            new_vec[a] = vector[a].multiply_by_omega_counter(generator)
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = vector.k
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = vector.k
                 
-            elif op == 'x':
-                visited = set()
-                for a in range(len(vector)):
-                    if a in visited: continue
-                    b = a ^ (1 << qubits[0])  # Flip bit q
-                    visited.update([a, b])
-                    new_vec[a] = vector[b]
-                    new_vec[b] = vector[a]
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = vector.k
+                elif op == 's':
+                    for a in range(len(vector)):
+                        bit = (a >> qubits[0]) & 1
+                        if bit == 0:
+                            new_vec[a] = vector[a]
+                        else:
+                            if self.complex_representation == Complex:
+                                new_vec[a] = vector[a] * i_phase
+                            elif self.complex_representation == FiveTuple:
+                                new_vec[a] = vector[a].multiply_by_i(None)
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = vector.k
+                
+                elif op == 'sdg':
+                    for a in range(len(vector)):
+                        bit = (a >> qubits[0]) & 1
+                        if bit == 0:
+                            new_vec[a] = vector[a]
+                        else:
+                            if self.complex_representation == Complex:
+                                new_vec[a] = vector[a] * i_phase
+                            elif self.complex_representation == FiveTuple:
+                                new_vec[a] = vector[a].multiply_by_minus_i(None)
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = vector.k
+
+                elif op == 't':
+                    for a in range(len(vector)):
+                        bit = (a >> qubits[0]) & 1
+                        if bit == 0:
+                            new_vec[a] = vector[a]
+                        else:
+                            if self.complex_representation == Complex:
+                                new_vec[a] = vector[a] * t_phase
+                            elif self.complex_representation == FiveTuple:
+                                new_vec[a] = vector[a].multiply_by_omega(None)
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = vector.k
+
+                elif op == 'tdg':                
+                    for a in range(len(vector)):
+                        bit = (a >> qubits[0]) & 1
+                        if bit == 0:
+                            new_vec[a] = vector[a]
+                        else:
+                            if self.complex_representation == Complex:
+                                new_vec[a] = vector[a] * t_phase
+                            elif self.complex_representation == FiveTuple:
+                                new_vec[a] = vector[a].multiply_by_omega_counter(None)
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = vector.k
                     
-            elif op == 'sx':
-                visited = set()
-                for a in range(len(vector)):
-                    if a in visited: continue
-                    b = a ^ (1 << qubits[0])
-                    visited.update([a,b])
-                    if complex_representation == Complex:
-                        new_vec[a] = (((vector[a] + vector[b]) * one_half)  + (vector[a] - vector[b]) * i_half)
-                        new_vec[b] = (((vector[a] + vector[b]) * one_half)  + (vector[b] - vector[a]) * i_half)
-                    elif complex_representation == Cyclotomic8Dyadic:
-                        new_vec[a] = (((vector[a] + vector[b]))  + (vector[a] - vector[b]).multiply_by_i(generator))
-                        new_vec[b] = (((vector[a] + vector[b]))  + (vector[b] - vector[a]).multiply_by_i(generator))
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = int(vector.k) + 2
-                    
-            elif op == 'sxdg':
-                visited = set()
-                for a in range(len(vector)):
-                    if a in visited: continue
-                    b = a ^ (1 << qubits[0])
-                    visited.update([a,b])
-                    if complex_representation == Complex:
-                        new_vec[a] = (((vector[a] + vector[b]) * one_half)  + (vector[b] - vector[a]) * i_half)
-                        new_vec[b] = (((vector[a] + vector[b]) * one_half)  + (vector[a] - vector[b]) * i_half)
-                    elif complex_representation == Cyclotomic8Dyadic:
-                        new_vec[a] = (((vector[a] + vector[b]))  + (vector[b] - vector[a]).multiply_by_i(generator))
-                        new_vec[b] = (((vector[a] + vector[b]))  + (vector[a] - vector[b]).multiply_by_i(generator))
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = int(vector.k) + 2
-                    
-            elif op == 'y':
-                visited = set()
-                for a in range(len(vector)):
-                    if a in visited: continue
-                    b = a ^ (1 << qubits[0])
-                    visited.update([a, b])
-                    bit = (a >> qubits[0]) & 1
-                    if bit == 0:
-                        if complex_representation == Complex:
-                            new_vec[b] = (vector[a] * i_phase)
-                            new_vec[a] = (vector[b] * i_phase.conjugate(generator))
-                        elif complex_representation == Cyclotomic8Dyadic:
-                            new_vec[b] = vector[a].multiply_by_i(generator)
-                            new_vec[a] = vector[b].multiply_by_minus_i(generator)
-                    else:
-                        if complex_representation == Complex:
-                            new_vec[b] = (vector[a] * i_phase.conjugate(generator))
-                            new_vec[a] = (vector[b] * i_phase)
-                        elif complex_representation == Cyclotomic8Dyadic:
-                            new_vec[b] = vector[a].multiply_by_minus_i(generator)
-                            new_vec[a] = vector[b].multiply_by_i(generator)
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = vector.k
-                    
-            elif op == 'z':
-                for a in range(len(vector)):
-                    bit = (a >> qubits[0]) & 1
-                    if bit == 0:
-                        new_vec[a] = vector[a]
-                    else:
-                        if complex_representation == Complex:
-                            new_vec[a] = vector[a] * minus1
-                        elif complex_representation == Cyclotomic8Dyadic:
-                            new_vec[a] = vector[a].multiply_by_minus_one(generator)
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = vector.k
-                    
-            elif op == 'cx':
-                for a in range(len(vector)):
-                    control_on = ((a >> qubits[0]) & 1) == 1
-                    if not control_on:
-                        new_vec[a] = vector[a]
-                    else:
-                        b = a ^ (1 << qubits[1])
+                elif op == 'x':
+                    visited = set()
+                    for a in range(len(vector)):
+                        if a in visited: continue
+                        b = a ^ (1 << qubits[0])
+                        visited.update([a, b])
                         new_vec[a] = vector[b]
                         new_vec[b] = vector[a]
-                if complex_representation == Cyclotomic8Dyadic:
-                    new_vec.k = vector.k
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = vector.k
+                        
+                elif op == 'sx':
+                    visited = set()
+                    for a in range(len(vector)):
+                        if a in visited: continue
+                        b = a ^ (1 << qubits[0])
+                        visited.update([a,b])
+                        if self.complex_representation == Complex:
+                            new_vec[a] = (((vector[a] + vector[b]) * one_half)  + (vector[a] - vector[b]) * i_half)
+                            new_vec[b] = (((vector[a] + vector[b]) * one_half)  + (vector[b] - vector[a]) * i_half)
+                        elif self.complex_representation == FiveTuple:
+                            new_vec[a] = (((vector[a] + vector[b]))  + (vector[a] - vector[b]).multiply_by_i(None))
+                            new_vec[b] = (((vector[a] + vector[b]))  + (vector[b] - vector[a]).multiply_by_i(None))
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = int(vector.k) + 2
+                        
+                elif op == 'sxdg':
+                    visited = set()
+                    for a in range(len(vector)):
+                        if a in visited: continue
+                        b = a ^ (1 << qubits[0])
+                        visited.update([a,b])
+                        if self.complex_representation == Complex:
+                            new_vec[a] = (((vector[a] + vector[b]) * one_half)  + (vector[b] - vector[a]) * i_half)
+                            new_vec[b] = (((vector[a] + vector[b]) * one_half)  + (vector[a] - vector[b]) * i_half)
+                        elif self.complex_representation == FiveTuple:
+                            new_vec[a] = (((vector[a] + vector[b]))  + (vector[b] - vector[a]).multiply_by_i(None))
+                            new_vec[b] = (((vector[a] + vector[b]))  + (vector[a] - vector[b]).multiply_by_i(None))
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = int(vector.k) + 2
+                        
+                elif op == 'y':
+                    visited = set()
+                    for a in range(len(vector)):
+                        if a in visited: continue
+                        b = a ^ (1 << qubits[0])
+                        visited.update([a, b])
+                        bit = (a >> qubits[0]) & 1
+                        if bit == 0:
+                            if self.complex_representation == Complex:
+                                new_vec[b] = (vector[a] * i_phase)
+                                new_vec[a] = (vector[b] * i_phase.conjugate(None))
+                            elif self.complex_representation == FiveTuple:
+                                new_vec[b] = vector[a].multiply_by_i(None)
+                                new_vec[a] = vector[b].multiply_by_minus_i(None)
+                        else:
+                            if self.complex_representation == Complex:
+                                new_vec[b] = (vector[a] * i_phase.conjugate(None))
+                                new_vec[a] = (vector[b] * i_phase)
+                            elif self.complex_representation == FiveTuple:
+                                new_vec[b] = vector[a].multiply_by_minus_i(None)
+                                new_vec[a] = vector[b].multiply_by_i(None)
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = vector.k
+                        
+                elif op == 'z':
+                    for a in range(len(vector)):
+                        bit = (a >> qubits[0]) & 1
+                        if bit == 0:
+                            new_vec[a] = vector[a]
+                        else:
+                            if self.complex_representation == Complex:
+                                new_vec[a] = vector[a] * minus1
+                            elif self.complex_representation == FiveTuple:
+                                new_vec[a] = vector[a].multiply_by_minus_one(None)
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = vector.k
+                        
+                elif op == 'cx':
+                    for a in range(len(vector)):
+                        control_on = ((a >> qubits[0]) & 1) == 1
+                        if not control_on:
+                            new_vec[a] = vector[a]
+                        else:
+                            b = a ^ (1 << qubits[1])
+                            new_vec[a] = vector[b]
+                            new_vec[b] = vector[a]
+                    if self.complex_representation == FiveTuple:
+                        new_vec.k = vector.k
+                        
+                elif op == 'cz':
+                    for a in range(len(vector)):
+                        control_on = ((a >> qubits[0]) & 1) == 1
+                        target_on  = ((a >> qubits[1]) & 1) == 1
+
+                        if control_on and target_on:
+                            if self.complex_representation == Complex:
+                                new_vec[a] = (vector[a] * minus1)
+                            elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                                new_vec[a] = (vector[a].multiply_by_minus_one(None))
+                        else:
+                            new_vec[a] = vector[a]
+
+                    if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        new_vec.k = vector.k
                     
-            elif op == 'cz':
-                for a in range(len(vector)):
-                    control_on = ((a >> qubits[0]) & 1) == 1
-                    target_on  = ((a >> qubits[1]) & 1) == 1
+                vectors[i] = new_vec
 
-                    if control_on and target_on:
-                        if complex_representation == Complex:
-                            new_vec[a] = (vector[a] * minus1)
-                        elif complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                            new_vec[a] = (vector[a].multiply_by_minus_one(generator))
-                    else:
-                        new_vec[a] = vector[a]
 
-                if complex_representation == Cyclotomic8Dyadic or complex_representation == nTuple:
-                    new_vec.k = vector.k
+        results = []
+        for i, vector in enumerate(vectors):
+            results.append((input_vectors[i], vector))
                 
-            vectors[i] = new_vec
+        return results
 
+    def simulate_circuit(self):
+        gates, vectors = self.parse_file()
+        return self.simulate(vectors, gates)
 
-    results = []
-    for i, vector in enumerate(vectors):
-        results.append((input_vectors[i], vector))
-            
-    return results
-
-def simulate_circuit(qasm_file, complex_representation=None, generator=None):
-    if complex_representation is None:
-        complex_representation = Cyclotomic8Dyadic
-    # simulate the qasm file and return [Vector(Complex)] for each basis state for synthesis purposes
-    parsed_file, n_qubits, vectors = parse_file(qasm_file, complex_representation, generator)
-            
-    # initialize the basis states
-    for i in range(2**n_qubits):
-        vector = vectors[i]
-        vector[i] = complex_representation.one(generator)
+    def simulate_rus(self):
+        gates, vectors = self.parse_file()
         
-    return simulate(vectors, parsed_file, complex_representation, n_qubits, generator)
-
-def simulate_rus(qasm_file, complex_representation=None, generator=None):
-    if complex_representation is None:
-        complex_representation = Cyclotomic8Dyadic
-    parsed_file, n_qubits, vectors = parse_file(qasm_file, complex_representation, generator)
-    
-    assert n_qubits == 2
+        if self.stats['q'] != 2:
+            raise NotImplementedError("RUS protocol only supported with 2 qubits")
+                
+        # initialize the basis_states |0>, |1>, |+>
+        vectors = []
+        for i in range(2):
+            vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
+            vector[i] = self.complex_representation.one(None)
+            vectors.append(vector)
             
-    # initialize the basis_states |0>, |1>, |+>
-    vectors = []
-    for i in range(2):
-        vector = Vector(q=2**n_qubits, generator=generator, element_representation=complex_representation, k=0)
-        vector[i] = complex_representation.one(generator)
+        # |+>
+        vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=1)
+        vector[0] = self.complex_representation.one(None)
+        vector[1] = self.complex_representation.one(None)
         vectors.append(vector)
-        
-    # |+>
-    vector = Vector(q=2**n_qubits, generator=generator, element_representation=complex_representation, k=1)
-    vector[0] = complex_representation.one(generator)
-    vector[1] = complex_representation.one(generator)
-    vectors.append(vector)
-        
-    return simulate(vectors, parsed_file, complex_representation, n_qubits, generator)
+
+        return self.simulate(vectors, gates)
+
+    def circuit_stats(self) -> dict:
+            return self.stats
+
+    def print_stats(self):
+        print(f"Qubits: {self.stats['q']}")
+        print(f"Qreg: {self.stats['qreg']}")
+        print(f"Gate set: {self.stats['gate_set']}")
+        print(f"Number of gates: {self.stats['d']}")

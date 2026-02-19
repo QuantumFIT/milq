@@ -1,4 +1,31 @@
+"""
+@file: gates.py
+@author: Jakub Havlík
+@date: 19.02.2026
+@brief: gate-set class implementation
+"""
+
+
+# all supported gates in the tool
+supported_gates = [
+    ['H','S','Sdg','T','I','Tdg','X','Y','Z','SX','SXdg'],
+    ['CX','SWAP', 'iSWAP', 'CH','CS','CSdg','CY','CZ','DCX','CSX', 'XCX', 'ECR', 'MAGIC', 'sqrtSWAP', 'isqrtSWAP'],
+    ['CCX','CSWAP','CCZ', 'RCCX', 'PG']
+]
+
+# convert gate name to number of qubits
+def gate_qubits(gate):
+    for i, gates in enumerate(supported_gates):
+        if gate in gates:
+            return i + 1
+    raise ValueError(f"Gate {gate} is not supported")
+
+
 class GateSet:
+    """
+    represent full gate-set with the information about qubits and weights for synthesis
+    """
+
     def __init__(self, gate_set=None, preset=None):
         # preset -- Clifford+T, Clifford
         # {gate_name: weight, ...}
@@ -6,15 +33,15 @@ class GateSet:
 
         if gate_set is not None:
             for gate in gate_set:
-                self.set_gate(gate, 1)
-                self.set_gate('I', 1)
+                self.set_gate(gate, 1, gate_qubits(gate))
+            self.set_gate('I', 1)
         elif preset is not None:
             if preset == 'Clifford+T':
                 self.set_gate('I', 1)
                 self.set_gate('H', 1)
                 self.set_gate('S', 1)
                 self.set_gate('Sdg', 1)
-                self.set_gate('CX', 1)
+                self.set_gate('CX', 1, 2)
                 self.set_gate('T', 1)
                 self.set_gate('Tdg', 1)
             elif preset == 'Clifford':
@@ -22,26 +49,32 @@ class GateSet:
                 self.set_gate('H', 1)
                 self.set_gate('S', 1)
                 self.set_gate('Sdg', 1)
-                self.set_gate('CX', 1)
+                self.set_gate('CX', 1, 2)
             else:
                 raise ValueError(f"Unknown preset: {preset}")
         # else empty gate set, will be filled later
 
-    def add_gate(self, gate, weight=1):
-        self.gates[gate] = weight
-    
-    def set_gate(self, gate, weight=1):
-        self.gates[gate] = weight
 
-    def append(self, gate, weight=1):
+    # add a new gate to the gate set with corresponding number of qubits and weight
+    def add_gate(self, gate, weight=1, qubits=1):
         self.gates[gate] = weight
+        self.qubits[gate] = qubits
     
+    def set_gate(self, gate, weight=1, qubits=1):
+        self.add_gate(gate, weight, qubits)
+
+    def append(self, gate, weight=1, qubits=1):
+        self.add_gate(gate, weight, qubits)
+    
+    # list all gates (names)
     def list_gates(self):
         gates = []
         for gate in self.gates:
             gates.append(gate)
         return gates
 
+    # define the T-optimality objective
+    # only T weight matters
     def set_t_optimal(self):
         if 'T' not in self.gates or 'Tdg' not in self.gates:
             raise ValueError("T and Tdg are not in the gate set")
@@ -49,12 +82,14 @@ class GateSet:
         self.set_gate('T', 1)
         self.set_gate('Tdg', 1)
 
+    # set only CX count to matter
     def set_cx_optimal(self):
         if 'CX' not in self.gates:
             raise ValueError("CX is not in the gate set")
         self.set_all_to_zero()
         self.set_gate('CX', 1)
 
+    # reset all weights to 0
     def set_all_to_zero(self):
         for gate in self.gates:
             self.gates[gate] = 0
@@ -75,4 +110,3 @@ class GateSet:
 
     def __iter__(self):
         return iter(self.gates)
-    

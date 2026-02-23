@@ -14,7 +14,7 @@ supported_gates = [
 ]
 
 # convert gate name to number of qubits
-def gate_qubits(gate):
+def gate_to_qubits(gate):
     for i, gates in enumerate(supported_gates):
         if gate in gates:
             return i + 1
@@ -30,10 +30,11 @@ class GateSet:
         # preset -- Clifford+T, Clifford
         # {gate_name: weight, ...}
         self.gates = {}
+        self.qubits = {}
 
         if gate_set is not None:
             for gate in gate_set:
-                self.set_gate(gate, 1, gate_qubits(gate))
+                self.set_gate(gate, 1, gate_to_qubits(gate))
             self.set_gate('I', 1)
         elif preset is not None:
             if preset == 'Clifford+T':

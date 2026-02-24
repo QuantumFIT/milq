@@ -62,8 +62,6 @@ class Simulator:
                 # parse the gate and its qubits as (gate, q1, q2, ...)
                 parts = gate_line.split(' ')
                 gate = parts[0].lower()
-                if gate not in self.stats['gate_set']:
-                    self.stats['gate_set'].append(gate)
                 rest = ' '.join(parts[1:]).split(',')
                 qubits = []
                 # parse qubits
@@ -73,6 +71,8 @@ class Simulator:
                         qubits.append(int(part.split('[')[1].split(']')[0]))
                 gates.append((gate, qubits))
                 self.stats['d'] += 1
+                if gate not in self.stats['gate_set']:
+                    self.stats['gate_set'].append(gate, qubits=len(qubits))
                 continue
 
             raise Exception(f"input file parsing failed")
@@ -117,15 +117,15 @@ class Simulator:
                                 new_vec[pos] = (vector[pos] + vector[other]).divide_by_sqrt2(None)
                                 new_vec[other] = (vector[pos] + (vector[other].multiply_by_minus_one(None))).divide_by_sqrt2(None)
                         elif op == 's' or op == 'sdg':
-                            zero_flag = (pos >> qubits[0]) & 1
-                            if zero_flag:
+                            one_flag = (pos >> qubits[0]) & 1
+                            if one_flag:
                                 if self.complex_representation == Complex:
                                     new_vec[pos] = vector[pos] * i_phase if op == 's' else vector[pos] * i_phase.conjugate(None)
                                 elif self.complex_representation == FiveTuple:
                                     new_vec[pos] = vector[pos].multiply_by_i(None) if op == 's' else vector[pos].multiply_by_minus_i(None)
                         elif op == 't' or op == 'tdg':
-                            zero_flag = (pos >> qubits[0]) & 1
-                            if zero_flag:
+                            one_flag = (pos >> qubits[0]) & 1
+                            if one_flag:
                                 if self.complex_representation == Complex:
                                     new_vec[pos] = vector[pos] * t_phase if op == 't' else vector[pos] * t_phase.conjugate(None)
                                 elif self.complex_representation == FiveTuple:
@@ -156,16 +156,16 @@ class Simulator:
                         elif op == 'y':
                             other = pos ^ (1 << qubits[0])
                             modified_positions.append(other)
-                            zero_flag = (pos >> qubits[0]) & 1
+                            one_flag = (pos >> qubits[0]) & 1
                             if self.complex_representation == Complex:
-                                new_vec[pos] = vector[other] * i_phase if zero_flag else vector[other] * i_phase.conjugate(None)
-                                new_vec[other] = vector[pos] * i_phase.conjugate(None) if zero_flag else vector[pos] * i_phase
+                                new_vec[pos] = vector[other] * i_phase if one_flag else vector[other] * i_phase.conjugate(None)
+                                new_vec[other] = vector[pos] * i_phase.conjugate(None) if one_flag else vector[pos] * i_phase
                             elif self.complex_representation == FiveTuple:
-                                new_vec[pos] = vector[other].multiply_by_i(None) if zero_flag else vector[other].multiply_by_minus_i(None)
-                                new_vec[other] = vector[pos].multiply_by_minus_i(None) if zero_flag else vector[pos].multiply_by_i(None)
+                                new_vec[pos] = vector[other].multiply_by_i(None) if one_flag else vector[other].multiply_by_minus_i(None)
+                                new_vec[other] = vector[pos].multiply_by_minus_i(None) if one_flag else vector[pos].multiply_by_i(None)
                         elif op == 'z':
-                            zero_flag = (pos >> qubits[0]) & 1
-                            if zero_flag:
+                            one_flag = (pos >> qubits[0]) & 1
+                            if one_flag:
                                 if self.complex_representation == Complex:
                                     new_vec[pos] = vector[pos] * minus1
                                 elif self.complex_representation == FiveTuple:
@@ -251,6 +251,17 @@ class Simulator:
     """
     def simulate_circuit(self) -> list[tuple[Vector, Vector]]:
         gates, vectors = self.parse_file()
+        return self.simulate(vectors, gates)
+
+
+    """
+    simulate the input circuit on state |0>
+    """
+    def simulate_zero(self) -> list[tuple[Vector, Vector]]:
+        gates, vectors = self.parse_file()
+        vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
+        vec[0] = self.complex_representation.one(None)
+        vectors = [vec]
         return self.simulate(vectors, gates)
 
     """

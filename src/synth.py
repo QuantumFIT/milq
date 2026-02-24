@@ -24,6 +24,9 @@ from gates import GateSet, supported_gates, check_supported
 class Synthesizer:
     def __init__(self, gate_set : GateSet = None, solver : str = None, fidelity_threshold : int = 1.0) -> None:
         self.gen = Generator()
+        if solver is not None:
+            self.gen.mode = "smtlib"
+
         self.gate_set = gate_set
         self.simulator = None
         self.complex_representation = FiveTuple
@@ -503,7 +506,6 @@ class Synthesizer:
                         add_k_eq(bool_var, out.k, inp.k)
         # propagate identities for positions that were not modified by the chosen gate
         # (notG1 and notG2 and ...) -> (out[pos] == inp[pos])
-        print(propagate_identities)
         for pos in range(2**self.q):
             if len(propagate_identities[pos]) == 0: # no gates modified this position, propagate identity
                 expr = out[pos] == inp[pos]
@@ -528,8 +530,9 @@ class Synthesizer:
         self.gate_set = stats['gate_set']
         self.q = stats['q']
         self.d = stats['d']
-        #self.basic_synthesis(vector_pairs)
-        self.synthesis_gate_optimal(vector_pairs, output_qasm)
+        self.basic_synthesis(vector_pairs)
+        #self.synthesis_gate_optimal(vector_pairs, output_qasm)
+        self.solve_and_extract_circuit("formula.smt2", output_qasm)
 
     def synthesis_rus(self, qasm_file, output_qasm="circuit.qasm"):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
@@ -571,6 +574,9 @@ class Synthesizer:
             
             for d in range(self.d):
                 self.encode_layer(inter[d], inter[d+1], d)
+                # add constraining rules - no H H, Tdg T, ...
+                self.gen.add_constraints(self.gate_set, d, self.q)
+
             
             Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_vector.k, n = output_vector.n)
             for i, val in enumerate(output_vector.vec):
@@ -602,13 +608,8 @@ class Synthesizer:
                 rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
                 self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
                 self.gen.add_assertion(rescaled1 == rescaled2)
-        
-        # add constraining rules - no H H, Tdg T, ...
-        self.gen.add_constraints(self.gate_set, self.q, self.d)
-        
-        smtlib_content = self.gen.generate(self.complex_representation)
-        with open(output_file, 'w') as f:
-            f.write(smtlib_content)
+            
+        self.gen.write_smtlib(output_file)
 
 
     def synthesis_gate_optimal(self, vector_pairs, output_qasm="circuit.qasm"):

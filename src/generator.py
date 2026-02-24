@@ -1,8 +1,8 @@
-from complex_numbers_smtlib import Complex, Cyclotomic8Dyadic, nTuple
 from pysmt.smtlib.parser import SmtLibParser
 from pysmt.shortcuts import Real, Int, Bool, Symbol, And, Equals, Div, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Times, Minus, Plus
 
 from pysmt.typing import REAL, INT, BOOL
+from gates import self_adjoints, gate_to_qubits
      
 class Generator:
     def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA") -> None:
@@ -264,8 +264,9 @@ class Generator:
     def declare_helpers(self):
         # possible helper methods
         #sqrt2 for dreal
-        self.declare_real("sqrt2")
-        self.add_assertion(self.Equals(self.Times(self.format_real("sqrt2"), self.format_real("sqrt2")), self.Real(2.0)))
+        if self.logic == "QF_NRA":
+            self.declare_real("sqrt2")
+            self.add_assertion(self.Equals(self.Times(self.format_real("sqrt2"), self.format_real("sqrt2")), self.Real(2.0)))
 
     def maximize(self, expression):
         if self.mode == "pysmt":
@@ -290,21 +291,21 @@ class Generator:
             write_smtlib(formula, filename)
         elif self.mode == "smtlib":
             with open(filename, 'w') as f:
-                f.write(f"(set-logic {self.logic})")
+                f.write(f"(set-logic {self.logic})\n")
                 self.declare_helpers()
                 
                 for decl_type, name, sig in self.declarations:
-                    f.write(f"({decl_type} {name} {sig})")
+                    f.write(f"({decl_type} {name} {sig})\n")
                 
                 for assertion in self.assertions:
-                    f.write(f"(assert {assertion})")
+                    f.write(f"(assert {assertion})\n")
                 
                 for opt_type, expression in self.optimize_objectives:
-                    f.write(f"({opt_type} {expression})")
+                    f.write(f"({opt_type} {expression})\n")
                 
                 f.write("\n")
-                f.write("(check-sat)")
-                f.write("(get-model)")                
+                f.write("(check-sat)\n")
+                f.write("(get-model)\n")                
                 f.write("\n")
         elif self.mode == "milp":
             raise NotImplementedError("milp mode not yet supported")
@@ -393,32 +394,35 @@ class Generator:
         if last_encoded_layer < 1:
             return
 
-        #f"L{layer}_{gate}_q{q}" single qubit
-        #f"L{layer}_{gate}_c{c}t{t}" two qubit
-        #f"L{layer}_{gate}_c{c1}c{c2}t{t}" three qubit
-        i = last_encoded_layer
-        for q in range(qubits):
-            if 'h' in gate_set:
-                prev_layer = f"L{i - 1}_h_q{q}"
-                curr_layer = f"L{i}_h_q{q}"
-                self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
-            if 'z' in gate_set:
-                prev_layer = f"L{i - 1}_z_q{q}"
-                curr_layer = f"L{i}_z_q{q}"
-                self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
-            if 'x' in gate_set:
-                prev_layer = f"L{i - 1}_x_q{q}"
-                curr_layer = f"L{i}_x_q{q}"
-                self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
-            if 'y' in gate_set:
-                prev_layer = f"L{i - 1}_y_q{q}"
-                curr_layer = f"L{i}_y_q{q}"
-                self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
-            if 'cx' in gate_set:
-                for q2 in range(qubits):
-                    if q2 == q: continue
-                    prev_layer = f"L{i - 1}_cx_q{q}_q{q2}"
-                    curr_layer = f"L{i}_cx_q{q}_q{q2}"
+        pairs = []
+        self_adjoints_in_gate_set = set(gate_set).intersection(set(self_adjoints))
+        others = set(gate_set) - self_adjoints_in_gate_set
+        for gate in self_adjoints_in_gate_set:
+            pairs.append((gate, gate))
+        for gate in others:
+            name = gate + "dg"
+            if name in gate_set:
+                pairs.append((gate, name))
+        
+        for (gate, adjoint) in pairs:
+            gate_qubits = gate_to_qubits(gate)
+            for q in range(qubits):
+                if gate_qubits > 1:
+                    for q2 in range(qubits):
+                        if q2 == q: continue
+                        if gate_qubits > 2:
+                            for q3 in range(qubits):
+                                if q3 == q or q3 == q2: continue
+                                prev_layer = f"L{last_encoded_layer - 1}_{gate}_q{q}_q{q2}_q{q3}"
+                                curr_layer = f"L{last_encoded_layer}_{gate}_q{q}_q{q2}_q{q3}"
+                                self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
+                        else:
+                            prev_layer = f"L{last_encoded_layer - 1}_{gate}_q{q}_q{q2}"
+                            curr_layer = f"L{last_encoded_layer}_{gate}_q{q}_q{q2}"
+                            self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
+                else:
+                    prev_layer = f"L{last_encoded_layer - 1}_{gate}_q{q}"
+                    curr_layer = f"L{last_encoded_layer}_{gate}_q{q}"
                     self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
         
     def get_stats(self):

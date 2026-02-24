@@ -13,6 +13,8 @@ supported_gates = [
     ['ccx','cswap','ccz']
 ]
 
+self_adjoints = ['id', 'h', 'x', 'y', 'z', 'cx', 'cz', 'cy', 'ch', 'swap', 'dcx', 'ccx', 'ccz']
+
 # convert gate name to number of qubits
 def gate_to_qubits(gate : str) -> int:
     for i, gates in enumerate(supported_gates):

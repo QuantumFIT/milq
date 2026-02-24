@@ -390,3 +390,15 @@ def parse_pysmt(model, n, d1, output_qasm, result):
         save_to_qasm(n, d1, gate_assignments, output_qasm)
     else:
         raise ValueError("No gate assignments found in solver output")
+
+
+class ModelParser:
+    """
+    class that converts model from any solver to QASM file
+    """
+    def __init__(self, model, output_qasm):
+        self.model = model
+        self.output_qasm = output_qasm
+
+    def parse(self):
+        pass

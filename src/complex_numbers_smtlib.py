@@ -26,7 +26,9 @@ class Complex:
         return False
     
     def __add__(self, other):
-        if self._use_pysmt():
+        if self.generator is None:
+            return Complex(a=self.real + other.real, b=self.imag + other.imag, generator=self.generator)
+        elif self._use_pysmt():
             real_expr = Plus(self.real, other.real)
             imag_expr = Plus(self.imag, other.imag)
         else:
@@ -35,7 +37,9 @@ class Complex:
         return Complex(a=real_expr, b=imag_expr, generator=self.generator)
     
     def __sub__(self, other):
-        if self._use_pysmt():
+        if self.generator is None:
+            return Complex(a=self.real - other.real, b=self.imag - other.imag, generator=self.generator)
+        elif self._use_pysmt():
             real_expr = Minus(self.real, other.real)
             imag_expr = Minus(self.imag, other.imag)
         else:
@@ -45,7 +49,9 @@ class Complex:
 
     def __mul__(self, other):
         # (a + bi) * (c + di) = (ac - bd) + (ad + bc)i
-        if self._use_pysmt():
+        if self.generator is None:
+            return Complex(a=self.real * other.real - self.imag * other.imag, b=self.real * other.imag + self.imag * other.real, generator=self.generator)
+        elif self._use_pysmt():
             real_expr = Minus(Times(self.real, other.real), Times(self.imag, other.imag))
             imag_expr = Plus(Times(self.real, other.imag), Times(self.imag, other.real))
         else:
@@ -70,7 +76,9 @@ class Complex:
         return Complex(a=self.real, b=self.imag, generator=self.generator)
 
     def conjugate(self):
-        if self._use_pysmt():
+        if self.generator is None:
+            return Complex(a=self.real, b=-self.imag, generator=self.generator)
+        elif self._use_pysmt():
             imag_expr = Minus(Real(0), self.imag)
         else:
             imag_expr = f"(- 0 {self.imag})"
@@ -110,6 +118,30 @@ class Complex:
     @classmethod
     def i_half(cls, generator):
         return cls(a=0, b=1/2, generator=generator)
+
+    def multiply_by_omega(self, generator):
+        return self * Complex.t_phase(generator)
+        
+    def multiply_by_omega_counter(self, generator):
+        return self * Complex.t_phase(generator).conjugate()
+    
+    def multiply_by_i(self, generator):
+        return self * Complex.i_phase(generator)
+        
+    def multiply_by_minus_i(self, generator):
+        return self * Complex.i_phase(generator).conjugate()
+        
+    def multiply_by_minus_one(self, generator):
+        return self * Complex.minus_one(generator)
+        
+    def divide_by_sqrt2(self, generator):
+        return self * Complex.inv_sqrt2(generator)
+
+    def divide_by_two(self, generator):
+        return self * Complex.one_half(generator)
+    
+    def divide_by_two_i(self, generator):
+        return self * Complex.i_half(generator)
 
 # ------------------------------------------------------------------------------------------------ #
 
@@ -304,37 +336,6 @@ class Cyclotomic8Dyadic:
     def zero(cls, generator):
         return cls(a=0, b=0, c=0, d=0, generator=generator)
     
-    @classmethod
-    def inv_sqrt2(cls, generator):
-        # should not be used
-        return cls(a=1, b=0, c=0, d=0, generator=generator)
-
-    @classmethod
-    def one_half(cls, generator):
-        # should not be used
-        return cls(a=1, b=0, c=0, d=0, generator=generator)
-    
-    @classmethod
-    def i_half(cls, generator):
-        return cls(a=0, b=1/2, c=0, d=0, generator=generator)
-
-    @classmethod
-    def omega(cls, generator):
-        return cls(b=1, generator=generator)
-
-    @classmethod
-    def minus_one(cls, generator):
-        return cls(a=-1, generator=generator)
-
-    @classmethod
-    def i_phase(cls, generator):
-        return cls(c=1, generator=generator)
-
-    @classmethod
-    def t_phase(cls, generator):
-        """T-gate phase = e^{iπ/4} = (1+i)/√2 = ω"""
-        return cls(b=1, generator=generator)
-    
     def multiply_by_omega(self, generator):
         if self.generator is None:
             return Cyclotomic8Dyadic(a=-self.d, b=self.a, c=self.b, d=self.c)
@@ -438,25 +439,13 @@ class Cyclotomic8Dyadic:
         )
         
     def divide_by_sqrt2(self, generator):
-        if self.generator is None:
-            return Cyclotomic8Dyadic(a=self.a, b=self.b, c=self.c, d=self.d)
-        elif self._use_pysmt():
-            # divide_by_sqrt2 is a no-op for Cyclotomic8Dyadic (just returns self)
-            return Cyclotomic8Dyadic(
-                a = self.a,
-                b = self.b,
-                c = self.c,
-                d = self.d,
-                generator=self.generator
-            )
-        else:
-            return Cyclotomic8Dyadic(
-            a = f"{self.a}",
-            b = f"{self.b}",
-            c = f"{self.c}",
-            d = f"{self.d}",
-            generator=self.generator
-        )
+        return self
+
+    def divide_by_two(self, generator):
+        return self
+    
+    def divide_by_two_i(self, generator):
+        return self.multiply_by_i(generator)
             
     def to_real(self, k): 
         # omega = (1 + i) / sqrt(2)

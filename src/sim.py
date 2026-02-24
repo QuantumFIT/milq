@@ -86,15 +86,6 @@ class Simulator:
         for i, vector in enumerate(vectors):
             input_vectors.append(vector.copy())
 
-        # constants declarations
-        if self.complex_representation == Complex:
-            inv_sqrt2 = self.complex_representation.inv_sqrt2(None)
-            minus1    = self.complex_representation.minus_one(None)
-            i_phase   = self.complex_representation.i_phase(None)
-            t_phase   = self.complex_representation.t_phase(None)
-            one_half  = self.complex_representation.one_half(None)
-            i_half    = self.complex_representation.i_half(None)
-
         for (op, qubits) in parsed_file:
             for i, vector in enumerate(vectors):
                 # apply the gate to each of the vectors
@@ -110,26 +101,16 @@ class Simulator:
                         elif op == 'h':
                             other = pos ^ (1 << qubits[0])
                             modified_positions.append(other)
-                            if self.complex_representation == Complex:
-                                new_vec[pos] = ((vector[pos] + vector[other]) * inv_sqrt2)
-                                new_vec[other] = ((vector[pos] + (vector[other] * minus1)) * inv_sqrt2)
-                            elif self.complex_representation == FiveTuple:
-                                new_vec[pos] = (vector[pos] + vector[other]).divide_by_sqrt2(None)
-                                new_vec[other] = (vector[pos] + (vector[other].multiply_by_minus_one(None))).divide_by_sqrt2(None)
+                            new_vec[pos] = (vector[pos] + vector[other]).divide_by_sqrt2(None)
+                            new_vec[other] = (vector[pos] + (vector[other].multiply_by_minus_one(None))).divide_by_sqrt2(None)
                         elif op == 's' or op == 'sdg':
                             one_flag = (pos >> qubits[0]) & 1
                             if one_flag:
-                                if self.complex_representation == Complex:
-                                    new_vec[pos] = vector[pos] * i_phase if op == 's' else vector[pos] * i_phase.conjugate(None)
-                                elif self.complex_representation == FiveTuple:
-                                    new_vec[pos] = vector[pos].multiply_by_i(None) if op == 's' else vector[pos].multiply_by_minus_i(None)
+                                new_vec[pos] = vector[pos].multiply_by_i(None) if op == 's' else vector[pos].multiply_by_minus_i(None)
                         elif op == 't' or op == 'tdg':
                             one_flag = (pos >> qubits[0]) & 1
                             if one_flag:
-                                if self.complex_representation == Complex:
-                                    new_vec[pos] = vector[pos] * t_phase if op == 't' else vector[pos] * t_phase.conjugate(None)
-                                elif self.complex_representation == FiveTuple:
-                                    new_vec[pos] = vector[pos].multiply_by_omega(None) if op == 't' else vector[pos].multiply_by_omega_counter(None)
+                                new_vec[pos] = vector[pos].multiply_by_omega(None) if op == 't' else vector[pos].multiply_by_omega_counter(None)
                         elif op == 'x':
                             other = pos ^ (1 << qubits[0])
                             modified_positions.append(other)
@@ -138,38 +119,23 @@ class Simulator:
                         elif op == 'sx':
                             other = pos ^ (1 << qubits[0])
                             modified_positions.append(other)
-                            if self.complex_representation == Complex:
-                                new_vec[pos] = (((vector[pos] + vector[other]) * one_half)  + (vector[pos] - vector[other]) * i_half)
-                                new_vec[other] = (((vector[pos] + vector[other]) * one_half)  + (vector[other] - vector[pos]) * i_half)
-                            elif self.complex_representation == FiveTuple:
-                                new_vec[pos] = ((vector[pos] + vector[other])  + (vector[pos] - vector[other]).multiply_by_i(None))
-                                new_vec[other] = ((vector[pos] + vector[other])  + (vector[other] - vector[pos]).multiply_by_i(None))
+                            new_vec[pos] = ((vector[pos] + vector[other]).divide_by_two(None)  + (vector[pos] - vector[other]).divide_by_two_i(None))
+                            new_vec[other] = ((vector[pos] + vector[other]).divide_by_two(None)  + (vector[other] - vector[pos]).divide_by_two_i(None))
                         elif op == 'sxdg':
                             other = pos ^ (1 << qubits[0])
                             modified_positions.append(other)
-                            if self.complex_representation == Complex:
-                                new_vec[pos] = (((vector[pos] + vector[other]) * one_half)  + (vector[other] - vector[pos]) * i_half)
-                                new_vec[other] = (((vector[pos] + vector[other]) * one_half)  + (vector[pos] - vector[other]) * i_half)
-                            elif self.complex_representation == FiveTuple:
-                                new_vec[pos] = (((vector[pos] + vector[other]))  + (vector[other] - vector[pos]).multiply_by_i(None))
-                                new_vec[other] = (((vector[pos] + vector[other]))  + (vector[pos] - vector[other]).multiply_by_i(None))
+                            new_vec[pos] = ((vector[pos] + vector[other]).divide_by_two(None)  + (vector[other] - vector[pos]).divide_by_two_i(None))
+                            new_vec[other] = ((vector[pos] + vector[other]).divide_by_two(None)  + (vector[pos] - vector[other]).divide_by_two_i(None))
                         elif op == 'y':
                             other = pos ^ (1 << qubits[0])
                             modified_positions.append(other)
                             one_flag = (pos >> qubits[0]) & 1
-                            if self.complex_representation == Complex:
-                                new_vec[pos] = vector[other] * i_phase if one_flag else vector[other] * i_phase.conjugate(None)
-                                new_vec[other] = vector[pos] * i_phase.conjugate(None) if one_flag else vector[pos] * i_phase
-                            elif self.complex_representation == FiveTuple:
-                                new_vec[pos] = vector[other].multiply_by_i(None) if one_flag else vector[other].multiply_by_minus_i(None)
-                                new_vec[other] = vector[pos].multiply_by_minus_i(None) if one_flag else vector[pos].multiply_by_i(None)
+                            new_vec[pos] = vector[other].multiply_by_i(None) if one_flag else vector[other].multiply_by_minus_i(None)
+                            new_vec[other] = vector[pos].multiply_by_minus_i(None) if one_flag else vector[pos].multiply_by_i(None)
                         elif op == 'z':
                             one_flag = (pos >> qubits[0]) & 1
                             if one_flag:
-                                if self.complex_representation == Complex:
-                                    new_vec[pos] = vector[pos] * minus1
-                                elif self.complex_representation == FiveTuple:
-                                    new_vec[pos] = vector[pos].multiply_by_minus_one(None)
+                                new_vec[pos] = vector[pos].multiply_by_minus_one(None)
                         #
                         # 2 qubit gates
                         #
@@ -184,10 +150,7 @@ class Simulator:
                             control_flag = (pos >> qubits[0]) & 1
                             target_flag = (pos >> qubits[1]) & 1
                             if control_flag and target_flag:
-                                if self.complex_representation == Complex:
-                                    new_vec[pos] = vector[pos] * minus1
-                                elif self.complex_representation == FiveTuple:
-                                    new_vec[pos] = vector[pos].multiply_by_minus_one(None)
+                                new_vec[pos] = vector[pos].multiply_by_minus_one(None)
                         elif op == 'xcx':
                             control_flag = (pos >> qubits[0]) & 1
                             if not control_flag:
@@ -214,12 +177,8 @@ class Simulator:
                             if control_flag:
                                 other = pos ^ (1 << qubits[1])
                                 modified_positions.append(other)
-                                if self.complex_representation == Complex:
-                                    new_vec[pos] = ((vector[pos] + vector[other]) * inv_sqrt2)
-                                    new_vec[other] = ((vector[pos] + (vector[other] * minus1)) * inv_sqrt2)
-                                elif self.complex_representation == FiveTuple:
-                                    new_vec[pos] = (vector[pos] + vector[other]).divide_by_sqrt2(None)
-                                    new_vec[other] = (vector[pos] + (vector[other].multiply_by_minus_one(None))).divide_by_sqrt2(None)
+                                new_vec[pos] = (vector[pos] + vector[other]).divide_by_sqrt2(None)
+                                new_vec[other] = (vector[pos] + (vector[other].multiply_by_minus_one(None))).divide_by_sqrt2(None)
                         elif op == 'ccx':
                             control1_flag = (pos >> qubits[0]) & 1
                             control2_flag = (pos >> qubits[1]) & 1

@@ -126,6 +126,10 @@ class Synthesizer:
             else:
                 self.gen.add_assertion(f"(=> {v} (and {' '.join(f'(not {v2})' for v2 in others)}))")
 
+        propagate_identities = []
+        for pos in range(2**self.q):
+            propagate_identities.append([])
+
         for selection_variable in selection_variables:
             bool_var = selection_variable[0]
             rest = selection_variable[1]
@@ -134,8 +138,7 @@ class Synthesizer:
                 q = rest[1]
                 if gate == 'id':
                     for pos in range(2**self.q):
-                        eq_expr = out[pos] == inp[pos]
-                        add_implies(bool_var, eq_expr)
+                        continue
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'h':
@@ -147,13 +150,17 @@ class Synthesizer:
                         modified_positions.append(other)
                         if self.complex_representation == Complex:
                             expr1 = out[pos] == ((inp[pos] + inp[other]) * inv_sqrt2)
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, expr1)
                             expr2 = out[other] == ((inp[pos] + (inp[other] * minus1)) * inv_sqrt2)
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, expr2)
                         elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                             expr1 = out[pos] == ((inp[pos] + inp[other]).divide_by_sqrt2(self.gen))
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, expr1)
                             expr2 = out[other] == ((inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen))
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 1)
@@ -163,13 +170,14 @@ class Synthesizer:
                         if one_flag:
                             if self.complex_representation == Complex:
                                 expr = out[pos] == (inp[pos] * i_phase)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr = out[pos] == inp[pos].multiply_by_i(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                         else:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'sdg':
@@ -178,9 +186,11 @@ class Synthesizer:
                         if one_flag:
                             if self.complex_representation == Complex:
                                 expr = out[pos] == (inp[pos] * i_phase.conjugate(self.gen))
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr = out[pos] == inp[pos].multiply_by_minus_i(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                         else:
                             expr = out[pos] == inp[pos]
@@ -193,9 +203,11 @@ class Synthesizer:
                         if one_flag:
                             if self.complex_representation == Complex:
                                 expr = out[pos] == (inp[pos] * t_phase)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr = out[pos] == inp[pos].multiply_by_omega(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                         else:
                             expr = out[pos] == inp[pos]
@@ -208,13 +220,14 @@ class Synthesizer:
                         if one_flag:
                             if self.complex_representation == Complex:
                                 expr = out[pos] == (inp[pos] * t_phase.conjugate(self.gen))
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr = out[pos] == inp[pos].multiply_by_omega_counter(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                         else:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'x':
@@ -225,8 +238,10 @@ class Synthesizer:
                         other = pos ^ (1 << q)
                         modified_positions.append(other)
                         expr1 = out[pos] == inp[other]
+                        propagate_identities[pos].append(bool_var)
                         add_implies(bool_var, expr1)
                         expr2 = out[other] == inp[pos]
+                        propagate_identities[other].append(bool_var)
                         add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -239,13 +254,17 @@ class Synthesizer:
                         modified_positions.append(other)
                         if self.complex_representation == Complex:
                             expr1 = out[pos] == (((inp[pos] + inp[other]) * one_half) + (inp[pos] - inp[other]) * i_half)
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, expr1)
                             expr2 = out[other] == (((inp[pos] + inp[other]) * one_half) + (inp[other] - inp[pos]) * i_half)
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, expr2)
                         elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                             expr1 = out[pos] == ((inp[pos] + inp[other]) + (inp[pos] - inp[other]).multiply_by_i(self.gen))
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, expr1)
                             expr2 = out[other] == ((inp[pos] + inp[other]) + (inp[other] - inp[pos]).multiply_by_i(self.gen))
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
@@ -258,13 +277,17 @@ class Synthesizer:
                         modified_positions.append(other)
                         if self.complex_representation == Complex:
                             eq1_expr = out[pos] == (((inp[pos] + inp[other]) * one_half)  + (inp[other] - inp[pos]) * i_half)
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, eq1_expr)
                             eq2_expr = out[other]    == (((inp[pos] + inp[other]) * one_half)  + (inp[pos] - inp[other]) * i_half)
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, eq2_expr)
                         elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                             eq1_expr = out[pos] == ((inp[pos] + inp[other]) + (inp[other] - inp[pos]).multiply_by_i(self.gen))
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, eq1_expr)
                             eq2_expr = out[other] == ((inp[pos] + inp[other]) + (inp[pos] - inp[other]).multiply_by_i(self.gen))
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, eq2_expr)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
@@ -279,24 +302,32 @@ class Synthesizer:
                         if one_flag:
                             if self.complex_representation == Complex:
                                 expr1 = out[pos] == (inp[other] * i_phase)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == (inp[pos] * i_phase.conjugate(self.gen))
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr1 = out[pos] == inp[other].multiply_by_i(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == inp[pos].multiply_by_minus_i(self.gen)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                         else:
                             if self.complex_representation == Complex:
                                 expr1 = out[pos] == (inp[other] * i_phase.conjugate(self.gen))
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == (inp[pos] * i_phase)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr1 = out[pos] == inp[other].multiply_by_minus_i(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == inp[pos].multiply_by_i(self.gen)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -306,13 +337,14 @@ class Synthesizer:
                         if one_flag:
                             if self.complex_representation == Complex:
                                 expr = out[pos] == (inp[pos] * minus1)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr = out[pos] == inp[pos].multiply_by_minus_one(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                         else:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
             elif len(rest) == 3: # two qubit
@@ -324,14 +356,15 @@ class Synthesizer:
                         if pos in modified_positions: continue
                         control_flag = (pos >> q1) & 1
                         if not control_flag:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                         else:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
                             expr1 = out[pos] == inp[other]
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, expr1)
                             expr2 = out[other] == inp[pos]
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -342,14 +375,15 @@ class Synthesizer:
                         modified_positions.append(pos)
                         control_flag = (pos >> q1) & 1
                         if control_flag:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                         else:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
                             expr1 = out[pos] == inp[other]
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, expr1)
                             expr2 = out[other] == inp[pos]
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -360,14 +394,17 @@ class Synthesizer:
                         modified_positions.append(pos)
                         control_flag = (pos >> q1) & 1
                         target_flag = (pos >> q2) & 1
-                        other = pos
+                        other = None
                         if not control_flag and target_flag:
                             other = pos ^ ((1 << q1) | (1 << q2))
                         elif control_flag and not target_flag:
                             other = pos ^ (1 << q2)
                         elif control_flag and target_flag:
                             other = pos ^ (1 << q1)
+                        if other is None: continue
+                        modified_positions.append(other)
                         expr = out[other] == inp[pos]
+                        propagate_identities[other].append(bool_var)
                         add_implies(bool_var, expr)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -378,20 +415,23 @@ class Synthesizer:
                         modified_positions.append(pos)
                         control_flag = (pos >> q1) & 1
                         if not control_flag:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                         else:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
                             if self.complex_representation == Complex:
                                 expr1 = out[pos] == ((inp[pos] + inp[other]) * inv_sqrt2)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == ((inp[pos] + (inp[other] * minus1)) * inv_sqrt2)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr1 = out[pos] == (inp[pos] + inp[other]).divide_by_sqrt2(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == (inp[pos] + (inp[other] * minus1)).divide_by_sqrt2(self.gen)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 1)
@@ -402,20 +442,23 @@ class Synthesizer:
                         modified_positions.append(pos)
                         control_flag = (pos >> q1) & 1
                         if not control_flag:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                         else:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
                             if self.complex_representation == Complex:
                                 expr1 = out[pos] == (((inp[pos] + inp[other]) * one_half)  + (inp[pos] - inp[other]) * i_half)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == (((inp[pos] + inp[other]) * one_half)  + (inp[other] - inp[pos]) * i_half)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr1 = out[pos] == ((inp[pos] + inp[other]) + (inp[pos] - inp[other]).multiply_by_i(self.gen))
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == ((inp[pos] + inp[other]) + (inp[other] - inp[pos]).multiply_by_i(self.gen))
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
@@ -427,32 +470,39 @@ class Synthesizer:
                         control_flag = (pos >> q1) & 1
                         target_flag = (pos >> q2) & 1
                         if not control_flag:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                         else:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
                             if control_flag and not target_flag:
                                 if self.complex_representation == Complex:
                                     expr1 = out[pos] == (inp[other] * i_phase.conjugate(self.gen))
+                                    propagate_identities[pos].append(bool_var)
                                     add_implies(bool_var, expr1)
                                     expr2 = out[other] == (inp[pos] * i_phase)
+                                    propagate_identities[other].append(bool_var)
                                     add_implies(bool_var, expr2)
                                 elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                     expr1 = out[pos] == inp[other].multiply_by_minus_i(self.gen)
+                                    propagate_identities[pos].append(bool_var)
                                     add_implies(bool_var, expr1)
                                     expr2 = out[other] == inp[pos].multiply_by_i(self.gen)
+                                    propagate_identities[other].append(bool_var)
                                     add_implies(bool_var, expr2)
                             elif control_flag and target_flag:
                                 if self.complex_representation == Complex:
                                     expr1 = out[pos] == (inp[other] * i_phase)
+                                    propagate_identities[pos].append(bool_var)
                                     add_implies(bool_var, expr1)
                                     expr2 = out[other] == (inp[pos] * i_phase.conjugate(self.gen))
+                                    propagate_identities[other].append(bool_var)
                                     add_implies(bool_var, expr2)
                                 elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                     expr1 = out[pos] == inp[other].multiply_by_i(self.gen)
+                                    propagate_identities[pos].append(bool_var)
                                     add_implies(bool_var, expr1)
                                     expr2 = out[other] == inp[pos].multiply_by_minus_i(self.gen)
+                                    propagate_identities[other].append(bool_var)
                                     add_implies(bool_var, expr2)
                         
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
@@ -464,13 +514,14 @@ class Synthesizer:
                         if control_flag and target_flag:
                             if self.complex_representation == Complex:
                                 expr = out[pos] == (inp[pos] * minus1)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr = out[pos] == inp[pos].multiply_by_minus_one(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                         else:
-                            expr = out[pos] == inp[pos]
-                        add_implies(bool_var, expr)
+                            continue
                 elif gate == 'cs':
                     for pos in range(2**self.q):
                         control_flag = (pos >> q1) & 1
@@ -478,13 +529,14 @@ class Synthesizer:
                         if control_flag and target_flag:
                             if self.complex_representation == Complex:
                                 expr = out[pos] == (inp[pos] * i_phase)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr = out[pos] == inp[pos].multiply_by_i(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                         else:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'csdg':
@@ -494,13 +546,14 @@ class Synthesizer:
                         if control_flag and target_flag:
                             if self.complex_representation == Complex:
                                 expr = out[pos] == (inp[pos] * i_phase.conjugate(self.gen))
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr = out[pos] == inp[pos].multiply_by_minus_i(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                         else:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'swap':
@@ -511,14 +564,15 @@ class Synthesizer:
                         q1_flag = (pos >> q1) & 1
                         q2_flag = (pos >> q2) & 1
                         if q1_flag == q2_flag:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                         else:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
                             expr1 = out[pos] == inp[other]
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, expr1)
                             expr2 = out[other] == inp[pos]
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -530,20 +584,23 @@ class Synthesizer:
                         q1_flag = (pos >> q1) & 1
                         q2_flag = (pos >> q2) & 1
                         if q1_flag == q2_flag:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                         else:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
                             if self.complex_representation == Complex:
                                 expr1 = out[pos] == (inp[other] * i_phase)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == (inp[pos] * i_phase)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr1 = out[pos] == inp[other].multiply_by_i(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == inp[pos].multiply_by_i(self.gen)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -562,13 +619,17 @@ class Synthesizer:
                             modified_positions.append(other)
                             if self.complex_representation == Complex:
                                 expr1 = out[pos] == (((inp[pos] + inp[other]) * one_half)  + (inp[pos] - inp[other]) * i_half)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == (((inp[pos] + inp[other]) * one_half)  + (inp[other] - inp[pos]) * i_half)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr1 = out[pos] == (((inp[pos] + inp[other]))  + (inp[pos] - inp[other]).multiply_by_i(self.gen))
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == (((inp[pos] + inp[other]))  + (inp[other] - inp[pos]).multiply_by_i(self.gen))
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
@@ -580,20 +641,23 @@ class Synthesizer:
                         q1_flag = (pos >> q1) & 1
                         q2_flag = (pos >> q2) & 1
                         if q1_flag == q2_flag:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                         else:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
                             if self.complex_representation == Complex:
                                 expr1 = out[pos] == ((inp[pos] + (inp[other] * i_phase)) * inv_sqrt2)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == (((inp[pos] * i_phase) + (inp[other])) * inv_sqrt2)
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 exp1 = out[pos] == ((inp[pos] + (inp[other].multiply_by_i(self.gen))))
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == ((inp[pos].multiply_by_i(self.gen)) + (inp[other]))
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 1)
@@ -609,14 +673,15 @@ class Synthesizer:
                         q1_flag = (pos >> q1) & 1
                         q2_flag = (pos >> q2) & 1
                         if not q1_flag or not q2_flag:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                         else:
                             other = pos ^ (1 << q3)
                             modified_positions.append(other)
                             expr1 = out[pos] == inp[other]
+                            propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, expr1)
                             expr2 = out[other] == inp[pos]
+                            propagate_identities[other].append(bool_var)
                             add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -633,15 +698,15 @@ class Synthesizer:
                                 other = pos ^ ((1 << q2) | (1 << q3))
                                 modified_positions.append(other)
                                 expr1 = out[pos] == inp[other]
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr1)
                                 expr2 = out[other] == inp[pos]
+                                propagate_identities[other].append(bool_var)
                                 add_implies(bool_var, expr2)
                             else:
-                                expr = out[pos] == inp[pos]
-                                add_implies(bool_var, expr)
+                                continue
                         else:
-                            expr = out[pos] == inp[pos]
-                            add_implies(bool_var, expr)
+                            continue
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'ccz':
@@ -652,15 +717,29 @@ class Synthesizer:
                         if q1_flag and q2_flag and q3_flag:
                             if self.complex_representation == Complex:
                                 expr = out[pos] == (inp[pos] * minus1)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                             elif self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                                 expr = out[pos] == inp[pos].multiply_by_minus_one(self.gen)
+                                propagate_identities[pos].append(bool_var)
                                 add_implies(bool_var, expr)
                         else:
                             expr = out[pos] == inp[pos]
                             add_implies(bool_var, expr)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
+        # propagate identities for positions that were not modified by the chosen gate
+        # (notG1 and notG2 and ...) -> (out[pos] == inp[pos])
+        print(propagate_identities)
+        for pos in range(2**self.q):
+            if len(propagate_identities[pos]) == 0: # no gates modified this position, propagate identity
+                expr = out[pos] == inp[pos]
+                self.gen.add_assertion(expr)
+            else:
+                if self.gen.name == "PortfolioSolver":
+                    add_implies(And(*[Not(v) for v in propagate_identities[pos]]), out[pos] == inp[pos])
+                else:
+                    add_implies(f"(and {' '.join(f'(not {v})' for v in propagate_identities[pos])})", out[pos] == inp[pos])
 
     def synthesis(self, qasm_file, output_qasm="circuit.qasm"):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)

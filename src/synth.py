@@ -5,8 +5,11 @@
 @brief: quantum circuit synthesis using SMT and MILP solving
 """
 
-from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic as FiveTuple, nTuple
-from smtlib_generator import SMTLibGenerator, PortfolioSolver
+from complex.classic import Complex
+from complex.vector import Vector
+from complex.fivetuple import FiveTuple
+from complex.ntuple import nTuple
+from generator import Generator
 from parser import parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2, parse_dreal, parse_pysmt
 import subprocess
 from sim import Simulator
@@ -19,10 +22,8 @@ from gates import GateSet, supported_gates, check_supported
 
 
 class Synthesizer:
-    def __init__(self, gen = None, gate_set : GateSet =None, solver : str = None, fidelity_threshold : int = 1.0) -> None:
-        if gen is None:
-            raise ValueError("gen is required")
-        self.gen = gen
+    def __init__(self, gate_set : GateSet = None, solver : str = None, fidelity_threshold : int = 1.0) -> None:
+        self.gen = Generator()
         self.gate_set = gate_set
         self.simulator = None
         self.complex_representation = FiveTuple
@@ -30,8 +31,6 @@ class Synthesizer:
         self.fidelity_threshold = fidelity_threshold
         self.q = None
         self.d = None
-        if solver == "dreal":
-            self.gen.rescaling = True
             
     def add_solvers(self) -> None:
         # register custom solvers for pySMT portfolio solving (TODO change for relative paths, change logics to match the respective solvers)
@@ -50,35 +49,16 @@ class Synthesizer:
         
 
     def encode_layer(self, inp : Vector, out : Vector, layer : int) -> None:
-        if self.complex_representation == Complex:
-            inv_sqrt2 = self.complex_representation.inv_sqrt2(self.gen)
-            minus1    = self.complex_representation.minus_one(self.gen)
-            i_phase   = self.complex_representation.i_phase(self.gen)
-            t_phase   = self.complex_representation.t_phase(self.gen)
-            one_half  = self.complex_representation.one_half(self.gen)
-            i_half    = self.complex_representation.i_half(self.gen)
-        
         def add_implies(sel, expr):
-            if isinstance(self.gen, PortfolioSolver):
-                self.gen.add_assertion(Implies(sel, expr))
-            else:
-                self.gen.add_assertion(f"(=> {sel} {expr})")
+            self.gen.add_assertion(self.gen.Implies(sel, expr))
         
         def add_k_eq(sel, out_k, inp_k):
-            if isinstance(self.gen, PortfolioSolver):
-                k_eq = Equals(out_k, inp_k)
-                self.gen.add_assertion(Implies(sel, k_eq))
-            else:
-                k_eq = f"(= {out_k} {inp_k})"
-                add_implies(sel, k_eq)
+            k_eq = self.gen.Equals(out_k, inp_k)
+            self.gen.add_assertion(self.gen.Implies(sel, k_eq))
         
         def add_k_incr(sel, out_k, inp_k, increment):
-            if isinstance(self.gen, PortfolioSolver):
-                k_incr = Equals(out_k, Plus(inp_k, Int(increment)))
-                self.gen.add_assertion(Implies(sel, k_incr))
-            else:
-                k_incr = f"(= {out_k} (+ {inp_k} {increment}))"
-                add_implies(sel, k_incr)
+            k_incr = self.gen.Equals(out_k, self.gen.Plus(inp_k, self.gen.Int(increment)))
+            add_implies(sel, k_incr)
 
         if not check_supported(self.gate_set):
             raise ValueError("gate set contains an unsupported gate")
@@ -107,17 +87,10 @@ class Synthesizer:
             bool_variables.append(v)
         
         # add constraints for only one gate per layer
-        if self.gen.name == "PortfolioSolver":
-            self.gen.add_assertion(Or(*bool_variables))
-        else:
-            self.gen.add_assertion(f"(or {' '.join(bool_variables)})")
-    
+        self.gen.add_assertion(self.gen.Or(*bool_variables))
         for v in bool_variables:
             others = [v2 for v2 in bool_variables if v2 != v]
-            if self.gen.name == "PortfolioSolver":
-                self.gen.add_assertion(Implies(v, And(*[Not(v2) for v2 in others])))
-            else:
-                self.gen.add_assertion(f"(=> {v} (and {' '.join(f'(not {v2})' for v2 in others)}))")
+            self.gen.add_assertion(self.gen.Implies(v, self.gen.And(*[self.gen.Not(v2) for v2 in others])))
 
         propagate_identities = []
         for pos in range(2**self.q):
@@ -536,10 +509,7 @@ class Synthesizer:
                 expr = out[pos] == inp[pos]
                 self.gen.add_assertion(expr)
             else:
-                if self.gen.name == "PortfolioSolver":
-                    add_implies(And(*[Not(v) for v in propagate_identities[pos]]), out[pos] == inp[pos])
-                else:
-                    add_implies(f"(and {' '.join(f'(not {v})' for v in propagate_identities[pos])})", out[pos] == inp[pos])
+                add_implies(self.gen.And(*[self.gen.Not(v) for v in propagate_identities[pos]]), out[pos] == inp[pos])
 
     def synthesis(self, qasm_file, output_qasm="circuit.qasm"):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
@@ -591,18 +561,13 @@ class Synthesizer:
                 self.gen.add_assertion(In[i] == val)
             
             if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                if isinstance(input_vector.k, int):
-                    self.gen.add_assertion(f"(= {In.k} {input_vector.k})")
-                elif isinstance(input_vector.k, str) and input_vector.k != In.k:
-                    self.gen.add_assertion(f"(= {In.k} {input_vector.k})")
+                self.gen.add_assertion(self.gen.Equals(In.k, self.gen.format_integer(input_vector.k)))
             
             if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                 inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(self.d + 1)]
             else:
                 inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation) for d in range(self.d + 1)]
             self.gen.add_assertion(inter[0] == In)
-            if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                self.gen.add_assertion(f"(= {inter[0].k} {In.k})")
             
             for d in range(self.d):
                 self.encode_layer(inter[d], inter[d+1], d)
@@ -612,84 +577,34 @@ class Synthesizer:
                 self.gen.add_assertion(Target[i] == val)
             
             if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                if isinstance(output_vector.k, int):
-                    self.gen.add_assertion(f"(= {Target.k} {output_vector.k})")
-                elif isinstance(output_vector.k, str) and output_vector.k != Target.k:
-                    self.gen.add_assertion(f"(= {Target.k} {output_vector.k})")
-                        
+                self.gen.add_assertion(self.gen.Equals(Target.k, self.gen.format_integer(output_vector.k)))
 
-            # add k rescaling -- only possible in QF_NRA
+
             conj_rescaled1 = None
             rescaled1 = None
             rescaled2 = None
-            approximate_equivalence = self.gen.approximate_equivalence
-            if approximate_equivalence:
-                # FIDELITY
-                if self.gen.logic == "QF_NRA": 
-                    fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
-                    conjugate = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Conjugate")
-                    self.gen.add_assertion(conjugate == inter[self.d].conjugate())
-                    self.gen.add_assertion(f"(= {conjugate.k} {inter[self.d].k})")
-                    prod, k_final = conjugate * Target
-                    prod_real = prod.abs2(k_final) # abs2 <==> fidelity
-                    self.gen.add_assertion(f"(= {fidelity.real} {prod_real})")
-                    self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
-                    self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
-                    self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
-                else:
-                    raise ValueError("approximate equivalence not supported for non NRA")
-            else:
-                # EXACT EQUIVALENCE
-                if self.gen.logic == "QF_NRA":
-                    # since there is no floor(n/2) in dreal, do 2k <= n < 2*(k+1) where k = floor(n/2)
-                    # check for odd/even r = n - 2k, r is in <0, 2)
-                    # then, if r == 0, its even, if r == 1, its odd
-                    self.gen.declare_real(f"n{pair_idx}")
-                    self.gen.add_assertion(f"(ite (< {inter[self.d].k} {Target.k}) (= n{pair_idx} (- {Target.k} {inter[self.d].k})) (= n{pair_idx} (- {inter[self.d].k} {Target.k})))")
-                    self.gen.declare_real(f"k{pair_idx}")
-                    self.gen.add_assertion(f"(and (>= n{pair_idx} (* 2 k{pair_idx})) (< n{pair_idx} (* 2 (+ k{pair_idx} 1))))")
-                    rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
-                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                    # enumerate possible k's <0, d1/2>
-                    # calculate the power and parity check (n - 2k) == 0 if even
-                    self.gen.enumerate_k_values(self.d//2, pair_idx)
-                    self.gen.declare_real(f"pow2{pair_idx}")
-                    self.gen.add_assertion(f"(= pow2{pair_idx} (pow 2 k{pair_idx})))")
-                    self.gen.declare_real(f"r")
-                    self.gen.add_assertion(f"(= r (- n{pair_idx} (* 2 k{pair_idx})))")
-                    self.gen.declare_bool(f"is_even{pair_idx}")
-                    self.gen.add_assertion(f"(ite (= r 0) (= is_even{pair_idx} true) (= is_even{pair_idx} false))")
-                    self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
-                    self.gen.add_assertion(rescaled1 == rescaled2)
-                elif self.gen.logic == "QF_NIA":
-                    # QF_NIA branch
-                    # rescaling -- add enumeration of all possible powers of 2,
-                    # calculate 2^(floor(n/2)) * M * vector
-                    # n == abs(last_k - target_k)
-                    self.gen.declare_integer(f"n{pair_idx}")
-                    self.gen.add_assertion(f"(ite (< {inter[self.d].k} {Target.k}) (= n{pair_idx} (- {Target.k} {inter[self.d].k})) (= n{pair_idx} (- {inter[self.d].k} {Target.k})))")
-                    self.gen.enumerate_powers_of_2(self.d + 1, pair_idx)
-                    # after that, rescale the vectors -- create 2 new vectors, the one with lower k gets rescaled, the other one just gets copied
-                    # then, compare them
-                    rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
-                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                    self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
-                    self.gen.add_assertion(rescaled1 == rescaled2)
-                elif self.gen.logic == "QF_LIA":
-                    # QF_LIA branch -- same rescaling as QF_NIA, but enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
-                    self.gen.declare_integer(f"n{pair_idx}")
-                    self.gen.declare_integer(f"k{pair_idx}")
-                    self.gen.add_assertion(f"(= k{pair_idx} (div n{pair_idx} 2))")
-                    self.gen.add_assertion(f"(ite (< {inter[self.d].k} {Target.k}) (= n{pair_idx} (- {Target.k} {inter[self.d].k})) (= n{pair_idx} (- {inter[self.d].k} {Target.k})))")
-                    rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
-                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                    self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
-                    self.gen.add_assertion(rescaled1 == rescaled2)
-                else:
-                    raise ValueError("invalid logic")
+            if self.gen.logic == "QF_NRA": 
+            # FIDELITY
+                fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
+                conjugate = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Conjugate")
+                self.gen.add_assertion(conjugate == inter[self.d].conjugate())
+                self.gen.add_assertion(f"(= {conjugate.k} {inter[self.d].k})")
+                prod, k_final = conjugate * Target
+                prod_real = prod.abs2(k_final) # abs2 <==> fidelity
+                self.gen.add_assertion(f"(= {fidelity.real} {prod_real})")
+                self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
+                self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
+                self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
+            elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
+                # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
+                # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
+                rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
+                rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
+                self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
+                self.gen.add_assertion(rescaled1 == rescaled2)
         
         # add constraining rules - no H H, Tdg T, ...
-        self.gen.remove_identities(self.gate_set, self.q, self.d)
+        self.gen.add_constraints(self.gate_set, self.q, self.d)
         
         smtlib_content = self.gen.generate(self.complex_representation)
         with open(output_file, 'w') as f:
@@ -711,8 +626,8 @@ class Synthesizer:
         with Portfolio(solvers,
                         logic=logic,
                         incremental=True,
-                        generate_models=True) as solver:
-            self.gen = PortfolioSolver(solver)
+                        generate_models=True) as portfolio:
+            self.gen.solver = portfolio
             # start with gates = 1, incrementally add new layer encodings
             # check if the circuit is satisfiable            
             inter_vectors = []
@@ -725,11 +640,7 @@ class Synthesizer:
                     self.gen.add_assertion(In[i] == val)
         
                 if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                    if self.gen.name == 'PortfolioSolver':
-                        input_k_expr = self.gen.format_integer(input_vector.k)
-                        self.gen.add_assertion(Equals(In.k, input_k_expr))
-                    else:
-                        self.gen.add_assertion(f"(= {In.k} {int(input_vector.k)})")
+                    self.gen.add_assertion(self.gen.Equals(In.k, self.gen.format_integer(input_vector.k)))
 
                 # intermediate vectors generation
                 if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
@@ -737,11 +648,6 @@ class Synthesizer:
                 else:
                     inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation) for d in range(self.d + 1)]
                 self.gen.add_assertion(inter[0] == In)
-                if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                    if self.gen.name == 'PortfolioSolver':
-                        self.gen.add_assertion(Equals(inter[0].k, In.k))
-                    else:
-                        self.gen.add_assertion(f"(= {inter[0].k} {In.k})")
                 inter_vectors.append(inter)
                 # generate target vector and connect it to output values
                 Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_vector.k, n = output_vector.n)
@@ -749,11 +655,7 @@ class Synthesizer:
                     self.gen.add_assertion(Target[i] == val)
                 
                 if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                    if self.gen.name == 'PortfolioSolver':
-                        output_k_expr = self.gen.format_integer(output_vector.k)
-                        self.gen.add_assertion(Equals(Target.k, output_k_expr))
-                    else:
-                        self.gen.add_assertion(f"(= {Target.k} {int(output_vector.k)})")
+                    self.gen.add_assertion(self.gen.Equals(Target.k, self.gen.format_integer(output_vector.k)))
                 target_vectors.append(Target)
             depth = 1
             solved = False
@@ -778,48 +680,18 @@ class Synthesizer:
                         
                         fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
                         prod = conj1_rescaled * rescaled2
-                        if self.gen.name == 'PortfolioSolver':
-                            self.gen.add_assertion(Equals(fidelity.real, prod.real))
-                            self.gen.add_assertion(Equals(fidelity.imag, prod.imag))
-                            self.gen.add_assertion(GE(fidelity.real, 0.0))
-                            self.gen.add_assertion(LE(fidelity.real, 1.0))
-                            self.gen.add_assertion(GE(fidelity.real, self.fidelity_threshold))
-                        else:
-                            self.gen.add_assertion(f"(= {fidelity.real} {prod.real})")
-                            self.gen.add_assertion(f"(= {fidelity.imag} {prod.imag})")
-                            self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
-                            self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
-                            #self.gen.maximize(f"{fidelity.real}"
-                            self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
-                    elif self.gen.logic == "QF_NIA":
-                        # rescaling allowed
-                        if self.complex_representation == FiveTuple:
-                            self.gen.declare_integer(f"n{pair_idx}")
-                            self.gen.add_assertion(Ite(LT(inter[depth].k, Target.k), Equals(self.gen.symbols[f"n{pair_idx}"], Minus(Target.k, inter[depth].k)), Equals(self.gen.symbols[f"n{pair_idx}"], Minus(inter[depth].k, Target.k))))
-                            self.gen.enumerate_powers_of_2(depth + 1, pair_idx)
-                            # after that, rescale the vectors -- create 2 new vectors, the one with lower k gets rescaled, the other one just gets copied
-                            # then, compare them
-                            rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[depth].name}")
-                            rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, depth)
-                            self.gen.add_assertion(rescaled1 == rescaled2)
-                    elif self.gen.logic == "QF_LIA":
-                            self.gen.declare_integer(f"n{pair_idx}")
-                            self.gen.declare_integer(f"k{pair_idx}")
-                            n_sym = self.gen.symbols[f"n{pair_idx}"]
-                            k_sym = self.gen.symbols[f"k{pair_idx}"]
-                            self.gen.add_assertion(And(
-                                LE(Times(k_sym, Int(2)), n_sym),
-                                LT(n_sym, Times(Plus(k_sym, Int(1)), Int(2)))
-                            ))
-                            self.gen.add_assertion(Ite(LT(inter[depth].k, Target.k), Equals(self.gen.symbols[f"n{pair_idx}"], Minus(Target.k, inter[depth].k)), Equals(self.gen.symbols[f"n{pair_idx}"], Minus(inter[depth].k, Target.k))))
+                        self.gen.add_assertion(self.gen.Equals(fidelity.real, prod.real))
+                        self.gen.add_assertion(self.gen.Equals(fidelity.imag, prod.imag))
+                        self.gen.add_assertion(self.gen.GE(fidelity.real, 0.0))
+                        self.gen.add_assertion(self.gen.LE(fidelity.real, 1.0))
+                        self.gen.add_assertion(self.gen.GE(fidelity.real, self.fidelity_threshold))
+                    elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
                             rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[depth].name}")
                             rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
                             self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, self.d)
                             self.gen.add_assertion(rescaled1 == rescaled2)
                     else:
                         self.gen.add_assertion(inter[depth] == Target)
-                print(f"Solving with {self.gen.name}...")
                 result = self.gen.solver.solve()                       
                 if result:
                     solved = True
@@ -858,9 +730,6 @@ class Synthesizer:
 
         elif smtlib_filename is None:
             raise ValueError("smtlib_filename is None")
-        
-        if solver != "dreal" and hasattr(self.gen, 'rescaling') and self.gen.rescaling:
-            raise ValueError("solver is not dreal but the generator is configured for dreal")
 
         jobs = cpu_count()
         if jobs is None:

@@ -6,8 +6,10 @@
 """
 
 import re
-from complex_numbers_smtlib import Complex, Vector, nTuple
-from complex_numbers_smtlib import Cyclotomic8Dyadic as FiveTuple
+from complex.vector import Vector
+from complex.fivetuple import FiveTuple
+from complex.ntuple import nTuple
+from complex.classic import Complex
 from gates import GateSet
 
 

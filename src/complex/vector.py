@@ -82,10 +82,10 @@ class Vector:
             new_vec[i] = self.vec[i].to_real(self.k)
         return new_vec
     
-    def conjugate(self):
+    def conjugate(self, generator = None):
         new_vec = Vector(q=len(self.vec), generator=self.gen, element_representation=self.element_representation, k=self.k)
         for i in range(len(self.vec)):
-            new_vec[i] = self.vec[i].conjugate()
+            new_vec[i] = self.vec[i].conjugate(generator)
         return new_vec
     
     def __len__(self):

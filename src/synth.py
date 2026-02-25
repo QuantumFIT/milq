@@ -10,7 +10,7 @@ from complex.vector import Vector
 from complex.fivetuple import FiveTuple
 from complex.ntuple import nTuple
 from generator import Generator
-from parser import ModelParser, parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2, parse_dreal, parse_pysmt
+from parser import ModelParser, parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2, parse_dreal
 import subprocess
 from sim import Simulator
 from multiprocessing import cpu_count
@@ -26,6 +26,8 @@ class Synthesizer:
         self.gen = Generator()
         if solver is not None:
             self.gen.mode = "smtlib"
+        if solver == "dreal":
+            self.gen.logic = "QF_NRA"
 
         self.parser = ModelParser()
         self.gate_set = gate_set
@@ -545,8 +547,8 @@ class Synthesizer:
         self.d = stats['d']
         #res = self.synthesis_incremental(vector_pairs, output_qasm)
         
-        #self.basic_synthesis(vector_pairs)
-        #res = self.solve_and_extract_circuit("formula.smt2", output_qasm)
+        self.basic_synthesis(vector_pairs)
+        res = self.solve_and_extract_circuit("formula.smt2", output_qasm)
 
         #res = self.synthesis_binary_search(vector_pairs, output_qasm)
         return res
@@ -614,14 +616,14 @@ class Synthesizer:
             # FIDELITY
                 fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
                 conjugate = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Conjugate")
-                self.gen.add_assertion(conjugate == inter[self.d].conjugate())
-                self.gen.add_assertion(f"(= {conjugate.k} {inter[self.d].k})")
+                self.gen.add_assertion(conjugate == inter[self.d].conjugate(self.gen))
+                self.gen.add_assertion(self.gen.Equals(conjugate.k, inter[self.d].k))
                 prod, k_final = conjugate * Target
                 prod_real = prod.abs2(k_final) # abs2 <==> fidelity
-                self.gen.add_assertion(f"(= {fidelity.real} {prod_real})")
-                self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
-                self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
-                self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
+                self.gen.add_assertion(self.gen.Equals(self.gen.Real(fidelity.real), self.gen.Real(prod_real)))
+                self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(0.0)))
+                self.gen.add_assertion(self.gen.LE(self.gen.Real(fidelity.real), self.gen.Real(1.0)))
+                self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(self.fidelity_threshold)))
             elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
                 # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
                 # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
@@ -698,7 +700,7 @@ class Synthesizer:
                     if self.gen.logic == "QF_NRA" and (self.complex_representation == FiveTuple or self.complex_representation == nTuple):
                         rescaled1 = inter[depth].to_real()
                         rescaled2 = Target.to_real()
-                        conj1_rescaled = rescaled1.conjugate()
+                        conj1_rescaled = rescaled1.conjugate(self.gen)
                         
                         fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
                         prod = conj1_rescaled * rescaled2
@@ -725,7 +727,8 @@ class Synthesizer:
             if not solved:
                 return False
             else:
-                self.parser.parse(model, self.gate_set, self.q, self.d, output_qasm)
+                #parse_pysmt(model, self.q, self.d, output_qasm, result)
+                self.parser.parse(model, self.q, self.d, output_qasm)
                 return True
             
     def synthesis_binary_search(self, vector_pairs, output_qasm="circuit.qasm"):
@@ -779,7 +782,7 @@ class Synthesizer:
                 # FIDELITY
                     fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
                     conjugate = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Conjugate")
-                    self.gen.add_assertion(conjugate == inter[self.d].conjugate())
+                    self.gen.add_assertion(conjugate == inter[self.d].conjugate(self.gen))
                     self.gen.add_assertion(f"(= {conjugate.k} {inter[self.d].k})")
                     prod, k_final = conjugate * Target
                     prod_real = prod.abs2(k_final) # abs2 <==> fidelity
@@ -826,7 +829,7 @@ class Synthesizer:
                 self.gen.solver.pop()
 
             if best_model is not None:
-                self.parser.parse(best_model, self.gate_set, self.q, self.d, output_qasm)
+                self.parser.parse(best_model, self.q, self.d, output_qasm)
                 return True
             else:
                 return False
@@ -874,5 +877,5 @@ class Synthesizer:
             return False
         if result is None:
             return False
-        self.parser.parse(result.stdout, self.gate_set, self.q, self.d, output_qasm)
+        self.parser.parse(result.stdout, self.q, self.d, output_qasm)
         return True

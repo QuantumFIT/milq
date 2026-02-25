@@ -1,222 +1,5 @@
-from gates import GateSet
 
-def save_to_qasm(n, d1, gate_assignments, filename):
-    with open(filename, 'w') as f:
-        f.write("OPENQASM 2.0;\n")
-        f.write("include \"qelib1.inc\";\n")
-        f.write("qreg q[%d];\n" % n)
-        f.write("creg c[%d];\n" % n)
-        def emit_gate(name: str):
-            # Expected formats:
-            # L{d}_H_q{q}  -> h q[q];
-            # L{d}_S_q{q}  -> s q[q];
-            # L{d}_T_q{q}  -> t q[q];
-            # L{d}_Tdg_q{q}  -> tdg q[q];
-            # L{d}_X_q{q}  -> x q[q];
-            # L{d}_Y_q{q}  -> y q[q];
-            # L{d}_Z_q{q}  -> z q[q];
-            # L{d}_I_q{q}  -> id q[q];
-            # L{d}_CX_c{c}t{t} -> cx q[c],q[t];
-            # L{d}_CCX_c{c1}c{c2}t{t} -> ccx q[c1],q[c2],q[t];
-            if "_CCX_c" in name and "t" in name:
-                tail = name.split("_CCX_c")[1]
-                # tail is like "0c1t2"
-                # split by 'c' to get ["0", "1t2"]
-                parts = tail.split("c")
-                if len(parts) >= 2:
-                    c1 = int(parts[0])
-                    # parts[1] is like "1t2", split by 't'
-                    rest = parts[1]
-                    t_part = rest.split("t")
-                    if len(t_part) >= 2:
-                        c2 = int(t_part[0])
-                        t = int(t_part[1])
-                        f.write(f"ccx q[{c1}],q[{c2}],q[{t}];\n")
-                        return
-            if "_RCCX_c" in name and "t" in name:
-                tail = name.split("_RCCX_c")[1]
-                parts = tail.split("c")
-                if len(parts) >= 2:
-                    c1 = int(parts[0])
-                    rest = parts[1]
-                    t_part = rest.split("t")
-                    if len(t_part) >= 2:
-                        c2 = int(t_part[0])
-                        t = int(t_part[1])
-                        f.write(f"rccx q[{c1}],q[{c2}],q[{t}];\n")
-                        return
-            if "_CSWAP_c" in name and "t" in name:
-                tail = name.split("_CSWAP_c")[1]
-                parts = tail.split("c")
-                if len(parts) >= 2:
-                    c1 = int(parts[0])
-                    rest = parts[1]
-                    t_part = rest.split("t")
-                    if len(t_part) >= 2:
-                        c2 = int(t_part[0])
-                        t = int(t_part[1])
-                        f.write(f"cswap q[{c1}],q[{c2}],q[{t}];\n")
-                        return
-            if "_CCZ_c" in name and "t" in name:
-                tail = name.split("_CCZ_c")[1]
-                parts = tail.split("c")
-                if len(parts) >= 2:
-                    c1 = int(parts[0])
-                    rest = parts[1]
-                    t_part = rest.split("t")
-                    if len(t_part) >= 2:
-                        c2 = int(t_part[0])
-                        t = int(t_part[1])
-                        f.write(f"ccz q[{c1}],q[{c2}],q[{t}];\n")
-                        return
-            if "_CX_c" in name and "t" in name:
-                tail = name.split("_CX_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"cx q[{c}],q[{t}];\n")
-                return
-            if "_X_q" in name:
-                q = int(name.split("_X_q")[1])
-                f.write(f"x q[{q}];\n")
-                return
-            if "_Y_q" in name:
-                q = int(name.split("_Y_q")[1])
-                f.write(f"y q[{q}];\n")
-                return
-            if "_Z_q" in name:
-                q = int(name.split("_Z_q")[1])
-                f.write(f"z q[{q}];\n")
-                return
-            if "_H_q" in name:
-                q = int(name.split("_H_q")[1])
-                f.write(f"h q[{q}];\n")
-                return
-            if "_Sdg_q" in name:
-                q = int(name.split("_Sdg_q")[1])
-                f.write(f"sdg q[{q}];\n")
-                return
-            if "_S_q" in name:
-                q = int(name.split("_S_q")[1])
-                f.write(f"s q[{q}];\n")
-                return
-            if "_Tdg_q" in name:
-                q = int(name.split("_Tdg_q")[1])
-                f.write(f"tdg q[{q}];\n")
-                return
-            if "_T_q" in name:
-                q = int(name.split("_T_q")[1])
-                f.write(f"t q[{q}];\n")
-                return
-            if "_I_q" in name:
-                q = int(name.split("_I_q")[1])
-                f.write(f"id q[{q}];\n")
-                return
-            if "_SX_q" in name:
-                q = int(name.split("_SX_q")[1])
-                f.write(f"sx q[{q}];\n")
-                return
-            if "_SXdg_q" in name:
-                q = int(name.split("_SXdg_q")[1])
-                f.write(f"sxdg q[{q}];\n")
-                return
-            if "_XCX_c" in name and "t" in name:
-                tail = name.split("_XCX_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"xcx q[{c}],q[{t}];\n")
-                return
-            if "_CX_c" in name and "t" in name:
-                tail = name.split("_CX_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"cx q[{c}],q[{t}];\n")
-                return
-            if "_CS_c" in name and "t" in name:
-                tail = name.split("_CS_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"cs q[{c}],q[{t}];\n")
-                return
-            if "_CSdg_c" in name and "t" in name:
-                tail = name.split("_CSdg_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"csdg q[{c}],q[{t}];\n")
-                return
-            if "_CY_c" in name and "t" in name:
-                tail = name.split("_CY_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"cy q[{c}],q[{t}];\n")
-                return
-            if "_CZ_c" in name and "t" in name:
-                tail = name.split("_CZ_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"cz q[{c}],q[{t}];\n")
-                return
-            if "_CH_c" in name and "t" in name:
-                tail = name.split("_CH_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"ch q[{c}],q[{t}];\n")
-                return
-            if "_DCX_c" in name and "t" in name:
-                tail = name.split("_DCX_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"dcx q[{c}],q[{t}];\n")
-                return
-            if "_CSX_c" in name and "t" in name:
-                tail = name.split("_CSX_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"csx q[{c}],q[{t}];\n")
-                return
-            if "_iSWAP_c" in name and "t" in name:
-                tail = name.split("_iSWAP_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"iswap q[{c}],q[{t}];\n")
-                return
-            if "_SWAP_c" in name and "t" in name:
-                tail = name.split("_SWAP_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"swap q[{c}],q[{t}];\n")
-                return
-            if "_sqrtSWAP_c" in name and "t" in name:
-                tail = name.split("_sqrtSWAP_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"sqrtswap q[{c}],q[{t}];\n")
-                return
-            if "_isqrtSWAP_c" in name and "t" in name:
-                tail = name.split("_isqrtSWAP_c")[1]
-                c_str, t_str = tail.split("t")
-                c = int(c_str)
-                t = int(t_str)
-                f.write(f"isqrtswap q[{c}],q[{t}];\n")
-                return
-        
-        for d in range(d1):
-            for name in sorted(gate_assignments.keys()):
-                if f"L{d}_" in name and gate_assignments.get(name) is True:
-                    emit_gate(name)
-    return True
+import re
 
 def parse_z3(model_output, n, d1, output_qasm, result):
     if result.returncode == 0:
@@ -370,33 +153,112 @@ def parse_dreal(model_output, n, d1, output_qasm, result):
     else:
         raise ValueError("No gate assignments found in solver output")
     
-def parse_pysmt(model, n, d1, output_qasm, result):
-    gate_assignments = {}
-    
-    for item in model:
-        if isinstance(item, tuple) and len(item) >= 2:
-            var_obj, value_obj = item[0], item[1]
-            variable = str(var_obj)
-            value_str = str(value_obj)
-        else:
-            variable = str(item)
-            try:
-                value_obj = model.get_value(item)
-                value_str = str(value_obj)
-            except:
-                continue
-        if variable.startswith("L") and "_" in variable and value_str.lower() == "true":
-            gate_assignments[variable] = True
-    
-    if gate_assignments:
-        save_to_qasm(n, d1, gate_assignments, output_qasm)
-    else:
-        raise ValueError("No gate assignments found in solver output")
-
-
 class ModelParser:
     """
     class that converts model from any solver to QASM file
     """
-    def parse(self, model : any, gate_set : GateSet, qubits : int, depth : int, output_qasm : str = "circuit.qasm") -> bool:
-        pass
+    def __init__(self) -> None:
+        self.stats = {}
+        self.stats['gate_counts'] = {} # gate name -> count
+        self.stats['cost'] = 0 # total cost of the circuit
+
+    def parse_model_to_items(self, model : str) -> list:
+        lines = model.split('\n')
+        items = []
+        i = 0
+        line = ""
+        while i < len(lines):
+            line += lines[i].strip()
+            # match (<whitespaces>define-fun var_name () var_type var_value<whitespaces>)
+            match = re.search(r"(\.*)\(\s*define-fun\s*(\w+)\s*\(\s*\)\s*(\w+)\s*(-?\d+|true|false)\s*\)\s*", line, re.IGNORECASE)
+            if match:
+                line = ""
+                var_name = match.group(2)
+                var_type = match.group(3)
+                var_value = match.group(4)
+                if var_type.lower() == "bool":
+                    var_value = var_value.lower() == "true"
+                elif var_type.lower() == "int":
+                    var_value = int(var_value)
+                elif var_type.lower() == "real":
+                    var_value = float(var_value)
+                items.append((var_name, var_value))
+            i += 1
+        return items
+
+    def filter_items(self, model : any, depth : int) -> list:
+        # get only the (gate, true) tuples
+        new_items = []
+        for item in model:
+            if isinstance(item, tuple) and len(item) >= 2:
+                var_obj, value_obj = item[0], item[1]
+                variable = str(var_obj)
+                if variable.startswith("L"):
+                    if isinstance(value_obj, bool):
+                        if value_obj:
+                            new_items.append(variable)
+                    else:
+                        if value_obj.is_true():
+                            new_items.append(variable)
+                if variable == ("W" + str(depth)):
+                    if isinstance(value_obj, int):
+                        self.stats['cost'] = value_obj
+                    elif isinstance(value_obj, float):
+                        self.stats['cost'] = int(value_obj)
+                    else:
+                        self.stats['cost'] = int(value_obj.constant_value())
+        return new_items
+
+    def write_circuit_to_qasm(self, circuit : list, qubits : int, output_qasm : str = "circuit.qasm") -> bool:
+        with open(output_qasm, 'w') as f:
+            f.write("OPENQASM 2.0;\n")
+            f.write("include \"qelib1.inc\";\n")
+            f.write(f"qreg q[{qubits}];\n")
+            f.write(f"creg c[{qubits}];\n")
+            for d in range(len(circuit)):
+                if circuit[d] is None: continue
+                gate, qubits = circuit[d]
+                gate_str = gate + " "
+                for qubit in qubits:
+                    gate_str += f"q[{qubit}], "
+                gate_str = gate_str[:-2]
+                gate_str += ";\n"
+                f.write(gate_str)
+
+    def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm") -> bool:
+        items = model
+        if isinstance(model, str):
+            items = self.parse_model_to_items(model)
+
+        gates = self.filter_items(items, depth)
+
+        circuit = [None] * depth
+        for gate in gates:
+            # parse L{d}_{gate}_q{q}_q{q2}_q{q3}_
+            parts = gate.split("_")
+            d = int(parts[0][1:])
+            gate = parts[1]
+            if gate not in self.stats['gate_counts']:
+                self.stats['gate_counts'][gate] = 0
+            self.stats['gate_counts'][gate] += 1
+            gate_qubits = [int(p[1:]) for p in parts[2:]]
+            circuit[d] = (gate, gate_qubits)
+
+        self.print_stats()
+        self.write_circuit_to_qasm(circuit, qubits, output_qasm)
+    
+    def get_stats(self) -> dict:
+        return self.stats
+    
+    def print_stats(self) -> None:
+        print(f"Gate counts: {self.stats['gate_counts']}")
+        print(f"Cost: {self.stats['cost']}")
+
+    def is_sat(self, model : any) -> bool:
+        if isinstance(model, str):
+            if "sat" in model.lower() or "delta-sat" in model.lower():
+                return True
+            else:
+                return False
+        else:
+            return True

@@ -98,6 +98,58 @@ class FiveTuple:
 
     def __repr__(self):
         return f"({self.a} + {self.b} ω + {self.c} ω² + {self.d} ω³)"
+
+    @classmethod
+    def constrained_equals(cls, sel, expr1, expr2):
+        gen = expr1.gen
+        bigM = 1e10
+        gen.add_assertion(gen.And(
+            (expr1.a - expr2.a <= bigM * (1 - sel)),
+            (expr2.a - expr1.a <= bigM * (1 - sel)),
+            (expr1.b - expr2.b <= bigM * (1 - sel)),  
+            (expr2.b - expr1.b <= bigM * (1 - sel)),
+            (expr1.c - expr2.c <= bigM * (1 - sel)),
+            (expr2.c - expr1.c <= bigM * (1 - sel)),
+            (expr1.d - expr2.d <= bigM * (1 - sel)),
+            (expr2.d - expr1.d <= bigM * (1 - sel)),
+        ))
+
+    @classmethod
+    def constrained_rescaling(cls, sel, fivetuple1, fivetuple2, exponent, parity, rel):
+        gen = fivetuple1.gen
+        a1 = exponent if rel == "<=" else 1
+        a2 = exponent if rel == ">" else 1
+        if parity == "even":
+            # rescale fivetuple1 by 2^exponent
+            gen.add_assertion(a1 * fivetuple1.a - a2 * fivetuple2.a <= sel)
+            gen.add_assertion(a2 * fivetuple2.a - a1 * fivetuple1.a <= sel)
+            gen.add_assertion(a1 * fivetuple1.b - a2 * fivetuple2.b <= sel)
+            gen.add_assertion(a2 * fivetuple2.b - a1 * fivetuple1.b <= sel)
+            gen.add_assertion(a1 * fivetuple1.c - a2 * fivetuple2.c <= sel)
+            gen.add_assertion(a2 * fivetuple2.c - a1 * fivetuple1.c <= sel)
+            gen.add_assertion(a1 * fivetuple1.d - a2 * fivetuple2.d <= sel)
+            gen.add_assertion(a2 * fivetuple2.d - a1 * fivetuple1.d <= sel)
+        else:
+            # rescale fivetuple1 by the matrix M
+            if rel == "<=":
+                gen.add_assertion(a1 * (fivetuple1.b - fivetuple1.d) - a2 * fivetuple2.a <= sel)
+                gen.add_assertion(a2 * fivetuple2.a - a1 * (fivetuple1.b - fivetuple1.d) <= sel)
+                gen.add_assertion(a1 * (fivetuple1.a + fivetuple1.c) - a2 * fivetuple2.b <= sel)
+                gen.add_assertion(a2 * fivetuple2.b - a1 * (fivetuple1.a + fivetuple1.c) <= sel)
+                gen.add_assertion(a1 * (fivetuple1.b + fivetuple1.d) - a2 * fivetuple2.c <= sel)
+                gen.add_assertion(a2 * fivetuple2.c - a1 * (fivetuple1.b + fivetuple1.d) <= sel)
+                gen.add_assertion(a1 * (fivetuple1.c - fivetuple1.a) - a2 * fivetuple2.d <= sel)
+                gen.add_assertion(a2 * fivetuple2.d - a1 * (fivetuple1.c - fivetuple1.a) <= sel)
+            else:
+                gen.add_assertion(a1 * fivetuple1.a - a2 * (fivetuple2.b - fivetuple2.d) <= sel)
+                gen.add_assertion(a2 * (fivetuple2.b - fivetuple2.d) - a1 * fivetuple1.a <= sel)
+                gen.add_assertion(a1 * fivetuple1.b - a2 * (fivetuple2.a + fivetuple2.c) <= sel)
+                gen.add_assertion(a2 * (fivetuple2.a + fivetuple2.c) - a1 * fivetuple1.b <= sel)
+                gen.add_assertion(a1 * fivetuple1.c - a2 * (fivetuple2.b + fivetuple2.d) <= sel)
+                gen.add_assertion(a2 * (fivetuple2.b + fivetuple2.d) - a1 * fivetuple1.c <= sel)
+                gen.add_assertion(a1 * fivetuple1.d - a2 * (fivetuple2.c - fivetuple2.a) <= sel)
+                gen.add_assertion(a2 * (fivetuple2.c - fivetuple2.a) - a1 * fivetuple1.d <= sel)
+
     
     @classmethod
     def one(cls, generator):

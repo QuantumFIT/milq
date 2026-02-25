@@ -1,7 +1,8 @@
+from ast import Return
 from pysmt.smtlib.parser import SmtLibParser
 from pysmt.shortcuts import Real, Int, Bool, Symbol, And, Equals, Div, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Times, Minus, Plus
-
 from pysmt.typing import REAL, INT, BOOL
+from pulp import *
 from gates import self_adjoints, gate_to_qubits
      
 class Generator:
@@ -20,6 +21,9 @@ class Generator:
         self.BOOL = BOOL
         self.symbols = {}
         self.stats = {}
+        self.lp_problem = None
+        self.bool_variables = set()
+        self.integer_variables = set()
         self.stats['reals'] = 0
         self.stats['integers'] = 0
         self.stats['bools'] = 0
@@ -29,11 +33,17 @@ class Generator:
     def add_assertion(self, assertion):
         self.stats['assertions'] += 1
         if self.mode == "pysmt":
+            if self.solver is None:
+                raise ValueError("solver is not set")
             self.solver.add_assertion(assertion)
         elif self.mode == "smtlib":
             self.assertions.append(assertion)
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            if assertion is None:
+                return
+            if self.lp_problem is None:
+                self.lp_problem = LpProblem("Circuit_Synthesis", LpMinimize)
+            self.lp_problem += assertion
         
     def Plus(self, x, y):
         if self.mode == "pysmt":
@@ -41,7 +51,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(+ {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            return x + y
     
     def Minus(self, x, y):
         if self.mode == "pysmt":
@@ -49,7 +59,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(- {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            return x - y
     
     def Times(self, x, y):
         if self.mode == "pysmt":
@@ -57,7 +67,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(* {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            return x * y
         
     def Pow(self, x, y):
         if self.mode == "smtlib" and self.logic == "QF_NRA":
@@ -71,7 +81,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(/ {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            raise NotImplementedError("Div not supported in milp mode")
     
     def Equals(self, x, y):
         if self.mode == "pysmt":
@@ -79,7 +89,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(= {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            return x == y
     
     def GE(self, x, y):
         if self.mode == "pysmt":
@@ -87,7 +97,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(>= {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            return x >= y
     
     def LE(self, x, y):
         if self.mode == "pysmt":
@@ -95,7 +105,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(<= {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            return x <= y
     
     def LT(self, x, y):
         if self.mode == "pysmt":
@@ -103,7 +113,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(< {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            return x < y
     
     def GT(self, x, y):
         if self.mode == "pysmt":
@@ -111,7 +121,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(> {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            return x > y
     
     def Ite(self, condition, true_value, false_value):
         if self.mode == "pysmt":
@@ -119,7 +129,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(ite {condition} {true_value} {false_value})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            raise NotImplementedError("explicit Ite not supported in milp mode")
     
     def And(self, *args):
         if self.mode == "pysmt":
@@ -127,7 +137,8 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(and {' '.join(args)})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            for arg in args:
+                self.add_assertion(arg)
     
     def Or(self, *args):
         if self.mode == "pysmt":
@@ -135,7 +146,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(or {' '.join(args)})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            raise NotImplementedError("explicit Or not supported in milp mode")
     
     def Not(self, x):
         if self.mode == "pysmt":
@@ -143,7 +154,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(not {x})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            return 1 - x
     
     def Implies(self, condition, expr):
         if self.mode == "pysmt":
@@ -151,7 +162,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(=> {condition} {expr})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            raise NotImplementedError("explicit Implies not supported in milp mode")
         
     def Mod(self, x, y):
         if self.mode == "pysmt":
@@ -162,7 +173,7 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(mod {x} {y})"
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            raise NotImplementedError("Mod not supported in milp mode")
     
     def _pysmt_declaration(self, x, type):
         symbol = self.Symbol(x, type)
@@ -175,6 +186,12 @@ class Generator:
         self.symbols[x] = x
         self.declared_names.add(x)
         return x
+
+    def _milp_declaration(self, x, type, lb=None, ub=None):
+        var = LpVariable(x, cat=type, lowBound=lb, upBound=ub)
+        self.symbols[x] = var
+        self.declared_names.add(x)
+        return var
     
     def declare_real(self, x):
         if x not in self.declared_names:
@@ -184,7 +201,7 @@ class Generator:
             elif self.mode == "smtlib":
                 return self._smtlib_declaration(x, "Real")
             elif self.mode == "milp":
-                raise NotImplementedError("milp mode not yet supported")
+                raise ValueError("real in milp")
         else:
             return self.format_real(x)      
             
@@ -203,26 +220,30 @@ class Generator:
                 return str(x)
             return x
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            raise NotImplementedError("real numbers in milp mode not yet supported")
 
     def Real(self, x):
         return self.format_real(x)
         
-    def declare_integer(self, x):
+    def declare_integer(self, x, lb=None, ub=None):
+        res = None
         if x not in self.declared_names:
             # even though declaring integer, in QF_NRA, reals have to be used
             if self.logic == "QF_NRA":
                 return self.declare_real(x)
-            
-            self.stats['integers'] += 1
             if self.mode == "pysmt":
-                return self._pysmt_declaration(x, self.INT)
+                res =  self._pysmt_declaration(x, self.INT)
             elif self.mode == "smtlib":
-                return self._smtlib_declaration(x, "Int")
+                res = self._smtlib_declaration(x, "Int")
             elif self.mode == "milp":
-                raise NotImplementedError("milp mode not yet supported")
+                res =  self._milp_declaration(x, LpInteger, lb, ub)
+            self.stats['integers'] += 1
         else:
-            return self.format_integer(x)
+            res = self.format_integer(x)
+
+        if res is not None:
+            self.integer_variables.add(res)
+        return res
             
     def format_integer(self, x):
         if self.mode == "pysmt":
@@ -237,29 +258,40 @@ class Generator:
                 return str(x)
             return x
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            if isinstance(x, int):
+                return x
+            elif isinstance(x, str):
+                if x in self.symbols:
+                    return self.symbols[x]
+            return x
         
     def Int(self, x):
         return self.format_integer(x)
         
     def declare_bool(self, x):
+        res = None
         if x not in self.declared_names:
             self.stats['bools'] += 1
             if self.mode == "pysmt":
-                return self._pysmt_declaration(x, self.BOOL)
+                res =  self._pysmt_declaration(x, self.BOOL)
             elif self.mode == "smtlib":
-                return self._smtlib_declaration(x, "Bool")
+                res =  self._smtlib_declaration(x, "Bool")
             elif self.mode == "milp":
-                raise NotImplementedError("milp mode not yet supported")
+                res = self._milp_declaration(x, LpBinary)
         else:
             if self.mode == "pysmt":
                 if x in self.symbols:
-                    return self.symbols[x]
-                return x
+                    res = self.symbols[x]
+                res = x
             elif self.mode == "smtlib":
-                return x
+                res = x
             elif self.mode == "milp":
-                raise NotImplementedError("milp mode not yet supported")
+                if x in self.symbols:
+                    res = self.symbols[x]
+                res = x
+        if res is not None:
+            self.bool_variables.add(res)
+        return res
 
     def declare_helpers(self):
         # possible helper methods
@@ -331,7 +363,7 @@ class Generator:
         elif self.mode == "milp":
             raise NotImplementedError("milp mode not yet supported")
     
-    def add_rescaling(self, r1, r2, v1, v2, pair_idx, d):        
+    def add_rescaling(self, r1, r2, v1, v2, pair_idx, d):   
         n = self.declare_integer(f"n{pair_idx}")
         k = self.declare_integer(f"k{pair_idx}")
         # n = k1 - k2 or n = k2 - k1
@@ -389,6 +421,42 @@ class Generator:
         else:
             raise ValueError("rescaling with wrong logic")
         
+    def add_milp_rescaling(self, r1, r2, v1, v2, pair_idx, d):
+        # first encode k as the result of the operation floor(abs(k1 - k2)/2)
+        complex_representation = v1.element_representation
+        k = self.declare_integer(f"k{pair_idx}", lb=0, ub=d)
+        q = self.declare_integer(f"q{pair_idx}", lb=0, ub=1)
+
+        bigM = 1e10 # TODO
+        sleq = self.declare_bool(f"sleq{pair_idx}")
+        self.add_assertion((v1.k - v2.k) - (2*k + q) <= bigM * sleq)
+        self.add_assertion((2*k + q) - (v1.k - v2.k) <= bigM * sleq)
+        self.add_assertion((v2.k - v1.k) - (2*k + q) <= bigM * (1 - sleq))
+        self.add_assertion((2*k + q) - (v2.k - v1.k) <= bigM * (1 - sleq))
+
+        # now retreive the boolean variable that will express the 2^i constant
+        constants = [self.declare_bool(f"s{pair_idx}_{i}") for i in range(d+1)]
+        self.add_assertion(lpSum([s for s in constants]) == 1)
+        self.add_assertion(k == lpSum([constants[i] * i for i in range(d+1)]))
+        # now constants[i] is True iff k = i
+        # next, determine if k is odd or even
+        quocient = self.declare_integer(f"quocient{pair_idx}")
+        odd = self.declare_integer(f"odd{pair_idx}", lb=0, ub=1)
+        even = self.declare_bool(f"even{pair_idx}")
+        self.add_assertion(k == 2 * quocient + odd)
+        self.add_assertion(even == (1 - odd))
+
+        # now sleq, si, even encode all case splits needed for the rescaling
+        # encode all combinations to assign to r1, r2
+        
+        # for every si, I,M is multiplied by 2^i
+        for i in range(len(v1)):
+            for j, s in enumerate(constants):
+                for parity in [("even", even), ("odd", odd)]:
+                    for rel in [("<=", sleq), (">=", (1 - sleq))]:
+                        sel = (3 - rel[1] - s - parity[1])
+                        complex_representation.constrained_rescaling(sel, v1[i], v2[i], j, parity[0], rel[0])
+
         
     def add_constraints(self, gate_set, last_encoded_layer, qubits):
         if last_encoded_layer < 1:

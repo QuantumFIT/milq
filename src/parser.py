@@ -1,5 +1,6 @@
 
 import re
+from generator import Generator
 
 class ModelParser:
     """
@@ -9,6 +10,22 @@ class ModelParser:
         self.stats = {}
         self.stats['gate_counts'] = {} # gate name -> count
         self.stats['cost'] = 0 # total cost of the circuit
+
+
+    def expand_milp_model(self, gen : Generator) -> list:
+        items = []
+        for var in gen.bool_variables:
+            if var.name.startswith("L"):
+                if var.value() == 1:
+                    items.append((var.name, True))
+                else:
+                    items.append((var.name, False))
+        for var in gen.integer_variables:
+            if var.name.startswith("W"):
+                items.append((var.name, var.value()))
+        return items
+
+
 
     def parse_model_to_items(self, model : str) -> list:
         lines = model.split('\n')
@@ -75,7 +92,9 @@ class ModelParser:
 
     def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm") -> bool:
         items = model
-        if isinstance(model, str):
+        if isinstance(model, Generator):
+            items = self.expand_milp_model(model)
+        elif isinstance(model, str):
             items = self.parse_model_to_items(model)
 
         gates = self.filter_items(items, depth)
@@ -94,6 +113,7 @@ class ModelParser:
 
         self.print_stats()
         self.write_circuit_to_qasm(circuit, qubits, output_qasm)
+        return True
     
     def get_stats(self) -> dict:
         return self.stats

@@ -19,6 +19,7 @@ from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, 
 from pysmt.typing import REAL, INT
 from pysmt.solvers.solver import Solver
 from gates import GateSet, supported_gates, check_supported
+from pulp import *
 
 
 class Synthesizer:
@@ -56,20 +57,32 @@ class Synthesizer:
         
 
     def encode_layer(self, inp : Vector, out : Vector, layer : int, inp_weight : any = None, out_weight : any = None) -> None:
+        updates_k_value = []
         def add_implies(sel, expr):
             self.gen.add_assertion(self.gen.Implies(sel, expr))
         
         def add_k_eq(sel, out_k, inp_k):
+            if self.gen.mode == "milp":
+                return
             k_eq = self.gen.Equals(out_k, inp_k)
             self.gen.add_assertion(self.gen.Implies(sel, k_eq))
         
         def add_k_incr(sel, out_k, inp_k, increment):
+            if self.gen.mode == "milp":
+                updates_k_value.append((sel, self.gen.Int(increment)))
+                return
             k_incr = self.gen.Equals(out_k, self.gen.Plus(inp_k, self.gen.Int(increment)))
             add_implies(sel, k_incr)
+        
+        def add_constrained_equals(sel, expr1, expr2):
+            if self.gen.mode == "milp":
+                self.complex_representation.constrained_equals(sel, expr1, expr2)
+            else:
+                self.gen.add_assertion(self.gen.Implies(sel, (expr1 == expr2)))
 
         if not check_supported(self.gate_set):
             raise ValueError("gate set contains an unsupported gate")
-        
+
         selection_variables = []
         bool_variables = []
         self.gate_set.add_gate(gate="id", weight=0, qubits=1) #implicit identity gate
@@ -95,10 +108,13 @@ class Synthesizer:
             bool_variables.append(v)
         
         # add constraints for only one gate per layer
-        self.gen.add_assertion(self.gen.Or(*bool_variables))
-        for v in bool_variables:
-            others = [v2 for v2 in bool_variables if v2 != v]
-            self.gen.add_assertion(self.gen.Implies(v, self.gen.And(*[self.gen.Not(v2) for v2 in others])))
+        if self.gen.mode == "milp":
+            self.gen.add_assertion(lpSum([v[0] for v in selection_variables]) == 1)
+        else:
+            self.gen.add_assertion(self.gen.Or(*bool_variables))
+            for v in bool_variables:
+                others = [v2 for v2 in bool_variables if v2 != v]
+                self.gen.add_assertion(self.gen.Implies(v, self.gen.And(*[self.gen.Not(v2) for v2 in others])))
 
         propagate_identities = []
         for pos in range(2**self.q):
@@ -111,6 +127,9 @@ class Synthesizer:
             if len(rest) == 2: # single qubit
                 q = rest[1]
                 if gate == 'id':
+                    if self.gen.mode == "milp":
+                        for pos in range(2**self.q):
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'h':
@@ -120,48 +139,50 @@ class Synthesizer:
                         other = pos ^ (1 << q)
                         modified_positions.append(pos)
                         modified_positions.append(other)
-                        expr1 = out[pos] == ((inp[pos] + inp[other]).divide_by_sqrt2(self.gen))
-                        expr2 = out[other] == ((inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen))
+                        add_constrained_equals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_sqrt2(self.gen)))
+                        add_constrained_equals(bool_var, out[other], ((inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen)))
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
-                        add_implies(bool_var, expr1)
-                        add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 1)
                 elif gate == 's':
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            expr = out[pos] == inp[pos].multiply_by_i(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_i(self.gen))
                             propagate_identities[pos].append(bool_var)
-                            add_implies(bool_var, expr)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'sdg':
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            expr = out[pos] == inp[pos].multiply_by_minus_i(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_minus_i(self.gen))
                             propagate_identities[pos].append(bool_var)
-                            add_implies(bool_var, expr)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 't':
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            expr = out[pos] == inp[pos].multiply_by_omega(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_omega(self.gen))
                             propagate_identities[pos].append(bool_var)
-                            add_implies(bool_var, expr)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'tdg':
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            expr = out[pos] == inp[pos].multiply_by_omega_counter(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_omega_counter(self.gen))
                             propagate_identities[pos].append(bool_var)
-                            add_implies(bool_var, expr)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'x':
@@ -171,12 +192,10 @@ class Synthesizer:
                         other = pos ^ (1 << q)
                         modified_positions.append(pos)
                         modified_positions.append(other)
-                        expr1 = out[pos] == inp[other]
-                        expr2 = out[other] == inp[pos]
+                        add_constrained_equals(bool_var, out[pos], inp[other])
+                        add_constrained_equals(bool_var, out[other], inp[pos])
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
-                        add_implies(bool_var, expr1)
-                        add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'sx':
@@ -186,12 +205,10 @@ class Synthesizer:
                         other = pos ^ (1 << q)
                         modified_positions.append(pos)
                         modified_positions.append(other)
-                        expr1 = out[pos] == ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))
-                        expr2 = out[other] == ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))
+                        add_constrained_equals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen)))
+                        add_constrained_equals(bool_var, out[other], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen)))
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
-                        add_implies(bool_var, expr1)
-                        add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
                 elif gate == 'sxdg':
@@ -201,12 +218,10 @@ class Synthesizer:
                         other = pos ^ (1 << q)
                         modified_positions.append(pos)
                         modified_positions.append(other)
-                        expr1 = out[pos] == ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))
-                        expr2 = out[other] == ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))
+                        add_constrained_equals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen)))
+                        add_constrained_equals(bool_var, out[other], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen)))
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
-                        add_implies(bool_var, expr1)
-                        add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
                 elif gate == 'y':
@@ -218,28 +233,25 @@ class Synthesizer:
                         modified_positions.append(other)
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            expr1 = out[pos] == inp[other].multiply_by_i(self.gen)
-                            expr2 = out[other] == inp[pos].multiply_by_minus_i(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[other].multiply_by_i(self.gen))
+                            add_constrained_equals(bool_var, out[other], inp[pos].multiply_by_minus_i(self.gen))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
                         else:
-                            expr1 = out[pos] == inp[other].multiply_by_minus_i(self.gen)
-                            expr2 = out[other] == inp[pos].multiply_by_i(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[other].multiply_by_minus_i(self.gen))
+                            add_constrained_equals(bool_var, out[other], inp[pos].multiply_by_i(self.gen))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'z':
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            expr = out[pos] == inp[pos].multiply_by_minus_one(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_minus_one(self.gen))
                             propagate_identities[pos].append(bool_var)
-                            add_implies(bool_var, expr)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
             elif len(rest) == 3: # two qubit
@@ -253,12 +265,13 @@ class Synthesizer:
                         if control_flag:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
-                            expr1 = out[pos] == inp[other]
-                            expr2 = out[other] == inp[pos]
+                            add_constrained_equals(bool_var, out[pos], inp[other])
+                            add_constrained_equals(bool_var, out[other], inp[pos])
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
+                            modified_positions.append(pos)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'xcx':
@@ -270,12 +283,12 @@ class Synthesizer:
                         if not control_flag:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
-                            expr1 = out[pos] == inp[other]
-                            expr2 = out[other] == inp[pos]
+                            add_constrained_equals(bool_var, out[pos], inp[other])
+                            add_constrained_equals(bool_var, out[other], inp[pos])
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'dcx':
@@ -286,7 +299,9 @@ class Synthesizer:
                         control_flag = (pos >> q1) & 1
                         target_flag = (pos >> q2) & 1
                         other = None
-                        if not control_flag and target_flag:
+                        if (not control_flag and not target_flag) and self.gen.mode == "milp":
+                            other = pos
+                        elif not control_flag and target_flag:
                             other = pos ^ ((1 << q1) | (1 << q2))
                         elif control_flag and not target_flag:
                             other = pos ^ (1 << q2)
@@ -294,9 +309,8 @@ class Synthesizer:
                             other = pos ^ (1 << q1)
                         if other is None: continue
                         modified_positions.append(other)
-                        expr = out[other] == inp[pos]
+                        add_constrained_equals(bool_var, out[other], inp[pos])
                         propagate_identities[other].append(bool_var)
-                        add_implies(bool_var, expr)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'ch':
@@ -308,12 +322,12 @@ class Synthesizer:
                         if control_flag:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
-                            expr1 = out[pos] == (inp[pos] + inp[other]).divide_by_sqrt2(self.gen)
-                            expr2 = out[other] == (inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen)
+                            add_constrained_equals(bool_var, out[pos], (inp[pos] + inp[other]).divide_by_sqrt2(self.gen))
+                            add_constrained_equals(bool_var, out[other], (inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 1)
                 elif gate == 'csx':
@@ -325,12 +339,12 @@ class Synthesizer:
                         if control_flag:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
-                            expr1 = out[pos] == ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))
-                            expr2 = out[other] == ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))
+                            add_constrained_equals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen)))
+                            add_constrained_equals(bool_var, out[other], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
                 elif gate == 'cy':
@@ -344,19 +358,17 @@ class Synthesizer:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
                             if control_flag and not target_flag:
-                                expr1 = out[pos] == inp[other].multiply_by_minus_i(self.gen)
-                                expr2 = out[other] == inp[pos].multiply_by_i(self.gen)
+                                add_constrained_equals(bool_var, out[pos], inp[other].multiply_by_minus_i(self.gen))
+                                add_constrained_equals(bool_var, out[other], inp[pos].multiply_by_i(self.gen))
                                 propagate_identities[pos].append(bool_var)
                                 propagate_identities[other].append(bool_var)
-                                add_implies(bool_var, expr1)
-                                add_implies(bool_var, expr2)
-                            elif control_flag and target_flag:
-                                expr1 = out[pos] == inp[other].multiply_by_i(self.gen)
-                                expr2 = out[other] == inp[pos].multiply_by_minus_i(self.gen)
+                            else:
+                                add_constrained_equals(bool_var, out[pos], inp[other].multiply_by_i(self.gen))
+                                add_constrained_equals(bool_var, out[other], inp[pos].multiply_by_minus_i(self.gen))
                                 propagate_identities[pos].append(bool_var)
                                 propagate_identities[other].append(bool_var)
-                                add_implies(bool_var, expr1)
-                                add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                         
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -365,9 +377,10 @@ class Synthesizer:
                         control_flag = (pos >> q1) & 1
                         target_flag = (pos >> q2) & 1
                         if control_flag and target_flag:
-                            expr = out[pos] == inp[pos].multiply_by_minus_one(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_minus_one(self.gen))
                             propagate_identities[pos].append(bool_var)
-                            add_implies(bool_var, expr)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'cs':
@@ -375,9 +388,10 @@ class Synthesizer:
                         control_flag = (pos >> q1) & 1
                         target_flag = (pos >> q2) & 1
                         if control_flag and target_flag:
-                            expr = out[pos] == inp[pos].multiply_by_i(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_i(self.gen))
                             propagate_identities[pos].append(bool_var)
-                            add_implies(bool_var, expr)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'csdg':
@@ -385,9 +399,10 @@ class Synthesizer:
                         control_flag = (pos >> q1) & 1
                         target_flag = (pos >> q2) & 1
                         if control_flag and target_flag:
-                            expr = out[pos] == inp[pos].multiply_by_minus_i(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_minus_i(self.gen))
                             propagate_identities[pos].append(bool_var)
-                            add_implies(bool_var, expr)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'swap':
@@ -400,12 +415,12 @@ class Synthesizer:
                         if q1_flag != q2_flag:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
-                            expr1 = out[pos] == inp[other]
-                            expr2 = out[other] == inp[pos]
+                            add_constrained_equals(bool_var, out[pos], inp[other])
+                            add_constrained_equals(bool_var, out[other], inp[pos])
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'iswap':
@@ -418,12 +433,12 @@ class Synthesizer:
                         if q1_flag != q2_flag:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
-                            expr1 = out[pos] == inp[other].multiply_by_i(self.gen)
-                            expr2 = out[other] == inp[pos].multiply_by_i(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[other].multiply_by_i(self.gen))
+                            add_constrained_equals(bool_var, out[other], inp[pos].multiply_by_i(self.gen))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'sqrtswap':
@@ -436,12 +451,12 @@ class Synthesizer:
                         if q1_flag != q2_flag:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
-                            expr1 = out[pos] == ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))
-                            expr2 = out[other] == (((inp[pos] + inp[other])).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))
+                            add_constrained_equals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen)))
+                            add_constrained_equals(bool_var, out[other], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
                 elif gate == 'isqrtswap':
@@ -454,12 +469,12 @@ class Synthesizer:
                         if q1_flag != q2_flag:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
-                            exp1 = out[pos] == ((inp[pos] + (inp[other].multiply_by_i(self.gen))).divide_by_sqrt2(self.gen))
-                            expr2 = out[other] == ((inp[pos].multiply_by_i(self.gen) + inp[other]).divide_by_sqrt2(self.gen))
+                            add_constrained_equals(bool_var, out[pos], ((inp[pos] + (inp[other].multiply_by_i(self.gen))).divide_by_sqrt2(self.gen)))
+                            add_constrained_equals(bool_var, out[other], ((inp[pos].multiply_by_i(self.gen) + inp[other]).divide_by_sqrt2(self.gen)))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 1)
             elif len(rest) == 4: # three qubit
@@ -476,12 +491,12 @@ class Synthesizer:
                         if q1_flag and q2_flag:
                             other = pos ^ (1 << q3)
                             modified_positions.append(other)
-                            expr1 = out[pos] == inp[other]
-                            expr2 = out[other] == inp[pos]
+                            add_constrained_equals(bool_var, out[pos], inp[other])
+                            add_constrained_equals(bool_var, out[other], inp[pos])
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'cswap':
@@ -495,12 +510,12 @@ class Synthesizer:
                         if q1_flag and (q2_flag != q3_flag):
                             other = pos ^ ((1 << q2) | (1 << q3))
                             modified_positions.append(other)
-                            expr1 = out[pos] == inp[other]
-                            expr2 = out[other] == inp[pos]
+                            add_constrained_equals(bool_var, out[pos], inp[other])
+                            add_constrained_equals(bool_var, out[other], inp[pos])
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                            add_implies(bool_var, expr1)
-                            add_implies(bool_var, expr2)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'ccz':
@@ -509,30 +524,41 @@ class Synthesizer:
                         q2_flag = (pos >> q2) & 1
                         q3_flag = (pos >> q3) & 1
                         if q1_flag and q2_flag and q3_flag:
-                            expr = out[pos] == inp[pos].multiply_by_minus_one(self.gen)
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_minus_one(self.gen))
                             propagate_identities[pos].append(bool_var)
-                            add_implies(bool_var, expr)
+                        elif self.gen.mode == "milp":
+                            add_constrained_equals(bool_var, out[pos], inp[pos])
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
         # propagate identities for positions that were not modified by the chosen gate
         # (notG1 and notG2 and ...) -> (out[pos] == inp[pos])
         for pos in range(2**self.q):
+            if self.gen.mode == "milp": # TODO: milp does not support propagation yet
+                break
             if len(propagate_identities[pos]) == 0: # no gates modified this position, propagate identity
                 expr = out[pos] == inp[pos]
                 self.gen.add_assertion(expr)
             else:
                 add_implies(self.gen.And(*[self.gen.Not(v) for v in propagate_identities[pos]]), out[pos] == inp[pos])
         
+        # propagate the k update
+        if self.gen.mode == "milp":
+            self.gen.add_assertion(self.gen.Equals(out.k, self.gen.Plus(inp.k, lpSum([v[1] * v[0] for v in updates_k_value]))))
+
         # add gate weights
         if inp_weight is None or out_weight is None:
             return
         
         for selection_variable in selection_variables:
+            if self.gen.mode == "milp": # rather than implications, add it directly as a sum
+                break
             bool_var = selection_variable[0]
             gate = selection_variable[1][0]
             weight = self.gate_set.get_weight(gate)
             self.gen.add_assertion(self.gen.Implies(bool_var, self.gen.Equals(out_weight, self.gen.Plus(inp_weight, self.gen.Int(weight)))))
         
+        if self.gen.mode == "milp":
+            self.gen.add_assertion(self.gen.Equals(out_weight, self.gen.Plus(inp_weight, lpSum([self.gate_set.get_weight(v[1][0]) * v[0] for v in selection_variables]))))
 
     def synthesis(self, qasm_file, output_qasm="circuit.qasm", choice=None):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
@@ -562,12 +588,12 @@ class Synthesizer:
         self.d = stats['d']
         self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
         #res = self.synthesis_incremental(vector_pairs, output_qasm)
-        #self.gen.mode = "smtlib"
-        #self.basic_synthesis(vector_pairs)
-        #res = self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="opensmt")
+        self.gen.mode = "milp"
+        self.basic_synthesis(vector_pairs)
+        res = self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="gurobi")
 
         #res = self.synthesis_weights(vector_pairs, output_qasm, mode="binary")
-        res = self.synthesis_weights(vector_pairs, output_qasm, mode="bottom_up")
+        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="bottom_up")
         #res = self.synthesis_weights(vector_pairs, output_qasm, mode="top_down")
         return res
 
@@ -599,16 +625,14 @@ class Synthesizer:
         if self.gate_set is None:
             raise ValueError("gate_set is required")
         
-        weights = [self.gen.declare_integer(f"W{i}") for i in range(self.d + 1)]
+        weights = [self.gen.declare_integer(f"W{i}", lb=0, ub=self.d) for i in range(self.d + 1)]
         self.gen.add_assertion(self.gen.Equals(weights[0], self.gen.Int(0)))
         for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
             In = Vector(q=2**self.q, name=f"In_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k, n=input_vector.n)
             for i, val in enumerate(input_vector.vec):
                 self.gen.add_assertion(In[i] == val)
-            
             if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                 self.gen.add_assertion(self.gen.Equals(In.k, self.gen.format_integer(input_vector.k)))
-            
             if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                 inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(self.d + 1)]
             else:
@@ -618,7 +642,8 @@ class Synthesizer:
             for d in range(self.d):
                 self.encode_layer(inter[d], inter[d+1], d, weights[d], weights[d+1])
                 # add constraining rules - no H H, Tdg T, ...
-                self.gen.add_constraints(self.gate_set, d, self.q)
+                if self.gen.mode != "milp":
+                    self.gen.add_constraints(self.gate_set, d, self.q)
 
             
             Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_vector.k, n = output_vector.n)
@@ -644,6 +669,9 @@ class Synthesizer:
                 self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(0.0)))
                 self.gen.add_assertion(self.gen.LE(self.gen.Real(fidelity.real), self.gen.Real(1.0)))
                 self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(self.fidelity_threshold)))
+            elif self.gen.mode == "milp":
+                self.gen.add_milp_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.max_k)
+                self.gen.add_assertion(inter[self.d] == Target)
             elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
                 # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
                 # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
@@ -651,8 +679,13 @@ class Synthesizer:
                 rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
                 self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.max_k)
                 self.gen.add_assertion(rescaled1 == rescaled2)
-        #self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(1)))
-        self.gen.write_smtlib(output_file)
+
+        if self.gen.mode == "milp":
+            self.gen.lp_problem += weights[self.d], "Circuit_cost"
+            output_file = output_file.split(".")[0] + ".lp"
+            self.gen.lp_problem.writeLP(output_file)
+        else:
+            self.gen.write_smtlib(output_file)
 
 
     def synthesis_incremental(self, vector_pairs, output_qasm="circuit.qasm"):
@@ -732,7 +765,7 @@ class Synthesizer:
                     elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
                             rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[depth].name}")
                             rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, self.max_k)
+                            self.gen.add_milp_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, self.max_k)
                             self.gen.add_assertion(rescaled1 == rescaled2)
                     else:
                         self.gen.add_assertion(inter[depth] == Target)
@@ -747,7 +780,6 @@ class Synthesizer:
             if not solved:
                 return False
             else:
-                #parse_pysmt(model, self.q, self.d, output_qasm, result)
                 self.parser.parse(model, self.q, self.d, output_qasm)
                 return True
 
@@ -867,7 +899,6 @@ class Synthesizer:
                 if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                     self.gen.add_assertion(self.gen.Equals(Target.k, self.gen.format_integer(output_vector.k)))
 
-
                 conj_rescaled1 = None
                 rescaled1 = None
                 rescaled2 = None
@@ -907,41 +938,56 @@ class Synthesizer:
             output_qasm: Output filename for QASM circuit
             solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2, dreal (experimental)
         """
-        solver_to_filename = {
-            "z3": "z3",
-            "z3alpha": "/home/jakubhavlik/rus-synth/solvers/z3alpha/z3alpha.py",
-            "cvc5": "/home/jakubhavlik/rus-synth/solvers/cvc5/starexec_run_sq",
-            "opensmt": "/home/jakubhavlik/rus-synth/solvers/opensmt/opensmt",
-            "smtinterpol": "/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol",
-            "yices2": "/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2",
-            "dreal": "/opt/dreal/4.21.06.2/bin/dreal"
-        }
-        
-        if solver is None:
-            solver = self.solver
-
-        elif smtlib_filename is None:
-            raise ValueError("smtlib_filename is None")
-
-        jobs = cpu_count()
-        if jobs is None:
-            jobs = 1
-        args = {
-            "dreal": [ "-j",  str(jobs), "--precision", "1e-6", "--produce-models"]
-        }
-        if solver not in solver_to_filename:
-            raise ValueError(f"Invalid solver: {solver}")
         result = None
-        try:
-            result = subprocess.run(
-                [solver_to_filename[solver], smtlib_filename] + args.get(solver, []),
-                capture_output=True,
-                text=True,
-            )
-        except Exception as e:
-            raise ValueError(f"Error: {e}")
-            return False
-        if result is None:
-            return False
-        self.parser.parse(result.stdout, self.q, self.d, output_qasm)
-        return True
+        if self.gen.mode == "milp":
+            solver_to_class = {
+                "gurobi": GUROBI,
+                "cbc": PULP_CBC_CMD,
+            }
+            solver = solver_to_class[solver](msg=False)
+            solver.solve(self.gen.lp_problem)
+            if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
+                return self.parser.parse(self.gen, self.q, self.d, output_qasm)
+            elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":
+                return False
+            else:
+                raise ValueError(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
+
+        elif self.gen.mode == "smtlib":
+            solver_to_filename = {
+                "z3": "z3",
+                "z3alpha": "/home/jakubhavlik/rus-synth/solvers/z3alpha/z3alpha.py",
+                "cvc5": "/home/jakubhavlik/rus-synth/solvers/cvc5/starexec_run_sq",
+                "opensmt": "/home/jakubhavlik/rus-synth/solvers/opensmt/opensmt",
+                "smtinterpol": "/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol",
+                "yices2": "/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2",
+                "dreal": "/opt/dreal/4.21.06.2/bin/dreal"
+            }
+            
+            if solver is None:
+                solver = self.solver
+
+            elif smtlib_filename is None:
+                raise ValueError("smtlib_filename is None")
+
+            jobs = cpu_count()
+            if jobs is None:
+                jobs = 1
+            args = {
+                "dreal": [ "-j",  str(jobs), "--precision", "1e-6", "--produce-models"]
+            }
+            if solver not in solver_to_filename:
+                raise ValueError(f"Invalid solver: {solver}")
+            try:
+                result = subprocess.run(
+                    [solver_to_filename[solver], smtlib_filename] + args.get(solver, []),
+                    capture_output=True,
+                    text=True,
+                )
+            except Exception as e:
+                raise ValueError(f"Error: {e}")
+                return False
+            if result is None:
+                return False
+            self.parser.parse(result.stdout, self.q, self.d, output_qasm)
+            return True

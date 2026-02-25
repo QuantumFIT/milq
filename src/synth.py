@@ -109,7 +109,11 @@ class Synthesizer:
         
         # add constraints for only one gate per layer
         if self.gen.mode == "milp":
-            self.gen.add_assertion(lpSum([v[0] for v in selection_variables]) == 1)
+            if selection_variables:
+                sum_var = selection_variables[0][0]
+                for sel, _ in selection_variables[1:]:
+                    sum_var = sum_var + sel
+                self.gen.add_assertion(sum_var == 1)
         else:
             self.gen.add_assertion(self.gen.Or(*bool_variables))
             for v in bool_variables:
@@ -574,9 +578,9 @@ class Synthesizer:
                 return self.synthesis_incremental(vector_pairs, output_qasm)
             elif choice in ["binary", "bottom_up", "top_down"]:
                 return self.synthesis_weights(vector_pairs, output_qasm, mode=choice)
-        self.gen.mode = "smtlib"
+        self.gen.mode = "milp"
         self.basic_synthesis(vector_pairs)
-        return self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="opensmt")
+        return self.solve_and_extract_circuit("formula.lp", output_qasm, solver="gurobi")
     
     def synthesis_zero(self, qasm_file, output_qasm="circuit.qasm"):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
@@ -671,7 +675,6 @@ class Synthesizer:
                 self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(self.fidelity_threshold)))
             elif self.gen.mode == "milp":
                 self.gen.add_milp_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.max_k)
-                self.gen.add_assertion(inter[self.d] == Target)
             elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
                 # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
                 # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector

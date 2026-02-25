@@ -1,3 +1,5 @@
+from gates import GateSet
+
 def save_to_qasm(n, d1, gate_assignments, filename):
     with open(filename, 'w') as f:
         f.write("OPENQASM 2.0;\n")
@@ -396,9 +398,5 @@ class ModelParser:
     """
     class that converts model from any solver to QASM file
     """
-    def __init__(self, model, output_qasm):
-        self.model = model
-        self.output_qasm = output_qasm
-
-    def parse(self):
+    def parse(self, model : any, gate_set : GateSet, qubits : int, depth : int, output_qasm : str = "circuit.qasm") -> bool:
         pass

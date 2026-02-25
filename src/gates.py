@@ -128,3 +128,6 @@ class GateSet:
             if self.qubits[gate] == q:
                 gates.append(gate)
         return gates
+    
+    def get_weight(self, gate : str) -> int:
+        return self.gates[gate]

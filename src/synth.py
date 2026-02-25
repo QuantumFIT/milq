@@ -10,7 +10,7 @@ from complex.vector import Vector
 from complex.fivetuple import FiveTuple
 from complex.ntuple import nTuple
 from generator import Generator
-from parser import parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2, parse_dreal, parse_pysmt
+from parser import ModelParser, parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2, parse_dreal, parse_pysmt
 import subprocess
 from sim import Simulator
 from multiprocessing import cpu_count
@@ -27,6 +27,7 @@ class Synthesizer:
         if solver is not None:
             self.gen.mode = "smtlib"
 
+        self.parser = ModelParser()
         self.gate_set = gate_set
         self.simulator = None
         self.complex_representation = FiveTuple
@@ -51,7 +52,7 @@ class Synthesizer:
         env.factory.add_generic_solver("dreal", path, [QF_NRA])
         
 
-    def encode_layer(self, inp : Vector, out : Vector, layer : int) -> None:
+    def encode_layer(self, inp : Vector, out : Vector, layer : int, inp_weight : any = None, out_weight : any = None) -> None:
         def add_implies(sel, expr):
             self.gen.add_assertion(self.gen.Implies(sel, expr))
         
@@ -512,6 +513,17 @@ class Synthesizer:
                 self.gen.add_assertion(expr)
             else:
                 add_implies(self.gen.And(*[self.gen.Not(v) for v in propagate_identities[pos]]), out[pos] == inp[pos])
+        
+        # add gate weights
+        if inp_weight is None or out_weight is None:
+            return
+        
+        for selection_variable in selection_variables:
+            bool_var = selection_variable[0]
+            gate = selection_variable[1][0]
+            weight = self.gate_set.get_weight(gate)
+            self.gen.add_assertion(self.gen.Implies(bool_var, self.gen.Equals(out_weight, self.gen.Plus(inp_weight, self.gen.Int(weight)))))
+        
 
     def synthesis(self, qasm_file, output_qasm="circuit.qasm"):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
@@ -521,7 +533,8 @@ class Synthesizer:
         self.q = stats['q']
         self.d = stats['d']
         self.basic_synthesis(vector_pairs)
-        self.solve_and_extract_circuit("formula.smt2", self.q, self.d, output_qasm)
+        res = self.solve_and_extract_circuit("formula.smt2", self.q, self.d, output_qasm)
+        return res
     
     def synthesis_zero(self, qasm_file, output_qasm="circuit.qasm"):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
@@ -530,9 +543,13 @@ class Synthesizer:
         self.gate_set = stats['gate_set']
         self.q = stats['q']
         self.d = stats['d']
-        self.basic_synthesis(vector_pairs)
-        #self.synthesis_gate_optimal(vector_pairs, output_qasm)
-        self.solve_and_extract_circuit("formula.smt2", output_qasm)
+        #res = self.synthesis_incremental(vector_pairs, output_qasm)
+        
+        #self.basic_synthesis(vector_pairs)
+        #res = self.solve_and_extract_circuit("formula.smt2", output_qasm)
+
+        #res = self.synthesis_binary_search(vector_pairs, output_qasm)
+        return res
 
     def synthesis_rus(self, qasm_file, output_qasm="circuit.qasm"):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
@@ -541,12 +558,14 @@ class Synthesizer:
         self.gate_set = stats['gate_set']
         self.q = stats['q']
         self.d = stats['d']
-        self.synthesis_gate_optimal(vector_pairs, output_qasm)
+        res = self.synthesis_incremental(vector_pairs, output_qasm)
+        return res
 
     def synthesis_vectors(self, vector_pairs, q, d, output_qasm="circuit.qasm"):
         self.q = q
         self.d = d
-        self.synthesis_gate_optimal(vector_pairs, output_qasm)
+        res = self.synthesis_incremental(vector_pairs, output_qasm)
+        return res
 
 
 
@@ -557,7 +576,9 @@ class Synthesizer:
         """
         if self.gate_set is None:
             raise ValueError("gate_set is required")
-
+        
+        weights = [self.gen.declare_integer(f"W{i}") for i in range(self.d + 1)]
+        self.gen.add_assertion(self.gen.Equals(weights[0], self.gen.Int(0)))
         for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
             In = Vector(q=2**self.q, name=f"In_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k, n=input_vector.n)
             for i, val in enumerate(input_vector.vec):
@@ -573,7 +594,7 @@ class Synthesizer:
             self.gen.add_assertion(inter[0] == In)
             
             for d in range(self.d):
-                self.encode_layer(inter[d], inter[d+1], d)
+                self.encode_layer(inter[d], inter[d+1], d, weights[d], weights[d+1])
                 # add constraining rules - no H H, Tdg T, ...
                 self.gen.add_constraints(self.gate_set, d, self.q)
 
@@ -608,11 +629,11 @@ class Synthesizer:
                 rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
                 self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
                 self.gen.add_assertion(rescaled1 == rescaled2)
-            
+        #self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(1)))
         self.gen.write_smtlib(output_file)
 
 
-    def synthesis_gate_optimal(self, vector_pairs, output_qasm="circuit.qasm"):
+    def synthesis_incremental(self, vector_pairs, output_qasm="circuit.qasm"):
         """
         use incremental solving to get the minimum number of gates in the resulting circuit
         uses pySMT and Cyclotomic8Dyadic
@@ -661,7 +682,7 @@ class Synthesizer:
             depth = 1
             solved = False
             while depth <= self.d and not solved:
-                print("Trying depth: ", depth)
+                print(f"Trying depth: {depth}")
                 for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
                     inter = inter_vectors[pair_idx]
                     # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
@@ -702,12 +723,113 @@ class Synthesizer:
                     depth += 1
             
             if not solved:
-                print("unsat")
                 return False
             else:
-                parse_pysmt(model, self.q, self.d, output_qasm, result)
+                self.parser.parse(model, self.gate_set, self.q, self.d, output_qasm)
                 return True
+            
+    def synthesis_binary_search(self, vector_pairs, output_qasm="circuit.qasm"):
+        """
+        use binary search and portfolio solving to minimize the cost of the circuit using defined weights of the gate set
+        """
+        if self.gate_set is None:
+            raise ValueError("gate_set is required")
+        self.add_solvers()
+        logic = "QF_LIA"
+        solvers = ["z3", "cvc5", "yices2", "smtinterpol", "opensmt"]
+        with Portfolio(solvers,
+                        logic=logic,
+                        incremental=True,
+                        generate_models=True) as portfolio:
+            self.gen.solver = portfolio
+        
+            weights = [self.gen.declare_integer(f"W{i}") for i in range(self.d + 1)]
+            self.gen.add_assertion(self.gen.Equals(weights[0], self.gen.Int(0)))
+            for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
+                In = Vector(q=2**self.q, name=f"In_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k, n=input_vector.n)
+                for i, val in enumerate(input_vector.vec):
+                    self.gen.add_assertion(In[i] == val)
+                
+                if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                    self.gen.add_assertion(self.gen.Equals(In.k, self.gen.format_integer(input_vector.k)))
+                
+                if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                    inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(self.d + 1)]
+                else:
+                    inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation) for d in range(self.d + 1)]
+                self.gen.add_assertion(inter[0] == In)
+                
+                for d in range(self.d):
+                    self.encode_layer(inter[d], inter[d+1], d, weights[d], weights[d+1])
+                    # add constraining rules - no H H, Tdg T, ...
+                    self.gen.add_constraints(self.gate_set, d, self.q)
 
+                Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_vector.k, n = output_vector.n)
+                for i, val in enumerate(output_vector.vec):
+                    self.gen.add_assertion(Target[i] == val)
+                
+                if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                    self.gen.add_assertion(self.gen.Equals(Target.k, self.gen.format_integer(output_vector.k)))
+
+
+                conj_rescaled1 = None
+                rescaled1 = None
+                rescaled2 = None
+                if self.gen.logic == "QF_NRA": 
+                # FIDELITY
+                    fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
+                    conjugate = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Conjugate")
+                    self.gen.add_assertion(conjugate == inter[self.d].conjugate())
+                    self.gen.add_assertion(f"(= {conjugate.k} {inter[self.d].k})")
+                    prod, k_final = conjugate * Target
+                    prod_real = prod.abs2(k_final) # abs2 <==> fidelity
+                    self.gen.add_assertion(f"(= {fidelity.real} {prod_real})")
+                    self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
+                    self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
+                    self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
+                elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
+                    # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
+                    # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
+                    rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
+                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
+                    self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
+                    self.gen.add_assertion(rescaled1 == rescaled2)
+            
+            solved = []
+            unsolved = []
+            lower_bound = 0
+            upper_bound = self.d
+            best_model = None
+            while True:
+                print(f"Lower bound: {lower_bound}, Upper bound: {upper_bound}")
+                print(f"Solved: {solved}, Unsolved: {unsolved}")
+                middle = lower_bound + (upper_bound - lower_bound) // 2
+                if lower_bound + 1 >= upper_bound:
+                    # found the optimal depth -- upper bound is the best solution
+                    if lower_bound not in solved and lower_bound not in unsolved:
+                        middle = lower_bound # dont know anything about the result
+                    elif lower_bound not in solved and upper_bound not in solved:
+                        middle = upper_bound # know that the result is unsat
+                    else:
+                        break
+                self.gen.solver.push()
+                self.gen.add_assertion(self.gen.LT(weights[d], self.gen.Int(middle)))
+                result = self.gen.solver.solve()                       
+                if result:
+                    upper_bound = middle
+                    # save the best circuit so far
+                    best_model = self.gen.solver.get_model()
+                    solved.append(middle)
+                else:
+                    lower_bound = middle
+                    unsolved.append(middle)
+                self.gen.solver.pop()
+
+            if best_model is not None:
+                self.parser.parse(best_model, self.gate_set, self.q, self.d, output_qasm)
+                return True
+            else:
+                return False
                 
 
     def solve_and_extract_circuit(self, smtlib_filename, output_qasm="circuit.qasm", solver=None) -> bool:
@@ -740,23 +862,17 @@ class Synthesizer:
         }
         if solver not in solver_to_filename:
             raise ValueError(f"Invalid solver: {solver}")
+        result = None
         try:
             result = subprocess.run(
                 [solver_to_filename[solver], smtlib_filename] + args.get(solver, []),
                 capture_output=True,
                 text=True,
             )
-            parse_map = {
-                "z3": parse_z3,
-                "z3alpha": parse_z3alpha,
-                "cvc5": parse_cvc5,
-                "opensmt": parse_opensmt,
-                "smtinterpol": parse_smtinterpol,
-                "yices2": parse_yices2,
-                "dreal": parse_dreal
-            }
-            parse_map[solver](result.stdout, self.q, self.d, output_qasm, result)
-            return True
         except Exception as e:
             raise ValueError(f"Error: {e}")
             return False
+        if result is None:
+            return False
+        self.parser.parse(result.stdout, self.gate_set, self.q, self.d, output_qasm)
+        return True

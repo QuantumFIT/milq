@@ -4,7 +4,7 @@ from pysmt.shortcuts import Real, Int, Bool, Symbol, And, Equals, Div, Plus, GT,
 from pysmt.typing import REAL, INT, BOOL
 from pulp import *
 from gates import self_adjoints, gate_to_qubits
-     
+
 class Generator:
     def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA") -> None:
         # modes - ["pysmt", "smtlib", "milp"]
@@ -24,14 +24,16 @@ class Generator:
         self.lp_problem = None
         self.bool_variables = set()
         self.integer_variables = set()
+        self.stack = []
+        self.objective_assertions = []
         self.stats['reals'] = 0
         self.stats['integers'] = 0
         self.stats['bools'] = 0
         self.stats['assertions'] = 0
         self.stats['variables'] = 0
+        self.stats['objectives'] = 0
     
     def add_assertion(self, assertion):
-        self.stats['assertions'] += 1
         if self.mode == "pysmt":
             if self.solver is None:
                 raise ValueError("solver is not set")
@@ -43,8 +45,21 @@ class Generator:
                 return
             if self.lp_problem is None:
                 self.lp_problem = LpProblem("Circuit_Synthesis", LpMinimize)
-            self.lp_problem += assertion
-        
+            self.lp_problem += assertion, f"assertion_{self.stats['assertions']}"
+        self.stats['assertions'] += 1
+    
+    def add_objective(self, objective):
+        if self.mode == "pysmt":
+            raise NotImplementedError("add_objective not supported in pysmt mode")
+        elif self.mode == "smtlib":
+            raise NotImplementedError("add_objective not supported in smtlib mode")
+        elif self.mode == "milp":
+            # implementation "hack" for push/pop
+            self.lp_problem += objective, f"assertion_{self.stats['assertions']}"
+            self.objective_assertions.append(self.stats['assertions'])
+            self.stats['assertions'] += 1
+        self.stats['objectives'] += 1
+
     def Plus(self, x, y):
         if self.mode == "pysmt":
             return Plus(x, y)
@@ -146,8 +161,11 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(or {' '.join(args)})"
         elif self.mode == "milp":
-            raise NotImplementedError("explicit Or not supported in milp mode")
-    
+            helper_var = self.declare_bool(f"or_{self.stats['bools']}")
+            for arg in args:
+                self.add_assertion(self.LE(arg, helper_var))
+            self.add_assertion(self.LE(helper_var, lpSum(args)))
+
     def Not(self, x):
         if self.mode == "pysmt":
             return Not(x)
@@ -232,7 +250,7 @@ class Generator:
             if self.logic == "QF_NRA":
                 return self.declare_real(x)
             if self.mode == "pysmt":
-                res =  self._pysmt_declaration(x, self.INT)
+                res = self._pysmt_declaration(x, self.INT)
             elif self.mode == "smtlib":
                 res = self._smtlib_declaration(x, "Int")
             elif self.mode == "milp":
@@ -273,7 +291,7 @@ class Generator:
         if x not in self.declared_names:
             self.stats['bools'] += 1
             if self.mode == "pysmt":
-                res =  self._pysmt_declaration(x, self.BOOL)
+                res = self._pysmt_declaration(x, self.BOOL)
             elif self.mode == "smtlib":
                 res =  self._smtlib_declaration(x, "Bool")
             elif self.mode == "milp":
@@ -282,13 +300,15 @@ class Generator:
             if self.mode == "pysmt":
                 if x in self.symbols:
                     res = self.symbols[x]
-                res = x
+                else:
+                    res = x
             elif self.mode == "smtlib":
                 res = x
             elif self.mode == "milp":
                 if x in self.symbols:
                     res = self.symbols[x]
-                res = x
+                else:
+                    res = x
         if res is not None:
             self.bool_variables.add(res)
         return res
@@ -427,7 +447,7 @@ class Generator:
         k = self.declare_integer(f"k{pair_idx}", lb=0, ub=d)
         q = self.declare_integer(f"q{pair_idx}", lb=0, ub=1)
 
-        bigM = 1e10 # TODO
+        bigM = 1e6 # TODO
         sleq = self.declare_bool(f"sleq{pair_idx}")
         self.add_assertion((v1.k - v2.k) - (2*k + q) <= bigM * sleq)
         self.add_assertion((2*k + q) - (v1.k - v2.k) <= bigM * sleq)
@@ -453,9 +473,9 @@ class Generator:
         for i in range(len(v1)):
             for j, s in enumerate(constants):
                 for parity in [("even", even), ("odd", odd)]:
-                    for rel in [("<=", sleq), (">=", (1 - sleq))]:
-                        sel = (3 - rel[1] - s - parity[1])
-                        complex_representation.constrained_rescaling(sel, v1[i], v2[i], j, parity[0], rel[0])
+                    for rel in [("<=", sleq), (">", (1 - sleq))]:
+                        sel = bigM * (3 - rel[1] - s - parity[1])
+                        complex_representation.constrained_rescaling(sel, r1[i], r2[i], v1[i], v2[i], 2**j, parity[0], rel[0])
 
         
     def add_constraints(self, gate_set, last_encoded_layer, qubits):
@@ -504,3 +524,28 @@ class Generator:
         print(f"Integers: {self.stats['integers']}")
         print(f"Booleans: {self.stats['bools']}")
         print(f"Assertions: {self.stats['assertions']}")
+
+    def push(self):
+        if self.mode == "milp":
+            self.stack.append(self.stats['assertions'])        
+        elif self.mode == "smtlib":
+            raise NotImplementedError("push not supported in smtlib mode")
+        elif self.mode == "pysmt":
+            self.solver.push()
+    
+    def pop(self):
+        if self.mode == "milp":
+            count_to_restore = self.stack.pop()
+            for i in range(count_to_restore, self.stats['assertions']):
+                if i in self.objective_assertions:
+                    self.lp_problem.objective = None
+                    self.objective_assertions.remove(i)
+                    self.stats['objectives'] -= 1
+                    self.stats['assertions'] -= 1
+                else:
+                    self.lp_problem.constraints.pop(f"assertion_{i}", None)
+                    self.stats['assertions'] -= 1
+        elif self.mode == "smtlib":
+            raise NotImplementedError("pop not supported in smtlib mode")
+        elif self.mode == "pysmt":
+            self.solver.pop()

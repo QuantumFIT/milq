@@ -16,7 +16,7 @@ class ModelParser:
         items = []
         for var in gen.bool_variables:
             if var.name.startswith("L"):
-                if var.value() == 1:
+                if abs(var.value() - 1) < 1e-6:
                     items.append((var.name, True))
                 else:
                     items.append((var.name, False))
@@ -54,24 +54,32 @@ class ModelParser:
     def filter_items(self, model : any, depth : int) -> list:
         # get only the (gate, true) tuples
         new_items = []
+        costs = [None] * (depth + 1)
+        best_indice = 0
         for item in model:
             if isinstance(item, tuple) and len(item) >= 2:
                 var_obj, value_obj = item[0], item[1]
                 variable = str(var_obj)
                 if variable.startswith("L"):
+                    print(f"{variable}: {value_obj}")
                     if isinstance(value_obj, bool):
                         if value_obj:
                             new_items.append(variable)
                     else:
                         if value_obj.is_true():
                             new_items.append(variable)
-                if variable == ("W" + str(depth)):
+                if variable.startswith("W"):
+                    if value_obj is None: continue
+                    indice = int(variable.split("W")[1].strip())
+                    if indice > best_indice:
+                        best_indice = indice
                     if isinstance(value_obj, int):
-                        self.stats['cost'] = value_obj
+                        costs[indice] = value_obj
                     elif isinstance(value_obj, float):
-                        self.stats['cost'] = int(value_obj)
+                        costs[indice] = int(value_obj)
                     else:
-                        self.stats['cost'] = int(value_obj.constant_value())
+                        costs[indice] = int(value_obj.constant_value())
+        self.stats['cost'] = costs[best_indice]
         return new_items
 
     def write_circuit_to_qasm(self, circuit : list, qubits : int, output_qasm : str = "circuit.qasm") -> bool:

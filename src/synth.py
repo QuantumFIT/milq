@@ -10,7 +10,7 @@ from complex.vector import Vector
 from complex.fivetuple import FiveTuple
 from complex.ntuple import nTuple
 from generator import Generator
-from parser import ModelParser, parse_z3, parse_z3alpha, parse_cvc5, parse_opensmt, parse_smtinterpol, parse_yices2, parse_dreal
+from parser import ModelParser
 import subprocess
 from sim import Simulator
 from multiprocessing import cpu_count

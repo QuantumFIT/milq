@@ -37,6 +37,7 @@ class Synthesizer:
         self.fidelity_threshold = fidelity_threshold
         self.q = None
         self.d = None
+        self.max_k = 0
             
     def add_solvers(self) -> None:
         # register custom solvers for pySMT portfolio solving (TODO change for relative paths, change logics to match the respective solvers)
@@ -71,6 +72,7 @@ class Synthesizer:
         
         selection_variables = []
         bool_variables = []
+        self.gate_set.add_gate(gate="id", weight=0, qubits=1) #implicit identity gate
         variables = [(gate, q) for q in range(self.q) for gate in self.gate_set.get_gates(1)]
         for var in variables:
             v = self.gen.declare_bool(f"L{layer}_{var[0]}_q{var[1]}")
@@ -108,7 +110,10 @@ class Synthesizer:
             gate = rest[0]
             if len(rest) == 2: # single qubit
                 q = rest[1]
-                if gate == 'h':
+                if gate == 'id':
+                    if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
+                elif gate == 'h':
                     modified_positions = []
                     for pos in range(2**self.q):
                         if pos in modified_positions: continue
@@ -363,6 +368,8 @@ class Synthesizer:
                             expr = out[pos] == inp[pos].multiply_by_minus_one(self.gen)
                             propagate_identities[pos].append(bool_var)
                             add_implies(bool_var, expr)
+                    if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'cs':
                     for pos in range(2**self.q):
                         control_flag = (pos >> q1) & 1
@@ -534,8 +541,14 @@ class Synthesizer:
         self.gate_set = stats['gate_set']
         self.q = stats['q']
         self.d = stats['d']
-        self.basic_synthesis(vector_pairs)
-        res = self.solve_and_extract_circuit("formula.smt2", self.q, self.d, output_qasm)
+        self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
+        #self.gen.mode = "smtlib"
+        #self.basic_synthesis(vector_pairs)
+        #res = self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="opensmt")
+        res = self.synthesis_incremental(vector_pairs, output_qasm)
+        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="binary")
+        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="bottom_up")
+        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="top_down")
         return res
     
     def synthesis_zero(self, qasm_file, output_qasm="circuit.qasm"):
@@ -545,12 +558,15 @@ class Synthesizer:
         self.gate_set = stats['gate_set']
         self.q = stats['q']
         self.d = stats['d']
+        self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
         #res = self.synthesis_incremental(vector_pairs, output_qasm)
-        
-        self.basic_synthesis(vector_pairs)
-        res = self.solve_and_extract_circuit("formula.smt2", output_qasm)
+        #self.gen.mode = "smtlib"
+        #self.basic_synthesis(vector_pairs)
+        #res = self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="opensmt")
 
-        #res = self.synthesis_binary_search(vector_pairs, output_qasm)
+        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="binary")
+        res = self.synthesis_weights(vector_pairs, output_qasm, mode="bottom_up")
+        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="top_down")
         return res
 
     def synthesis_rus(self, qasm_file, output_qasm="circuit.qasm"):
@@ -560,6 +576,7 @@ class Synthesizer:
         self.gate_set = stats['gate_set']
         self.q = stats['q']
         self.d = stats['d']
+        self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
         res = self.synthesis_incremental(vector_pairs, output_qasm)
         return res
 
@@ -629,7 +646,7 @@ class Synthesizer:
                 # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
                 rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
                 rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
+                self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.max_k)
                 self.gen.add_assertion(rescaled1 == rescaled2)
         #self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(1)))
         self.gen.write_smtlib(output_file)
@@ -645,7 +662,7 @@ class Synthesizer:
             raise ValueError("gate_set is required")
         self.add_solvers()
         logic = "QF_LIA"
-        solvers = ["z3", "cvc5", "yices2", "smtinterpol", "opensmt"]
+        solvers = ["z3", "cvc5", "yices2", "opensmt"]
 
         with Portfolio(solvers,
                         logic=logic,
@@ -712,7 +729,7 @@ class Synthesizer:
                     elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
                             rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[depth].name}")
                             rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, self.d)
+                            self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, self.max_k)
                             self.gen.add_assertion(rescaled1 == rescaled2)
                     else:
                         self.gen.add_assertion(inter[depth] == Target)
@@ -730,8 +747,81 @@ class Synthesizer:
                 #parse_pysmt(model, self.q, self.d, output_qasm, result)
                 self.parser.parse(model, self.q, self.d, output_qasm)
                 return True
-            
-    def synthesis_binary_search(self, vector_pairs, output_qasm="circuit.qasm"):
+
+    def binary_cost_search(self, weights, output_qasm="circuit.qasm"):
+        solved = []
+        unsolved = []
+        lower_bound = 0
+        upper_bound = self.d+1
+        best_model = None
+        while True:
+            print(f"Lower bound: {lower_bound}, Upper bound: {upper_bound}")
+            print(f"Solved: {solved}, Unsolved: {unsolved}")
+            middle = lower_bound + (upper_bound - lower_bound) // 2
+            if lower_bound + 1 >= upper_bound:
+                # found the optimal depth -- upper bound is the best solution
+                if lower_bound not in solved and lower_bound not in unsolved:
+                    middle = lower_bound # dont know anything about the result
+                elif lower_bound not in solved and upper_bound not in solved:
+                    middle = upper_bound # know that the result is unsat
+                else:
+                    break
+            self.gen.solver.push()
+            self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(middle)))
+            result = self.gen.solver.solve()                       
+            if result:
+                upper_bound = middle
+                # save the best circuit so far
+                best_model = self.gen.solver.get_model()
+                solved.append(middle)
+            else:
+                lower_bound = middle
+                unsolved.append(middle)
+            self.gen.solver.pop()
+
+        if best_model is not None:
+            self.parser.parse(best_model, self.q, self.d, output_qasm)
+            return True
+        else:
+            return False
+        
+    def incremental_bottom_up_cost_search(self, weights, output_qasm="circuit.qasm"):
+        i = 0
+        while i < self.d+2:
+            self.gen.solver.push()
+            self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(i)))
+            result = self.gen.solver.solve()
+            if result:
+                self.parser.parse(self.gen.solver.get_model(), self.q, self.d, output_qasm)
+                return True
+            self.gen.solver.pop()
+            i += 1
+
+        return False
+
+    def incremental_top_down_cost_search(self, weights, output_qasm="circuit.qasm"):
+        i = self.d+1
+        best_model = None
+        while i > 0:
+            print(f"Trying cost: {i}")
+            self.gen.solver.push()
+            self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(i)))
+            result = self.gen.solver.solve()
+            if result:
+                best_model = self.gen.solver.get_model()
+            else:
+                # first unsolvable, return best model
+                if best_model is not None:
+                    self.parser.parse(best_model, self.q, self.d, output_qasm)
+                    return True
+                else:
+                    return False
+            self.gen.solver.pop()
+            i -= 1
+
+        return False
+        
+    def synthesis_weights(self, vector_pairs, output_qasm="circuit.qasm", mode="binary"):
         """
         use binary search and portfolio solving to minimize the cost of the circuit using defined weights of the gate set
         """
@@ -739,7 +829,7 @@ class Synthesizer:
             raise ValueError("gate_set is required")
         self.add_solvers()
         logic = "QF_LIA"
-        solvers = ["z3", "cvc5", "yices2", "smtinterpol", "opensmt"]
+        solvers = ["cvc5", "yices2", "z3", "opensmt"]
         with Portfolio(solvers,
                         logic=logic,
                         incremental=True,
@@ -798,41 +888,14 @@ class Synthesizer:
                     self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
                     self.gen.add_assertion(rescaled1 == rescaled2)
             
-            solved = []
-            unsolved = []
-            lower_bound = 0
-            upper_bound = self.d
-            best_model = None
-            while True:
-                print(f"Lower bound: {lower_bound}, Upper bound: {upper_bound}")
-                print(f"Solved: {solved}, Unsolved: {unsolved}")
-                middle = lower_bound + (upper_bound - lower_bound) // 2
-                if lower_bound + 1 >= upper_bound:
-                    # found the optimal depth -- upper bound is the best solution
-                    if lower_bound not in solved and lower_bound not in unsolved:
-                        middle = lower_bound # dont know anything about the result
-                    elif lower_bound not in solved and upper_bound not in solved:
-                        middle = upper_bound # know that the result is unsat
-                    else:
-                        break
-                self.gen.solver.push()
-                self.gen.add_assertion(self.gen.LT(weights[d], self.gen.Int(middle)))
-                result = self.gen.solver.solve()                       
-                if result:
-                    upper_bound = middle
-                    # save the best circuit so far
-                    best_model = self.gen.solver.get_model()
-                    solved.append(middle)
-                else:
-                    lower_bound = middle
-                    unsolved.append(middle)
-                self.gen.solver.pop()
-
-            if best_model is not None:
-                self.parser.parse(best_model, self.q, self.d, output_qasm)
-                return True
+            if mode == "binary":
+                return self.binary_cost_search(weights, output_qasm)
+            elif mode == "bottom_up":
+                return self.incremental_bottom_up_cost_search(weights, output_qasm)
+            elif mode == "top_down":
+                return self.incremental_top_down_cost_search(weights, output_qasm)
             else:
-                return False
+                raise ValueError(f"Invalid mode: {mode}")
                 
 
     def solve_and_extract_circuit(self, smtlib_filename, output_qasm="circuit.qasm", solver=None) -> bool:
@@ -843,11 +906,11 @@ class Synthesizer:
         """
         solver_to_filename = {
             "z3": "z3",
-            "z3alpha": "../../solvers/z3alpha/z3alpha.py",
-            "cvc5": "../../solvers/cvc5/starexec_run_sq",
-            "opensmt": "../../solvers/opensmt/opensmt",
-            "smtinterpol": "../../solvers/smtinterpol/smtinterpol",
-            "yices2": "../../solvers/yices2/yices_smt2",
+            "z3alpha": "/home/jakubhavlik/rus-synth/solvers/z3alpha/z3alpha.py",
+            "cvc5": "/home/jakubhavlik/rus-synth/solvers/cvc5/starexec_run_sq",
+            "opensmt": "/home/jakubhavlik/rus-synth/solvers/opensmt/opensmt",
+            "smtinterpol": "/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol",
+            "yices2": "/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2",
             "dreal": "/opt/dreal/4.21.06.2/bin/dreal"
         }
         

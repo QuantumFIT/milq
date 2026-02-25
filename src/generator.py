@@ -375,7 +375,7 @@ class Generator:
         if self.logic == "QF_LIA" or self.logic == "QF_NIA":
             if (d // 2) == 0:
                 d = 2
-            for i in range(d // 2):
+            for i in range(d):
                 pow2 = self.Int(2 ** i)
                 r1_multiply_by_m = self.And(multiply_by_m_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))
                 r1_multiply_by_i = self.And(multiply_by_identity_scaled(r1, v1, pow2), multiply_by_identity_unscaled(r2, v2))

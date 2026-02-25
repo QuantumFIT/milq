@@ -26,6 +26,7 @@ class Simulator:
         self.stats['d'] = 0
         self.stats['q'] = 0
         self.stats['qreg'] = ''
+        self.stats['max_k'] = 0
 
     """
     parse the input qasm file into a sequence of gates with a respective list of qubits
@@ -44,10 +45,22 @@ class Simulator:
                 continue
             # find quantum register to initialize vectors
             if line.startswith('qreg'):
+                # qreg name[n]
                 parts = line.split('[')
                 if len(parts) > 1:
                     self.stats['q'] = int(parts[1].split(']')[0])
                     self.stats['qreg'] = parts[0].split(' ')[1].strip()
+                    for i in range(2**self.stats['q']):
+                        vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
+                        vec[i] = self.complex_representation.one(None)
+                        vectors.append(vec)
+                continue
+            if line.startswith('qubit'):
+                # qubit[n] name
+                parts = line.split('[')
+                if len(parts) > 1:
+                    self.stats['q'] = int(parts[1].split(']')[0])
+                    self.stats['qreg'] = parts[1].split(']')[1].strip().split(';')[0].strip()
                     for i in range(2**self.stats['q']):
                         vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
                         vec[i] = self.complex_representation.one(None)
@@ -212,7 +225,11 @@ class Simulator:
     """
     def simulate_circuit(self) -> list[tuple[Vector, Vector]]:
         gates, vectors = self.parse_file()
-        return self.simulate(vectors, gates)
+        res =  self.simulate(vectors, gates)
+        for (_, vec) in res:
+            if vec.k > self.stats['max_k']:
+                self.stats['max_k'] = vec.k
+        return res
 
 
     """

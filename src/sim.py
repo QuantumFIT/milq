@@ -67,8 +67,12 @@ class Simulator:
                         vectors.append(vec)
                 continue
             
-            if line.startswith('creg'):
+            if line.startswith('creg') or line.startswith('bit'):
                 continue
+            
+            if line.startswith('barrier') or line.startswith('measure') or line.startswith('meas'):
+                continue
+            
             qreg_name = self.stats['qreg']
             # find gates using the register name
             qreg_pattern = re.compile(rf'{re.escape(f"{qreg_name}")}\s*\[')

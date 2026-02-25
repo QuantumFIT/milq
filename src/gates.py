@@ -42,7 +42,7 @@ class GateSet:
         if gate_set is not None:
             for gate in gate_set:
                 self.set_gate(gate, 1, gate_to_qubits(gate))
-            self.set_gate('I', 1)
+            self.set_gate('id', 1)
         elif preset is not None:
             if preset == 'Clifford+T':
                 self.set_gate('I', 1)

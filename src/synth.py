@@ -534,28 +534,30 @@ class Synthesizer:
             self.gen.add_assertion(self.gen.Implies(bool_var, self.gen.Equals(out_weight, self.gen.Plus(inp_weight, self.gen.Int(weight)))))
         
 
-    def synthesis(self, qasm_file, output_qasm="circuit.qasm"):
+    def synthesis(self, qasm_file, output_qasm="circuit.qasm", choice=None):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
         vector_pairs = self.simulator.simulate_circuit()
         stats = self.simulator.circuit_stats()
-        self.gate_set = stats['gate_set']
+        if self.gate_set is None:
+            self.gate_set = stats['gate_set']
         self.q = stats['q']
         self.d = stats['d']
         self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
-        #self.gen.mode = "smtlib"
-        #self.basic_synthesis(vector_pairs)
-        #res = self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="opensmt")
-        res = self.synthesis_incremental(vector_pairs, output_qasm)
-        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="binary")
-        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="bottom_up")
-        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="top_down")
-        return res
+        if choice is not None:
+            if choice == "incremental":
+                return self.synthesis_incremental(vector_pairs, output_qasm)
+            elif choice in ["binary", "bottom_up", "top_down"]:
+                return self.synthesis_weights(vector_pairs, output_qasm, mode=choice)
+        self.gen.mode = "smtlib"
+        self.basic_synthesis(vector_pairs)
+        return self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="opensmt")
     
     def synthesis_zero(self, qasm_file, output_qasm="circuit.qasm"):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
         vector_pairs = self.simulator.simulate_zero()
         stats = self.simulator.circuit_stats()
-        self.gate_set = stats['gate_set']
+        if self.gate_set is None:
+            self.gate_set = stats['gate_set']
         self.q = stats['q']
         self.d = stats['d']
         self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
@@ -573,7 +575,8 @@ class Synthesizer:
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
         vector_pairs = self.simulator.simulate_rus()
         stats = self.simulator.circuit_stats()
-        self.gate_set = stats['gate_set']
+        if self.gate_set is None:
+            self.gate_set = stats['gate_set']
         self.q = stats['q']
         self.d = stats['d']
         self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']

@@ -440,14 +440,14 @@ class Generator:
                 self.add_assertion(same_k_formula)
         else:
             raise ValueError("rescaling with wrong logic")
-        
+            
     def add_milp_rescaling(self, r1, r2, v1, v2, pair_idx, d):
         # first encode k as the result of the operation floor(abs(k1 - k2)/2)
         complex_representation = v1.element_representation
         k = self.declare_integer(f"k{pair_idx}", lb=0, ub=d)
-        q = self.declare_integer(f"q{pair_idx}", lb=0, ub=1)
+        q = self.declare_bool(f"q{pair_idx}")
 
-        bigM = 1e6 # TODO
+        bigM = 1e8 # TODO
         sleq = self.declare_bool(f"sleq{pair_idx}")
         self.add_assertion((v1.k - v2.k) - (2*k + q) <= bigM * sleq)
         self.add_assertion((2*k + q) - (v1.k - v2.k) <= bigM * sleq)
@@ -460,11 +460,6 @@ class Generator:
         self.add_assertion(k == lpSum([constants[i] * i for i in range(d+1)]))
         # now constants[i] is True iff k = i
         # next, determine if k is odd or even
-        quocient = self.declare_integer(f"quocient{pair_idx}")
-        odd = self.declare_integer(f"odd{pair_idx}", lb=0, ub=1)
-        even = self.declare_bool(f"even{pair_idx}")
-        self.add_assertion(k == 2 * quocient + odd)
-        self.add_assertion(even == (1 - odd))
 
         # now sleq, si, even encode all case splits needed for the rescaling
         # encode all combinations to assign to r1, r2
@@ -472,12 +467,11 @@ class Generator:
         # for every si, I,M is multiplied by 2^i
         for i in range(len(v1)):
             for j, s in enumerate(constants):
-                for parity in [("even", even), ("odd", odd)]:
+                for parity in [("even", (1 - q)), ("odd", q)]:
                     for rel in [("<=", sleq), (">", (1 - sleq))]:
                         sel = bigM * (3 - rel[1] - s - parity[1])
                         complex_representation.constrained_rescaling(sel, r1[i], r2[i], v1[i], v2[i], 2**j, parity[0], rel[0])
 
-        
     def add_constraints(self, gate_set, last_encoded_layer, qubits):
         if last_encoded_layer < 1:
             return

@@ -589,7 +589,7 @@ class Synthesizer:
         self.q = stats['q']
         self.d = stats['d']
         self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
-        #self.gen.mode = "milp"
+        self.gen.mode = "milp"
         res = self.synthesis_incremental(vector_pairs, output_qasm)
         #self.basic_synthesis(vector_pairs)
         #res = self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="gurobi")
@@ -649,7 +649,7 @@ class Synthesizer:
             for d in range(self.d):
                 self.encode_layer(inter[d], inter[d+1], d, weights[d], weights[d+1])
                 # add constraining rules - no H H, Tdg T, ...
-                self.gen.add_constraints(self.gate_set, d, self.q)
+                #self.gen.add_constraints(self.gate_set, d, self.q)
 
             
             Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_vector.k, n = output_vector.n)
@@ -676,10 +676,11 @@ class Synthesizer:
                 self.gen.add_assertion(self.gen.LE(self.gen.Real(fidelity.real), self.gen.Real(1.0)))
                 self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(self.fidelity_threshold)))
             elif self.gen.mode == "milp":
-                self.gen.add_milp_rescaling(inter[self.d], Target, pair_idx, self.max_k)
-                #for i in range(2**self.q):
-                #    self.gen.add_assertion(self.gen.Equals(inter[self.d][i], Target[i]))
-                #self.gen.add_assertion(self.gen.Equals(inter[self.d].k, Target.k))
+                rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
+                rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
+                self.gen.add_milp_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.max_k)
+                for i in range(2**self.q):
+                    self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
             elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
                 # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
                 # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
@@ -965,8 +966,6 @@ class Synthesizer:
             solver.solve(self.gen.lp_problem)
             if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
                 print(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
-                for var in self.gen.lp_problem.variables():
-                    print(f"Variable: {var}, Value: {var.varValue}")
                 return self.parser.parse(self.gen, self.q, self.d, output_qasm)
             elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":
                 return False

@@ -61,7 +61,6 @@ class ModelParser:
                 var_obj, value_obj = item[0], item[1]
                 variable = str(var_obj)
                 if variable.startswith("L"):
-                    print(f"{variable}: {value_obj}")
                     if isinstance(value_obj, bool):
                         if value_obj:
                             new_items.append(variable)
@@ -119,7 +118,6 @@ class ModelParser:
             gate_qubits = [int(p[1:]) for p in parts[2:]]
             circuit[d] = (gate, gate_qubits)
 
-        self.print_stats()
         self.write_circuit_to_qasm(circuit, qubits, output_qasm)
         return True
     

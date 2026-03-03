@@ -447,7 +447,7 @@ class Generator:
         k = self.declare_integer(f"k{pair_idx}", lb=0, ub=d)
         q = self.declare_bool(f"q{pair_idx}")
 
-        bigM = 1e8 # TODO
+        bigM = 2*d + 1
         sleq = self.declare_bool(f"sleq{pair_idx}")
         self.add_assertion((v1.k - v2.k) - (2*k + q) <= bigM * sleq)
         self.add_assertion((2*k + q) - (v1.k - v2.k) <= bigM * sleq)
@@ -464,13 +464,18 @@ class Generator:
         # now sleq, si, even encode all case splits needed for the rescaling
         # encode all combinations to assign to r1, r2
         
+        bigM = (2**(d+1)) + 1
         # for every si, I,M is multiplied by 2^i
         for i in range(len(v1)):
             for j, s in enumerate(constants):
                 for parity in [("even", (1 - q)), ("odd", q)]:
                     for rel in [("<=", sleq), (">", (1 - sleq))]:
-                        sel = bigM * (3 - rel[1] - s - parity[1])
-                        complex_representation.constrained_rescaling(sel, r1[i], r2[i], v1[i], v2[i], 2**j, parity[0], rel[0])
+                        and_var = self.declare_bool(f"and_var{i}_{j}_{parity[0]}_{"lower" if rel[0] == "<=" else "upper"}")
+                        self.add_assertion(and_var <= rel[1])
+                        self.add_assertion(and_var <= s)
+                        self.add_assertion(and_var <= parity[1])
+                        self.add_assertion(and_var >= (rel[1] + s + parity[1] - 2))
+                        complex_representation.constrained_rescaling(bigM, (1 - and_var), r1[i], r2[i], v1[i], v2[i], 2**j, parity[0], rel[0])
 
     def add_constraints(self, gate_set, last_encoded_layer, qubits):
         if last_encoded_layer < 1:

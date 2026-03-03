@@ -27,6 +27,7 @@ class Simulator:
         self.stats['q'] = 0
         self.stats['qreg'] = ''
         self.stats['max_k'] = 0
+        self.stats['input_circuit'] = []
 
     """
     parse the input qasm file into a sequence of gates with a respective list of qubits
@@ -89,6 +90,7 @@ class Simulator:
                     if qreg_pattern.search(part):
                         qubits.append(int(part.split('[')[1].split(']')[0]))
                 gates.append((gate, qubits))
+                self.stats['input_circuit'].append((gate, qubits))
                 self.stats['d'] += 1
                 if gate not in self.stats['gate_set']:
                     self.stats['gate_set'].append(gate, qubits=len(qubits))

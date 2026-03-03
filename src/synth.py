@@ -560,6 +560,16 @@ class Synthesizer:
         if self.gen.mode == "milp":
             self.gen.add_assertion(self.gen.Equals(out_weight, self.gen.Plus(inp_weight, lpSum([self.gate_set.get_weight(v[1][0]) * v[0] for v in selection_variables]))))
 
+    def set_initial_values(self):
+        for i, (gate, qubits) in enumerate(self.simulator.stats['input_circuit']):
+            
+            bool_var_str = f"L{i}_{gate}"
+            for qubit in qubits:
+                bool_var_str += f"_q{qubit}"
+            bool_var = self.gen.declaccccccccre_bool(bool_var_str)
+            bool_var.setInitialValue(1)
+                
+
     def synthesis(self, qasm_file, output_qasm="circuit.qasm", choice=None):
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
         vector_pairs = self.simulator.simulate_circuit()
@@ -590,9 +600,9 @@ class Synthesizer:
         self.d = stats['d']
         self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
         self.gen.mode = "milp"
-        res = self.synthesis_incremental(vector_pairs, output_qasm)
-        #self.basic_synthesis(vector_pairs)
-        #res = self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="gurobi")
+        #res = self.synthesis_incremental(vector_pairs, output_qasm)
+        self.basic_synthesis(vector_pairs)
+        res = self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="gurobi")
 
         #res = self.synthesis_weights(vector_pairs, output_qasm, mode="binary")
         #res = self.synthesis_weights(vector_pairs, output_qasm, mode="bottom_up")
@@ -691,6 +701,7 @@ class Synthesizer:
 
         if self.gen.mode == "milp":
             self.gen.add_objective(weights[self.d])
+            #self.set_initial_values()
             output_file = output_file.split(".")[0] + ".lp"
             self.gen.lp_problem.writeLP(output_file)
         else:
@@ -965,6 +976,8 @@ class Synthesizer:
             solver = solver_to_class[solver](msg=False)
             solver.solve(self.gen.lp_problem)
             if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
+                for var in self.gen.lp_problem.variables():
+                    print(f"{var.name}: {var.value()}")
                 print(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
                 return self.parser.parse(self.gen, self.q, self.d, output_qasm)
             elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":

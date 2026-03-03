@@ -9,7 +9,7 @@
 # all supported gates in the tool
 supported_gates = [
     ['h','s','sdg','t','id','tdg','x','y','z','sx','sxdg'],
-    ['cx','swap', 'iswap', 'ch','cs','csdg','cy','cz','dcx','csx', 'xcx', 'sqrtswap', 'isqrtswap'],
+    ['cx','swap', 'iswap', 'ch','cs','csdg','cy','cz','dcx','csx', 'xcx', 'sqrtswap'],
     ['ccx','cswap','ccz']
 ]
 

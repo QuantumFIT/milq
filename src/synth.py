@@ -455,28 +455,11 @@ class Synthesizer:
                             add_constrained_equals(bool_var, out[other], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                        elif self.gen.mode == "milp":
-                            add_constrained_equals(bool_var, out[pos], inp[pos])
+                        else:
+                            add_constrained_equals(bool_var, out[pos], inp[pos].multiply_by_two(self.gen))
+                            propagate_identities[pos].append(bool_var)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
-                elif gate == 'isqrtswap':
-                    modified_positions = []
-                    for pos in range(2**self.q):
-                        if pos in modified_positions: continue
-                        modified_positions.append(pos)
-                        q1_flag = (pos >> q1) & 1
-                        q2_flag = (pos >> q2) & 1
-                        if q1_flag != q2_flag:
-                            other = pos ^ ((1 << q1) | (1 << q2))
-                            modified_positions.append(other)
-                            add_constrained_equals(bool_var, out[pos], ((inp[pos] + (inp[other].multiply_by_i(self.gen))).divide_by_sqrt2(self.gen)))
-                            add_constrained_equals(bool_var, out[other], ((inp[pos].multiply_by_i(self.gen) + inp[other]).divide_by_sqrt2(self.gen)))
-                            propagate_identities[pos].append(bool_var)
-                            propagate_identities[other].append(bool_var)
-                        elif self.gen.mode == "milp":
-                            add_constrained_equals(bool_var, out[pos], inp[pos])
-                    if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                        add_k_incr(bool_var, out.k, inp.k, 1)
             elif len(rest) == 4: # three qubit
                 q1 = rest[1]
                 q2 = rest[2]

@@ -113,6 +113,10 @@ class Complex:
     @classmethod
     def i_half(cls, generator = None):
         return cls(a=0, b=1/2, generator=generator)
+    
+    @classmethod
+    def two(cls, generator = None):
+        return cls(a=2, b=0, generator=generator)
 
     def multiply_by_omega(self, generator = None):
         return self * Complex.t_phase(generator)
@@ -134,6 +138,9 @@ class Complex:
 
     def divide_by_two(self, generator = None):
         return self * Complex.one_half(generator)
+    
+    def multiply_by_two(self, generator = None):
+        return self * Complex.two(generator)
     
     def divide_by_two_i(self, generator = None):
         return self * Complex.i_half(generator)

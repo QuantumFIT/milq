@@ -265,6 +265,18 @@ class FiveTuple:
                 d = self.gen.Minus(self.gen.format_integer(0), self.gen.format_integer(self.d)),
                 generator=self.gen
             )
+            
+    def multiply_by_two(self, generator):
+        if self.gen is None:
+            return FiveTuple(a=2*self.a, b=2*self.b, c=2*self.c, d=2*self.d)
+        else:
+            return FiveTuple(
+                a = self.gen.Times(self.gen.format_integer(2), self.gen.format_integer(self.a)),
+                b = self.gen.Times(self.gen.format_integer(2), self.gen.format_integer(self.b)),
+                c = self.gen.Times(self.gen.format_integer(2), self.gen.format_integer(self.c)),
+                d = self.gen.Times(self.gen.format_integer(2), self.gen.format_integer(self.d)),
+                generator=self.gen
+            )
         
     def divide_by_sqrt2(self, generator):
         return self

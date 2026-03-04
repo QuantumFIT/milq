@@ -41,23 +41,25 @@ class GateSet:
 
         if gate_set is not None:
             for gate in gate_set:
-                self.set_gate(gate, 1, gate_to_qubits(gate))
-            self.set_gate('id', 1)
+                if gate == 'id':
+                    continue
+                self.set_gate(gate=gate, qubits=gate_to_qubits(gate), weight=1)
+            self.set_gate(gate='id', qubits=1, weight=0)
         elif preset is not None:
             if preset == 'Clifford+T':
-                self.set_gate('I', 1)
-                self.set_gate('H', 1)
-                self.set_gate('S', 1)
-                self.set_gate('Sdg', 1)
-                self.set_gate('CX', 1, 2)
-                self.set_gate('T', 1)
-                self.set_gate('Tdg', 1)
+                self.set_gate(gate='id', qubits=1, weight=0)
+                self.set_gate(gate='h', qubits=1, weight=1)
+                self.set_gate(gate='s', qubits=1, weight=1)
+                self.set_gate(gate='sdg', qubits=1, weight=1)
+                self.set_gate(gate='cx', qubits=2, weight=1)
+                self.set_gate(gate='t', qubits=1, weight=1)
+                self.set_gate(gate='tdg', qubits=1, weight=1)
             elif preset == 'Clifford':
-                self.set_gate('I', 1)
-                self.set_gate('H', 1)
-                self.set_gate('S', 1)
-                self.set_gate('Sdg', 1)
-                self.set_gate('CX', 1, 2)
+                self.set_gate(gate='id', qubits=1, weight=0)
+                self.set_gate(gate='h', qubits=1, weight=1)
+                self.set_gate(gate='s', qubits=1, weight=1)
+                self.set_gate(gate='sdg', qubits=1, weight=1)
+                self.set_gate(gate='cx', qubits=2, weight=1)
             else:
                 raise ValueError(f"Unknown preset: {preset}")
         # else empty gate set, will be filled later
@@ -131,3 +133,10 @@ class GateSet:
     
     def get_weight(self, gate : str) -> int:
         return self.gates[gate]
+    
+    def max_weight(self) -> int:
+        max_weight = 0
+        for gate in self.gates:
+            if self.gates[gate] > max_weight:
+                max_weight = self.gates[gate]
+        return max_weight

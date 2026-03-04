@@ -32,6 +32,8 @@ class Generator:
         self.stats['assertions'] = 0
         self.stats['variables'] = 0
         self.stats['objectives'] = 0
+        if self.solver == "dreal":
+            self.logic = "QF_NRA"
     
     def add_assertion(self, assertion):
         if self.mode == "pysmt":
@@ -360,7 +362,7 @@ class Generator:
                 f.write("(get-model)\n")                
                 f.write("\n")
         elif self.mode == "milp":
-            raise NotImplementedError("milp mode not yet supported")
+            self.lp_problem.writeLP(filename)
         
     def enumerate_k_values(self, n, pair_idx):
         if self.mode == "pysmt" or self.mode == "smtlib":

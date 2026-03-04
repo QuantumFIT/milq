@@ -23,37 +23,39 @@ from pulp import *
 
 
 class Synthesizer:
-    def __init__(self, gate_set : GateSet = None, solver : str = None, fidelity_threshold : int = 1.0) -> None:
+    def __init__(self) -> None:
         self.gen = Generator()
-        if solver is not None:
-            self.gen.mode = "smtlib"
-        if solver == "dreal":
-            self.gen.logic = "QF_NRA"
-
         self.parser = ModelParser()
-        self.gate_set = gate_set
+        self.gate_set = GateSet()
         self.simulator = None
-        self.complex_representation = FiveTuple
-        self.solver = solver
-        self.fidelity_threshold = fidelity_threshold
+        self.complex_representation = None
+        self.solver = None
+        self.fidelity_threshold = 1.0
+        self.bound = (-1, 1)
+        self.k_bound = (0, 1)
         self.q = None
         self.d = None
         self.max_k = 0
+        self.encoding_method = None
+        
+    def __exit__(self) -> None:
+        if self.gen.mode == "pysmt":
+            self.gen.solver.exit() # portfolio is still alive
             
     def add_solvers(self) -> None:
         # register custom solvers for pySMT portfolio solving (TODO change for relative paths, change logics to match the respective solvers)
         env = get_env()
         # z3 already in pysmt
-        path = "/home/jakubhavlik/rus-synth/solvers/opensmt/opensmt"
-        env.factory.add_generic_solver("opensmt", path, [QF_LIA])
-        path = "/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2"
-        env.factory.add_generic_solver("yices2", path, [QF_LIA, QF_NRA, QF_NIA])
-        path = "/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol"
-        env.factory.add_generic_solver("smtinterpol", path, [QF_LIA, QF_NRA, QF_NIA])
-        path = "/home/jakubhavlik/rus-synth/solvers/cvc5/cvc5"
-        env.factory.add_generic_solver("cvc5", path, [QF_LIA, QF_NRA, QF_NIA])
-        path = "/home/jakubhavlik/rus-synth/solvers/dreal/run_dreal.sh"
-        env.factory.add_generic_solver("dreal", path, [QF_NRA])
+        path = ["/home/jakubhavlik/rus-synth/solvers/opensmt/opensmt"]
+        env.factory.add_generic_solver(name="opensmt", args=path, logics=[QF_LIA])
+        path = ["/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2"]
+        env.factory.add_generic_solver(name="yices2", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
+        path = ["/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol"]
+        env.factory.add_generic_solver(name="smtinterpol", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
+        path = ["/home/jakubhavlik/rus-synth/solvers/cvc5/cvc5"]
+        env.factory.add_generic_solver(name="cvc5", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
+        path = ["/home/jakubhavlik/rus-synth/solvers/dreal/run_dreal.sh"]
+        env.factory.add_generic_solver(name="dreal", args=path, logics=[QF_NRA])
         
 
     def encode_layer(self, inp : Vector, out : Vector, layer : int, inp_weight : any = None, out_weight : any = None) -> None:
@@ -516,7 +518,7 @@ class Synthesizer:
         # propagate identities for positions that were not modified by the chosen gate
         # (notG1 and notG2 and ...) -> (out[pos] == inp[pos])
         for pos in range(2**self.q):
-            if self.gen.mode == "milp": # TODO: milp does not support propagation yet
+            if self.gen.mode == "milp": # TODO: milp does not support propagation
                 break
             if len(propagate_identities[pos]) == 0: # no gates modified this position, propagate identity
                 expr = out[pos] == inp[pos]
@@ -543,257 +545,265 @@ class Synthesizer:
         if self.gen.mode == "milp":
             self.gen.add_assertion(self.gen.Equals(out_weight, self.gen.Plus(inp_weight, lpSum([self.gate_set.get_weight(v[1][0]) * v[0] for v in selection_variables]))))
 
+    def encode_equivalence(self, vec1, vec2, pair_idx):
+        conj_rescaled1 = None
+        rescaled1 = None
+        rescaled2 = None
+        if self.gen.logic == "QF_NRA": 
+        # FIDELITY
+            fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
+            conjugate = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Conjugate")
+            self.gen.add_assertion(conjugate == vec1.conjugate(self.gen))
+            self.gen.add_assertion(self.gen.Equals(conjugate.k, vec1.k))
+            prod, k_final = conjugate * vec2
+            prod_real = prod.abs2(k_final) # abs2 <==> fidelity
+            self.gen.add_assertion(self.gen.Equals(self.gen.Real(fidelity.real), self.gen.Real(prod_real)))
+            self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(0.0)))
+            self.gen.add_assertion(self.gen.LE(self.gen.Real(fidelity.real), self.gen.Real(1.0)))
+            self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(self.fidelity_threshold)))
+        elif self.gen.mode == "milp":
+            rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}")
+            rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}")
+            self.gen.add_milp_rescaling(rescaled1, rescaled2, vec1, vec2, pair_idx, self.max_k)
+            for i in range(2**self.q):
+                self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
+        elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
+            # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
+            # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
+            rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}")
+            rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}")
+            self.gen.add_rescaling(rescaled1, rescaled2, vec1, vec2, pair_idx, self.max_k)
+            self.gen.add_assertion(rescaled1 == rescaled2)
+        
+
+
     def set_initial_values(self):
         for i, (gate, qubits) in enumerate(self.simulator.stats['input_circuit']):
-            
             bool_var_str = f"L{i}_{gate}"
             for qubit in qubits:
                 bool_var_str += f"_q{qubit}"
-            bool_var = self.gen.declaccccccccre_bool(bool_var_str)
+            bool_var = self.gen.declare_bool(bool_var_str)
             bool_var.setInitialValue(1)
-                
-
-    def synthesis(self, qasm_file, output_qasm="circuit.qasm", choice=None):
-        self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
-        vector_pairs = self.simulator.simulate_circuit()
-        stats = self.simulator.circuit_stats()
-        if self.gate_set is None:
-            self.gate_set = stats['gate_set']
-        self.q = stats['q']
-        self.d = stats['d']
-        self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
-        if choice is not None:
-            if choice == "incremental":
-                self.gen.mode = "milp"
-                return self.synthesis_incremental(vector_pairs, output_qasm)
-            elif choice in ["binary", "bottom_up", "top_down"]:
-                return self.synthesis_weights(vector_pairs, output_qasm, mode=choice)
-        #self.gen.mode = "milp"
-        return self.synthesis_incremental(vector_pairs, output_qasm)
-        # self.basic_synthesis(vector_pairs)
-        # return self.solve_and_extract_circuit("formula.lp", output_qasm, solver="gurobi")
     
-    def synthesis_zero(self, qasm_file, output_qasm="circuit.qasm"):
-        self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
-        vector_pairs = self.simulator.simulate_zero()
-        stats = self.simulator.circuit_stats()
-        if self.gate_set is None:
-            self.gate_set = stats['gate_set']
-        self.q = stats['q']
-        self.d = stats['d']
-        self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
-        self.gen.mode = "milp"
-        #res = self.synthesis_incremental(vector_pairs, output_qasm)
-        self.basic_synthesis(vector_pairs)
-        res = self.solve_and_extract_circuit("formula.smt2", output_qasm, solver="gurobi")
-
-        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="binary")
-        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="bottom_up")
-        #res = self.synthesis_weights(vector_pairs, output_qasm, mode="top_down")
-        return res
-
-    def synthesis_rus(self, qasm_file, output_qasm="circuit.qasm"):
-        self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
-        vector_pairs = self.simulator.simulate_rus()
-        stats = self.simulator.circuit_stats()
-        if self.gate_set is None:
-            self.gate_set = stats['gate_set']
-        self.q = stats['q']
-        self.d = stats['d']
-        self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
-        res = self.synthesis_incremental(vector_pairs, output_qasm)
-        return res
-
-    def synthesis_vectors(self, vector_pairs, q, d, output_qasm="circuit.qasm"):
-        self.q = q
-        self.d = d
-        res = self.synthesis_incremental(vector_pairs, output_qasm)
-        return res
-
-
-
-    def basic_synthesis(self, vector_pairs, output_file="formula.smt2"):
+    def synthesis(self, qasm_file=None, vectors=None, vector_pairs=None, solving="portfolio", solver=None, mode="incremental", output_qasm="circuit.qasm", 
+                  complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0) -> bool:
         """
-        vector_pairs: List of (input_vector, output_vector) pairs for input and its expected output.
-        output_file: Filename to write the formula to
+            qasm_file -> file to synthesize
+            vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas, custom -> has to specify vector_pairs, q, d, gate_set)
+            vector_pairs -> list of pairs (input_vector, output_vector) for input and its expected output.
+            solving -> specify if smt (has to specify solver), portfolio (of smt solvers), milp (specify milp solver TODO: now only gurobi)
+            mode -> specify solving method (basic -> create whole formula and get the best model, incremental -> incrementally generate the formula, binary, topdown, bottomup -> searches to optimize cost function)
+            output_qasm -> file to write the output circuit to
+            complex_representation -> specify the complex representation ["FiveTuple", "nTuple", "Classic"]
+            gate_set -> specify the gate set to use using the GateSet class, otherwise, the gate set is taken from the input qasm file
+            q -> number of qubits of the output circuit (has to correspond to the vector_pairs size)
+            d -> number of allowed gates in the output circuit
+            fidelity_threshold -> solver=dreal and mode=smtlib uses QF_NRA and fidelity instead of exact equivalence
         """
-        if self.gate_set is None:
-            raise ValueError("gate_set is required")
+        if qasm_file is None:
+            raise ValueError("input qasm_file is required")
         
-        weights = [self.gen.declare_integer(f"W{i}", lb=0, ub=self.d) for i in range(self.d + 1)]
+        if vectors is None:
+            raise ValueError("provide vectors to select vector-mode")
+        if vectors in ["zero", "all", "rus"] and vector_pairs is not None:
+            raise ValueError("vector_pairs cannot be provided when vectors are specified")
+        if vectors == "custom" and (vector_pairs is None or q is None or d is None or gate_set is None):
+            raise ValueError("vector_pairs, q, d, and gate_set are required when vectors are custom")
+        if solving in ["smt", "milp"] and solver is None:
+            raise ValueError("a solver is required for basic smt and milp solving")
+        if solving == "portfolio" and solver is not None:
+            raise ValueError("portfolio uses a set of predefined solvers [opensmt, z3, z3alpha, cvc5, yices2, smtinterpol]")
+        if mode not in ["basic", "incremental", "binary", "topdown", "bottomup"]:
+            raise ValueError("mode can be only basic, incremental, binary, topdown, or bottomup")
+        if mode in ["binary", "topdown", "bottomup"] and solving != "portfolio": # TODO
+            raise ValueError("mode binary, topdown, bottomup requires portfolio solving")
+        if complex_representation not in ["FiveTuple", "nTuple", "Classic"]:
+            raise ValueError("complex_representation can be only FiveTuple, nTuple, or Classic")
+        if complex_representation == "FiveTuple":
+            self.complex_representation = FiveTuple
+        elif complex_representation == "nTuple":
+            self.complex_representation = nTuple
+        elif complex_representation == "Classic":
+            self.complex_representation = Classic
+        
+        # set circuit statistics to prepare synthesis
+        self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
+        if vectors in ["zero", "all", "rus"]:
+            if vectors == "zero":
+                vector_pairs = self.simulator.simulate_zero()
+            elif vectors == "all":
+                print("Simulating all cbs")
+                vector_pairs = self.simulator.simulate_circuit()
+            elif vectors == "rus":
+                vector_pairs = self.simulator.simulate_rus()
+            
+            stats = self.simulator.circuit_stats()
+            print(stats)
+            if gate_set is None:
+                gate_set = stats['gate_set']
+            self.gate_set = gate_set
+            self.q = stats['q']
+            self.d = stats['d']
+            self.max_k = 2*self.d if 2*self.d > stats['max_k'] else stats['max_k']
+        else:
+            self.q = q
+            self.d = d
+            self.max_k = 2*self.d
+            self.gate_set = gate_set
+        
+        # set generator mode and solver
+        if solving == "smt":
+            if solver not in ["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal"]:
+                raise ValueError(f"Invalid solver: {solver}")
+            if solver == "dreal":
+                self.gen.logic = "QF_NRA"
+                self.fidelity_threshold = fidelity_threshold
+            else:
+                self.gen.logic = "QF_LIA"
+            self.gen.solver = solver
+            self.gen.mode = "smtlib"
+        elif solving == "portfolio":
+            self.gen.mode = "pysmt"
+            self.add_solvers()
+            solvers = ["z3", "cvc5", "yices2", "opensmt", "smtinterpol"]
+            self.gen.solver = Portfolio(solvers, logic=self.gen.logic, incremental=True, generate_models=True)
+        elif solving == "milp":
+            self.gen.mode = "milp"
+            self.gen.solver = solver
+        
+        # start synthesis
+        res = False
+        self.encoding_method = mode
+        return self._synth(vector_pairs, output_qasm)
+        if mode == "basic":
+            res = self.basic_synthesis(vector_pairs, output_qasm)
+        elif mode == "incremental":
+            res = self.synthesis_incremental(vector_pairs, output_qasm)
+        elif mode in ["binary", "topdown", "bottomup"]:
+            res = self.synthesis_weights(vector_pairs, output_qasm, mode=mode)
+        
+        if solving == "portfolio":
+            self.gen.solver.exit()
+        return res
+    
+    def _synth(self, vector_pairs, output_qasm="circuit.qasm") -> bool:
+        
+        # encode weights
+        weights = []
+        weight_bound = 0
+        max_weight = self.gate_set.max_weight()
+        for i in range(self.d + 1):
+            weight_bound = weight_bound + max_weight
+            weights.append(self.gen.declare_integer(f"W{i}", lb=0, ub=weight_bound))
+        # initial cost of the circuit is 0
         self.gen.add_assertion(self.gen.Equals(weights[0], self.gen.Int(0)))
+        
+        # encode vectors
+        inter_vectors = []
+        target_vectors = []
         for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
+            # input vector
             In = Vector(q=2**self.q, name=f"In_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k, n=input_vector.n)
             for i, val in enumerate(input_vector.vec):
                 self.gen.add_assertion(In[i] == val)
             if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                 self.gen.add_assertion(self.gen.Equals(In.k, self.gen.format_integer(input_vector.k)))
-            if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(self.d + 1)]
-            else:
-                inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation) for d in range(self.d + 1)]
-            if self.gen.mode == "milp":
-                for d in range(2**self.q):
-                    self.gen.add_assertion(self.gen.Equals(inter[0][d], In[d]))
-                self.gen.add_assertion(self.gen.Equals(inter[0].k, In.k))
-            else:
-                self.gen.add_assertion(inter[0] == In)
             
-            for d in range(self.d):
-                self.encode_layer(inter[d], inter[d+1], d, weights[d], weights[d+1])
-                # add constraining rules - no H H, Tdg T, ...
-                #self.gen.add_constraints(self.gate_set, d, self.q)
-
-            
-            Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_vector.k, n = output_vector.n)
-            for i, val in enumerate(output_vector.vec):
-                self.gen.add_assertion(Target[i] == val)
-            
-            if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                self.gen.add_assertion(self.gen.Equals(Target.k, self.gen.format_integer(output_vector.k)))
-
-
-            conj_rescaled1 = None
-            rescaled1 = None
-            rescaled2 = None
-            if self.gen.logic == "QF_NRA": 
-            # FIDELITY
-                fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
-                conjugate = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Conjugate")
-                self.gen.add_assertion(conjugate == inter[self.d].conjugate(self.gen))
-                self.gen.add_assertion(self.gen.Equals(conjugate.k, inter[self.d].k))
-                prod, k_final = conjugate * Target
-                prod_real = prod.abs2(k_final) # abs2 <==> fidelity
-                self.gen.add_assertion(self.gen.Equals(self.gen.Real(fidelity.real), self.gen.Real(prod_real)))
-                self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(0.0)))
-                self.gen.add_assertion(self.gen.LE(self.gen.Real(fidelity.real), self.gen.Real(1.0)))
-                self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(self.fidelity_threshold)))
-            elif self.gen.mode == "milp":
-                rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
-                rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                self.gen.add_milp_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.max_k)
-                for i in range(2**self.q):
-                    self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
-            elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
-                # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
-                # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
-                rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
-                rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.max_k)
-                self.gen.add_assertion(rescaled1 == rescaled2)
-
-        if self.gen.mode == "milp":
-            self.gen.add_objective(weights[self.d])
-            #self.set_initial_values()
-            output_file = output_file.split(".")[0] + ".lp"
-            self.gen.lp_problem.writeLP(output_file)
-        else:
-            self.gen.write_smtlib(output_file)
-
-
-    def synthesis_incremental(self, vector_pairs, output_qasm="circuit.qasm"):
-        """
-        use incremental solving to get the minimum number of gates in the resulting circuit
-        uses pySMT and Cyclotomic8Dyadic
-        """    
-        
-        if self.gate_set is None:
-            raise ValueError("gate_set is required")
-        if self.gen.mode == "pysmt":
-            self.add_solvers()
-            logic = "QF_LIA"
-            solvers = ["z3", "cvc5", "yices2", "opensmt"]
-            self.gen.solver = Portfolio(solvers, logic=logic, incremental=True, generate_models=True)
-
-        # start with gates = 1, incrementally add new layer encodings
-        # check if the circuit is satisfiable            
-        inter_vectors = []
-        target_vectors = []
-        
-        weights = [self.gen.declare_integer(f"W{i}", lb=0, ub=self.d) for i in range(self.d + 1)]
-        self.gen.add_assertion(self.gen.Equals(weights[0], self.gen.Int(0)))
-        for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
-            # input vector generation
-            In = Vector(q=2**self.q, name=f"In_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = input_vector.k, n = input_vector.n)
-            for i, val in enumerate(input_vector.vec):
-                self.gen.add_assertion(In[i] == val)
-    
-            if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                self.gen.add_assertion(self.gen.Equals(In.k, self.gen.format_integer(input_vector.k)))
-
-            # intermediate vectors generation
-            if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(self.d + 1)]
-            else:
-                inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation) for d in range(self.d + 1)]
-            if self.gen.mode == "milp":
-                for d in range(2**self.q):
-                    self.gen.add_assertion(inter[0][d] == In[d])
-                self.gen.add_assertion(self.gen.Equals(inter[0].k, In.k))
-            else:
-                self.gen.add_assertion(inter[0] == In)            
-            inter_vectors.append(inter)
-            # generate target vector and connect it to output values
-            Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_vector.k, n = output_vector.n)
-            for i, val in enumerate(output_vector.vec):
-                self.gen.add_assertion(Target[i] == val)
-            
-            if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                self.gen.add_assertion(self.gen.Equals(Target.k, self.gen.format_integer(output_vector.k)))
-            target_vectors.append(Target)
-        depth = 1
-        solved = False
-        while depth <= self.d and not solved:
-            print(f"Trying depth: {depth}")
-            for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
-                inter = inter_vectors[pair_idx]
-                # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
-                self.encode_layer(inter[depth-1], inter[depth], depth-1, weights[depth-1], weights[depth])
-                self.gen.add_constraints(self.gate_set, depth-1, self.q)
-            self.gen.push()
-            
-            # inter[depth] == Target
-            for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
-                inter = inter_vectors[pair_idx]
-                Target = target_vectors[pair_idx]
-                
-                if self.gen.logic == "QF_NRA" and (self.complex_representation == FiveTuple or self.complex_representation == nTuple):
-                    rescaled1 = inter[depth].to_real()
-                    rescaled2 = Target.to_real()
-                    conj1_rescaled = rescaled1.conjugate(self.gen)
-                    
-                    fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
-                    prod = conj1_rescaled * rescaled2
-                    self.gen.add_assertion(self.gen.Equals(fidelity.real, prod.real))
-                    self.gen.add_assertion(self.gen.Equals(fidelity.imag, prod.imag))
-                    self.gen.add_assertion(self.gen.GE(fidelity.real, 0.0))
-                    self.gen.add_assertion(self.gen.LE(fidelity.real, 1.0))
-                    self.gen.add_assertion(self.gen.GE(fidelity.real, self.fidelity_threshold))
-                elif self.gen.mode == "milp":
-                    rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[depth].name}")
-                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                    self.gen.add_milp_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, self.max_k)
-                    for i in range(2**self.q):
-                        self.gen.add_assertion(rescaled1[i] == rescaled2[i])
-                elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
-                        rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[depth].name}")
-                        rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                        self.gen.add_rescaling(rescaled1, rescaled2, inter[depth], Target, pair_idx, self.max_k)
-                        self.gen.add_assertion(rescaled1 == rescaled2)
+            # encode intermediate vectors, bind the first one to the input vector
+            inter = [None] * (self.d + 1)
+            for d in range(self.d + 1):
+                vec = None
+                if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                    vec = Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n)
                 else:
-                    self.gen.add_assertion(inter[depth] == Target)
+                    vec = Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation)
+                
+                if d == 0:
+                    if self.gen.mode == "milp":
+                        for i in range(2**self.q):
+                            self.gen.add_assertion(self.gen.Equals(vec[i], In[i]))
+                        self.gen.add_assertion(self.gen.Equals(vec.k, In.k))
+                    else:
+                        self.gen.add_assertion(vec == In)
+                inter[d] = vec
+            
+            inter_vectors.append(inter)
+                
+            # encode target vectors
+            Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_vector.k, n = output_vector.n)
+            for i, val in enumerate(output_vector.vec):
+                self.gen.add_assertion(Target[i] == val)
+            
+            if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                self.gen.add_assertion(self.gen.Equals(Target.k, self.gen.format_integer(output_vector.k)))
+            
+            target_vectors.append(Target)
+        
+        res = False # output result
+        # based on chosen method, encode layers and equivalence
+        if self.encoding_method == "basic" or self.encoding_method in ["binary", "topdown", "bottomup"]:
+            # encode whole circuit
+            for d in range(self.d):
+                for pair_idx in range(len(vector_pairs)):
+                    self.encode_layer(inter_vectors[pair_idx][d], inter_vectors[pair_idx][d+1], d, weights[d], weights[d+1])
+                # add constraining rules - no H H, Tdg T, ...
+                self.gen.add_constraints(self.gate_set, d, self.q)
+            
+            for pair_idx in range(len(vector_pairs)):
+                self.encode_equivalence(inter_vectors[pair_idx][self.d], target_vectors[pair_idx], pair_idx)
+            # fully encoded (except for the weight bound), save the formula
             if self.gen.mode == "milp":
-                self.gen.add_objective(weights[depth])
-            result = self.solve_and_extract_circuit(output_qasm)
-            if result:
-                if self.gen.mode == "pysmt":
-                    self.gen.solver.exit() # portfolio is still alive
-                return True
+                self.gen.add_objective(weights[self.d])
+                self.set_initial_values()
+                formula_file = output_qasm.split(".")[0] + ".lp"
+                self.gen.lp_problem.writeLP(formula_file)
             else:
-                self.gen.pop()
-                depth += 1
+                formula_file = output_qasm.split(".")[0] + ".smt2"
+                self.gen.write_smtlib(formula_file)
+            
+            if self.encoding_method == "basic":
+                res = self.solve_and_extract_circuit(output_qasm=output_qasm, formula_file=formula_file)
+            elif self.encoding_method == "binary":
+                res = self.binary_cost_search(weights, output_qasm=output_qasm, formula_file=formula_file)
+            elif self.encoding_method == "topdown":
+                res = self.incremental_top_down_cost_search(weights, output_qasm=output_qasm, formula_file=formula_file)
+            elif self.encoding_method == "bottomup":
+                res = self.incremental_bottom_up_cost_search(weights, output_qasm=output_qasm, formula_file=formula_file)
+        
+        elif self.encoding_method == "incremental":
+            # incrementally generate circuit and equivalence
+            depth = 1
+            while depth <= self.d and not res:
+                print(f"Trying depth: {depth}")
+                for pair_idx in range(len(vector_pairs)):
+                    # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
+                    self.encode_layer(inter_vectors[pair_idx][depth-1], inter_vectors[pair_idx][depth], depth-1, weights[depth-1], weights[depth])
+                    self.gen.add_constraints(self.gate_set, depth-1, self.q)
+                self.gen.push()
+                for pair_idx in range(len(vector_pairs)):
+                    self.encode_equivalence(inter_vectors[pair_idx][depth], target_vectors[pair_idx], pair_idx)
+            
+                if self.gen.mode == "milp":
+                    self.gen.add_objective(weights[depth])
+                    formula_file = output_qasm.split(".")[0] + ".lp"
+                    self.gen.lp_problem.writeLP(formula_file)
+                else:
+                    formula_file = output_qasm.split(".")[0] + ".smt2"
+                    self.gen.write_smtlib(formula_file)                
+                result = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm)
+                if result:
+                    res = True
+                else:
+                    self.gen.pop()
+                    depth += 1
+        else:
+            raise ValueError(f"Invalid encoding method: {self.encoding_method}")
+        
+        if self.gen.mode == "pysmt":
+            self.gen.solver.exit()
+        return res
 
-    def binary_cost_search(self, weights, output_qasm="circuit.qasm"):
+    def binary_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         solved = []
         unsolved = []
         lower_bound = 0
@@ -830,7 +840,7 @@ class Synthesizer:
         else:
             return False
         
-    def incremental_bottom_up_cost_search(self, weights, output_qasm="circuit.qasm"):
+    def incremental_bottom_up_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         i = 0
         while i < self.d+2:
             self.gen.solver.push()
@@ -844,7 +854,7 @@ class Synthesizer:
 
         return False
 
-    def incremental_top_down_cost_search(self, weights, output_qasm="circuit.qasm"):
+    def incremental_top_down_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         i = self.d+1
         best_model = None
         while i > 0:
@@ -865,86 +875,10 @@ class Synthesizer:
             i -= 1
 
         return False
-        
-    def synthesis_weights(self, vector_pairs, output_qasm="circuit.qasm", mode="binary"):
-        """
-        use binary search and portfolio solving to minimize the cost of the circuit using defined weights of the gate set
-        """
-        if self.gate_set is None:
-            raise ValueError("gate_set is required")
-        self.add_solvers()
-        logic = "QF_LIA"
-        solvers = ["cvc5", "yices2", "z3", "opensmt"]
-        with Portfolio(solvers,
-                        logic=logic,
-                        incremental=True,
-                        generate_models=True) as portfolio:
-            self.gen.solver = portfolio
-        
-            weights = [self.gen.declare_integer(f"W{i}") for i in range(self.d + 1)]
-            self.gen.add_assertion(self.gen.Equals(weights[0], self.gen.Int(0)))
-            for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
-                In = Vector(q=2**self.q, name=f"In_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k, n=input_vector.n)
-                for i, val in enumerate(input_vector.vec):
-                    self.gen.add_assertion(In[i] == val)
-                
-                if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                    self.gen.add_assertion(self.gen.Equals(In.k, self.gen.format_integer(input_vector.k)))
-                
-                if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                    inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k if d == 0 else 0, n = input_vector.n) for d in range(self.d + 1)]
-                else:
-                    inter = [Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation) for d in range(self.d + 1)]
-                self.gen.add_assertion(inter[0] == In)
-                
-                for d in range(self.d):
-                    self.encode_layer(inter[d], inter[d+1], d, weights[d], weights[d+1])
-                    # add constraining rules - no H H, Tdg T, ...
-                    self.gen.add_constraints(self.gate_set, d, self.q)
 
-                Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_vector.k, n = output_vector.n)
-                for i, val in enumerate(output_vector.vec):
-                    self.gen.add_assertion(Target[i] == val)
-                
-                if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                    self.gen.add_assertion(self.gen.Equals(Target.k, self.gen.format_integer(output_vector.k)))
-
-                conj_rescaled1 = None
-                rescaled1 = None
-                rescaled2 = None
-                if self.gen.logic == "QF_NRA": 
-                # FIDELITY
-                    fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
-                    conjugate = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Conjugate")
-                    self.gen.add_assertion(conjugate == inter[self.d].conjugate(self.gen))
-                    self.gen.add_assertion(f"(= {conjugate.k} {inter[self.d].k})")
-                    prod, k_final = conjugate * Target
-                    prod_real = prod.abs2(k_final) # abs2 <==> fidelity
-                    self.gen.add_assertion(f"(= {fidelity.real} {prod_real})")
-                    self.gen.add_assertion(f"(>= {fidelity.real} 0.0)")
-                    self.gen.add_assertion(f"(<= {fidelity.real} 1.0)")
-                    self.gen.add_assertion(f"(>= {fidelity.real} {self.fidelity_threshold})")
-                elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
-                    # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
-                    # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
-                    rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{inter[self.d].name}")
-                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{Target.name}")
-                    self.gen.add_rescaling(rescaled1, rescaled2, inter[self.d], Target, pair_idx, self.d)
-                    self.gen.add_assertion(rescaled1 == rescaled2)
-            
-            if mode == "binary":
-                return self.binary_cost_search(weights, output_qasm)
-            elif mode == "bottom_up":
-                return self.incremental_bottom_up_cost_search(weights, output_qasm)
-            elif mode == "top_down":
-                return self.incremental_top_down_cost_search(weights, output_qasm)
-            else:
-                raise ValueError(f"Invalid mode: {mode}")
-                
-
-    def solve_and_extract_circuit(self, smtlib_filename, output_qasm="circuit.qasm", solver=None) -> bool:
+    def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", solver=None) -> bool:
         """    
-            smtlib_filename: Path to the SMT-LIB file
+            formula_file: Path to the formula file
             output_qasm: Output filename for QASM circuit
             solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2, dreal (experimental)
         """
@@ -959,8 +893,6 @@ class Synthesizer:
             solver = solver_to_class[solver](msg=False)
             solver.solve(self.gen.lp_problem)
             if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
-                for var in self.gen.lp_problem.variables():
-                    print(f"{var.name}: {var.value()}")
                 print(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
                 return self.parser.parse(self.gen, self.q, self.d, output_qasm)
             elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":
@@ -979,11 +911,10 @@ class Synthesizer:
                 "dreal": "/opt/dreal/4.21.06.2/bin/dreal"
             }
             
-            if solver is None:
-                solver = self.solver
-
-            elif smtlib_filename is None:
-                raise ValueError("smtlib_filename is None")
+            if solver is None and self.gen.solver is not None:
+                solver = self.gen.solver
+            else:
+                raise ValueError("solver is not set")
 
             jobs = cpu_count()
             if jobs is None:
@@ -995,7 +926,7 @@ class Synthesizer:
                 raise ValueError(f"Invalid solver: {solver}")
             try:
                 result = subprocess.run(
-                    [solver_to_filename[solver], smtlib_filename] + args.get(solver, []),
+                    [solver_to_filename[solver], formula_file] + args.get(solver, []),
                     capture_output=True,
                     text=True,
                 )

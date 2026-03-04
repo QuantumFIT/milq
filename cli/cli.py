@@ -1,0 +1,23 @@
+import argparse
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src/'))
+from synth import Synthesizer
+
+parser = argparse.ArgumentParser(description='CLI for the synthesis tool')
+parser.add_argument('qasm_file', type=str, help='qasm file to synthesize')
+parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for the synthesis', choices=["zero", "all", "rus"], default="all")
+parser.add_argument('-s', '--solving', type=str, help='solving method to use', choices=["smt", "portfolio", "milp"], default="portfolio")
+parser.add_argument('-m', '--mode', type=str, help='solving mode to use', choices=["basic", "incremental", "binary", "topdown", "bottomup"], default="incremental")
+parser.add_argument('-a', '--solver', type=str, help='solver to use', required=False, choices=["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "gurobi"], default=None)
+parser.add_argument('-o', '--output_qasm', type=str, help='output qasm file', required=False, default="circuit.qasm")
+parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "nTuple", "Classic"], default="FiveTuple")
+parser.add_argument('-f', '--fidelity_threshold', type=float, help='fidelity threshold (use with dreal solver)', required=False, default=1.0)
+args = parser.parse_args()
+synthesizer = Synthesizer()
+res = synthesizer.synthesis(qasm_file=args.qasm_file, vectors=args.vectors, solving=args.solving, mode=args.mode, solver=args.solver, output_qasm=args.output_qasm, complex_representation=args.complex_representation, fidelity_threshold=args.fidelity_threshold)
+if res:
+    print("synthesis successful")
+else:
+    print("synthesis failed")

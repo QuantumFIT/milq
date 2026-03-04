@@ -3,7 +3,7 @@ from .ntuple import nTuple
 from .fivetuple import FiveTuple
 
 class Vector:
-    def __init__(self, q, name=None, generator=None, element_representation=None, k=None, n=None):
+    def __init__(self, q, name=None, generator=None, element_representation=None, k=None, n=None, bound=None):
         if element_representation is None:
             raise ValueError("complex representation must be provided")
         
@@ -114,3 +114,11 @@ class Vector:
             # because multiplication does not need rescaling (it scales to k1 + k2), and k is shared by all elements of a vector
             # the k of the result is the sum of k's of the vectors
             return sum_var, k_final
+    
+    def max_value(self) -> int:
+        max = 0
+        for i in range(len(self.vec)):
+            tmp = self.vec[i].max_coefficient()
+            if tmp > max:
+                max = tmp
+        return max

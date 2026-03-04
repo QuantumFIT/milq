@@ -144,3 +144,6 @@ class Complex:
     
     def divide_by_two_i(self, generator = None):
         return self * Complex.i_half(generator)
+    
+    def max_coefficient(self) -> int:
+        return max(abs(self.real), abs(self.imag))

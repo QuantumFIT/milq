@@ -355,3 +355,6 @@ class FiveTuple:
                 d = self.gen.Minus(self.gen.Int(0), self.gen.format_integer(self.b)),
                 generator=self.gen
             )
+        
+    def max_coefficient(self) -> int:
+        return max(abs(self.a), abs(self.b), abs(self.c), abs(self.d))

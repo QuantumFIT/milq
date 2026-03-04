@@ -15,7 +15,7 @@ choice = sys.argv[3] if len(sys.argv) > 3 else None
 
 if method == "incremental":
     synthesizer = Synthesizer()
-    synthesizer.synthesis_incremental(circuit)
+    synthesizer.synthesis(qasm_file=circuit, vectors="zero", solving="portfolio", mode="bottomup")
 elif method == "all":
     synthesizer = Synthesizer()
     start_time = time.time()

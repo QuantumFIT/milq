@@ -3,7 +3,7 @@ from pysmt.shortcuts import Plus, Minus, Times, Equals, And, Real
 from .classic import Complex
 
 class FiveTuple:
-    def __init__(self, a = 0, b = 0, c = 0, d = 0, name = None, generator = None):
+    def __init__(self, a = 0, b = 0, c = 0, d = 0, name = None, generator = None, bound=None):
         if generator is not None:
             self.gen = generator
         else:
@@ -18,10 +18,16 @@ class FiveTuple:
 
         if name is not None:
             safe = name.replace('[', '_').replace(']', '')
-            self.a = generator.declare_integer(f"{safe}_a")
-            self.b = generator.declare_integer(f"{safe}_b")
-            self.c = generator.declare_integer(f"{safe}_c")
-            self.d = generator.declare_integer(f"{safe}_d")
+            if bound is not None:
+                self.a = generator.declare_integer(f"{safe}_a", lb=-bound, ub=bound)
+                self.b = generator.declare_integer(f"{safe}_b", lb=-bound, ub=bound)
+                self.c = generator.declare_integer(f"{safe}_c", lb=-bound, ub=bound)
+                self.d = generator.declare_integer(f"{safe}_d", lb=-bound, ub=bound)
+            else:
+                self.a = generator.declare_integer(f"{safe}_a")
+                self.b = generator.declare_integer(f"{safe}_b")
+                self.c = generator.declare_integer(f"{safe}_c")
+                self.d = generator.declare_integer(f"{safe}_d")
         else:
             self.a = generator.format_integer(a)
             self.b = generator.format_integer(b)
@@ -100,9 +106,8 @@ class FiveTuple:
         return f"({self.a} + {self.b} ω + {self.c} ω² + {self.d} ω³)"
 
     @classmethod
-    def constrained_equals(cls, sel, expr1, expr2):
+    def constrained_equals(cls, sel, bigM, expr1, expr2):
         gen = expr1.gen
-        bigM = 1e3
         gen.add_assertion(gen.And(
             (expr1.a - expr2.a <= bigM * (1 - sel)),
             (expr2.a - expr1.a <= bigM * (1 - sel)),
@@ -119,10 +124,12 @@ class FiveTuple:
         gen = fivetuple1.gen
         a1 = exponent if rel == "<=" else 1
         a2 = exponent if rel == ">" else 1
-        bigM = bigM * exponent
+        tmp = bigM
+        #bigM = bigM * exponent
         if parity == "even":
             if rel == "<=":
             # rescale fivetuple1 by exponent
+                bigM = 2 * tmp * a1
                 gen.add_assertion(a1 * fivetuple1.a - r1.a <= bigM * sel)
                 gen.add_assertion(r1.a - a1 * fivetuple1.a <= bigM * sel)
                 gen.add_assertion(a1 * fivetuple1.b - r1.b <= bigM * sel)
@@ -132,6 +139,7 @@ class FiveTuple:
                 gen.add_assertion(a1 * fivetuple1.d - r1.d <= bigM * sel)
                 gen.add_assertion(r1.d - a1 * fivetuple1.d <= bigM * sel)
 
+                bigM = 2 * tmp
                 gen.add_assertion(r2.a - fivetuple2.a <= bigM * sel)
                 gen.add_assertion(fivetuple2.a - r2.a <= bigM * sel)
                 gen.add_assertion(r2.b - fivetuple2.b <= bigM * sel)
@@ -141,6 +149,7 @@ class FiveTuple:
                 gen.add_assertion(r2.d - fivetuple2.d <= bigM * sel)
                 gen.add_assertion(fivetuple2.d - r2.d <= bigM * sel)
             else:
+                bigM = 2 * tmp
                 gen.add_assertion(r1.a - fivetuple1.a <= bigM * sel)
                 gen.add_assertion(fivetuple1.a - r1.a <= bigM * sel)
                 gen.add_assertion(r1.b - fivetuple1.b <= bigM * sel)
@@ -150,6 +159,7 @@ class FiveTuple:
                 gen.add_assertion(r1.d - fivetuple1.d <= bigM * sel)
                 gen.add_assertion(fivetuple1.d - r1.d <= bigM * sel)
 
+                bigM = 2 * a2 * tmp
                 gen.add_assertion(r2.a - a2 * fivetuple2.a <= bigM * sel)
                 gen.add_assertion(a2 * fivetuple2.a - r2.a <= bigM * sel)
                 gen.add_assertion(r2.b - a2 * fivetuple2.b <= bigM * sel)
@@ -161,6 +171,7 @@ class FiveTuple:
         else:
             # rescale fivetuple1 by the matrix M
             if rel == "<=":
+                bigM = 3 * tmp * a1
                 gen.add_assertion(a1 * (fivetuple1.b - fivetuple1.d) - r1.a <= bigM * sel)
                 gen.add_assertion(r1.a - a1 * (fivetuple1.b - fivetuple1.d) <= bigM * sel)
                 gen.add_assertion(a1 * (fivetuple1.a + fivetuple1.c) - r1.b <= bigM * sel)
@@ -170,6 +181,8 @@ class FiveTuple:
                 gen.add_assertion(a1 * (fivetuple1.c - fivetuple1.a) - r1.d <= bigM * sel)
                 gen.add_assertion(r1.d - a1 * (fivetuple1.c - fivetuple1.a) <= bigM * sel)
 
+
+                bigM = 2 * tmp
                 gen.add_assertion(r2.a - fivetuple2.a <= bigM * sel)
                 gen.add_assertion(fivetuple2.a - r2.a <= bigM * sel)
                 gen.add_assertion(r2.b - fivetuple2.b <= bigM * sel)
@@ -179,6 +192,7 @@ class FiveTuple:
                 gen.add_assertion(r2.d - fivetuple2.d <= bigM * sel)
                 gen.add_assertion(fivetuple2.d - r2.d <= bigM * sel)
             else:
+                bigM = 3 * tmp * a2
                 gen.add_assertion(r2.a - a2 * (fivetuple2.b - fivetuple2.d) <= bigM * sel)
                 gen.add_assertion(a2 * (fivetuple2.b - fivetuple2.d) - r2.a <= bigM * sel)
                 gen.add_assertion(r2.b - a2 * (fivetuple2.a + fivetuple2.c) <= bigM * sel)
@@ -188,6 +202,7 @@ class FiveTuple:
                 gen.add_assertion(r2.d - a2 * (fivetuple2.c - fivetuple2.a) <= bigM * sel)
                 gen.add_assertion(a2 * (fivetuple2.c - fivetuple2.a) - r2.d <= bigM * sel)
 
+                bigM = 2 * tmp
                 gen.add_assertion(r1.a - fivetuple1.a <= bigM * sel)
                 gen.add_assertion(fivetuple1.a - r1.a <= bigM * sel)
                 gen.add_assertion(r1.b - fivetuple1.b <= bigM * sel)
@@ -199,12 +214,12 @@ class FiveTuple:
 
     
     @classmethod
-    def one(cls, generator):
-        return cls(a=1, b=0, c=0, d=0, generator=generator)
+    def one(cls, generator, bound=None):
+        return cls(a=1, b=0, c=0, d=0, generator=generator, bound=bound)
     
     @classmethod
-    def zero(cls, generator):
-        return cls(a=0, b=0, c=0, d=0, generator=generator)
+    def zero(cls, generator, bound=None):
+        return cls(a=0, b=0, c=0, d=0, generator=generator, bound=bound)
     
     def multiply_by_omega(self, generator):
         if self.gen is None:

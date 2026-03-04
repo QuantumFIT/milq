@@ -90,6 +90,7 @@ class ModelParser:
             for d in range(len(circuit)):
                 if circuit[d] is None: continue
                 gate, qubits = circuit[d]
+                if gate == 'id': continue
                 gate_str = gate + " "
                 for qubit in qubits:
                     gate_str += f"q[{qubit}], "
@@ -100,7 +101,11 @@ class ModelParser:
     def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm") -> bool:
         items = model
         if isinstance(model, Generator):
-            items = self.expand_milp_model(model)
+            try:
+                items = self.expand_milp_model(model)
+            except Exception as e:
+                print(f"Error expanding MILP model: {e}")
+                return False
         elif isinstance(model, str):
             items = self.parse_model_to_items(model)
 

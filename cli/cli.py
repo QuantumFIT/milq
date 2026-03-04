@@ -1,6 +1,7 @@
 import argparse
 import sys
 import os
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src/'))
 from synth import Synthesizer
@@ -16,8 +17,13 @@ parser.add_argument('-c', '--complex_representation', type=str, help='complex re
 parser.add_argument('-f', '--fidelity_threshold', type=float, help='fidelity threshold (use with dreal solver)', required=False, default=1.0)
 args = parser.parse_args()
 synthesizer = Synthesizer()
+start_time = time.time()
+
 res = synthesizer.synthesis(qasm_file=args.qasm_file, vectors=args.vectors, solving=args.solving, mode=args.mode, solver=args.solver, output_qasm=args.output_qasm, complex_representation=args.complex_representation, fidelity_threshold=args.fidelity_threshold)
 if res:
     print("synthesis successful")
 else:
     print("synthesis failed")
+    
+end_time = time.time()
+print(f"Time taken: {end_time - start_time} seconds")

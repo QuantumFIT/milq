@@ -3,7 +3,7 @@ from .ntuple import nTuple
 from .fivetuple import FiveTuple
 
 class Vector:
-    def __init__(self, q, name=None, generator=None, element_representation=None, k=None, n=None, bound=None):
+    def __init__(self, q, name=None, generator=None, element_representation=None, k=None, n=None, bound=None, k_bound=None):
         if element_representation is None:
             raise ValueError("complex representation must be provided")
         
@@ -16,7 +16,7 @@ class Vector:
         if generator is not None:
             if (element_representation == FiveTuple or element_representation == nTuple) and k is not None:
                 if name is not None:
-                    self.k = generator.declare_integer(f"{name}_k")
+                    self.k = generator.declare_integer(f"{name}_k", lb=0, ub=k_bound)
                 else:
                     self.k = generator.format_integer(k)
             else:
@@ -33,15 +33,15 @@ class Vector:
         for i in range(q):
             if name is not None:
                 if element_representation == nTuple:
-                    self.vec.append(element_representation(name=f"{name}_{i}", n=n, generator=generator))
+                    self.vec.append(element_representation(name=f"{name}_{i}", n=n, generator=generator, bound=bound))
                 else:
-                    self.vec.append(element_representation(name=f"{name}_{i}", generator=generator))
+                    self.vec.append(element_representation(name=f"{name}_{i}", generator=generator, bound=bound))
             else:
                 if element_representation == nTuple:
-                    self.vec.append(element_representation.zero(generator, n=n))
+                    self.vec.append(element_representation.zero(generator, n=n, bound=bound))
                     
                 else:
-                    self.vec.append(element_representation.zero(generator))
+                    self.vec.append(element_representation.zero(generator, bound=bound))
 
     def __getitem__(self, i):
         return self.vec[i]

@@ -1,7 +1,6 @@
 class nTuple:
     # TODO: refactor
-    def __init__(self, elements=None,
-                 name=None, n=0, generator=None):
+    def __init__(self, elements=None, name=None, n=0, generator=None, bound=None):
         
         # n has to be a power of 2
         if n != 0:

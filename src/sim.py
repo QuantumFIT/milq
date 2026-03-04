@@ -251,23 +251,25 @@ class Simulator:
     """
     simulate the unitary part of RUS circuit (without the measurement) on states |0>, |1>, |+>
     """
-    def simulate_rus(self) -> list[tuple[Vector, Vector]]:
+    def simulate_rus(self, targets: int = 1, ancillas: int = 1) -> list[tuple[Vector, Vector]]:
         gates, vectors = self.parse_file()
         
-        if self.stats['q'] != 2:
-            raise NotImplementedError("RUS protocol only supported with 2 qubits")
+        if self.stats['q'] != targets + ancillas:
+            raise ValueError(f"Mismatch between circuit qubits and targets + ancillas")
                 
         # initialize the basis_states |0>, |1>, |+>
         vectors = []
-        for i in range(2):
+        
+        # |0>^targets state and |1>^targets state
+        for i in range(2**targets):
             vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
             vector[i] = self.complex_representation.one(None)
             vectors.append(vector)
             
-        # |+>
-        vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=1)
-        vector[0] = self.complex_representation.one(None)
-        vector[1] = self.complex_representation.one(None)
+        # |+>^targets
+        vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=targets)
+        for i in range(2**targets):
+            vector[i] = self.complex_representation.one(None)
         vectors.append(vector)
 
         return self.simulate(vectors, gates)

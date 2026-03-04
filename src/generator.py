@@ -24,7 +24,7 @@ class Generator:
         self.lp_problem = None
         self.bool_variables = set()
         self.integer_variables = set()
-        self.stack = []
+        self.saved_lp_problem = None
         self.objective_assertions = []
         self.stats['reals'] = 0
         self.stats['integers'] = 0
@@ -528,7 +528,7 @@ class Generator:
 
     def push(self):
         if self.mode == "milp":
-            self.stack.append(self.stats['assertions'])        
+            self.saved_lp_problem = self.lp_problem.deepcopy()      
         elif self.mode == "smtlib":
             raise NotImplementedError("push not supported in smtlib mode")
         elif self.mode == "pysmt":
@@ -536,16 +536,7 @@ class Generator:
     
     def pop(self):
         if self.mode == "milp":
-            count_to_restore = self.stack.pop()
-            for i in range(count_to_restore, self.stats['assertions']):
-                if i in self.objective_assertions:
-                    self.lp_problem.objective = None
-                    self.objective_assertions.remove(i)
-                    self.stats['objectives'] -= 1
-                    self.stats['assertions'] -= 1
-                else:
-                    self.lp_problem.constraints.pop(f"assertion_{i}", None)
-                    self.stats['assertions'] -= 1
+            self.lp_problem = self.saved_lp_problem
         elif self.mode == "smtlib":
             raise NotImplementedError("pop not supported in smtlib mode")
         elif self.mode == "pysmt":

@@ -4,4 +4,5 @@ __pycache__/
 *.log
 src/__pycache__/
 *.qasm
+*.lp
 benchmarks/qsharp_comp/

@@ -6,44 +6,16 @@ import resource
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/'))
 from synth import Synthesizer
-from sim import simulate_circuit, simulate_rus
-from complex_numbers_smtlib import Complex, Vector, Cyclotomic8Dyadic
-from smtlib_generator import SMTLibGenerator
+from gates import GateSet
 
 q = 2
 if len(sys.argv) > 1:
     qasm_file = sys.argv[1]
-    d = int(sys.argv[2])
-    solver = sys.argv[3]
-else:
-    qasm_file = '1/spec.qasm'
-    d = 40
-    solver = "opensmt"
+    outf = sys.argv[2]
 
-# first simulate to get the vectors
-generator = SMTLibGenerator()
-gate_set = ['I', 'H', 'T', 'Tdg', 'S', 'Sdg', 'CX', 'CZ', 'X']
-synthesizer = Synthesizer(gen=generator, gate_set=gate_set, solver=solver)
 start_smt = time.time()
-vectors = simulate_rus(qasm_file, generator=None)
-for vec_pair in vectors:
-    print("Input vec:")
-    for i in range(len(vec_pair[0].vec)):
-        print(vec_pair[0].vec[i].to_real(vec_pair[0].k))
-    print("Output vec:")
-    for i in range(len(vec_pair[1].vec)):\
-        print(vec_pair[1].vec[i].to_real(vec_pair[1].k))
-    print("--------------------------------")
-
-
-try:
-    synthesizer.synthesis(vectors, q, d, "smt.smt2")
-    print(generator.num_of_assertions)
-    print(generator.num_of_bool_variables)
-    print(generator.num_of_int_variables)
-    synthesizer.solve_and_extract_circuit("smt.smt2", q, d, "smt.qasm", solver)
-    end_smt = time.time()
-    print(f"SMT time: {end_smt - start_smt} seconds")
-except Exception as e:
-    print(f"Error: {e}")
-    print("unsat")
+gate_set = GateSet(gate_set=['id', 'h', 't', 'tdg', 's', 'sdg', 'cx', 'cz', 'x'])
+synthesizer = Synthesizer(gate_set=gate_set, solver="gurobi")
+synthesizer.synthesis_rus(qasm_file, outf)
+end_smt = time.time()
+print(f"SMT time: {end_smt - start_smt} seconds")

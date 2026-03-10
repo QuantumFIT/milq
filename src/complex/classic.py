@@ -147,3 +147,13 @@ class Complex:
     
     def max_coefficient(self) -> int:
         return max(abs(self.real), abs(self.imag))
+
+    def multiply_by_real(self, num):
+        if self.gen is None:
+            return Complex(a=self.real * num, b=self.imag * num, generator=self.gen)
+        else:
+            return Complex(
+                a = self.gen.Times(self.gen.format_real(self.real), self.gen.format_real(num)),
+                b = self.gen.Times(self.gen.format_real(self.imag), self.gen.format_real(num)),
+                generator = self.gen
+            )

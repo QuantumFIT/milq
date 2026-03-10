@@ -122,3 +122,44 @@ class Vector:
             if tmp > max:
                 max = tmp
         return max
+    
+
+    def rescale_with(self, other):
+        k1 = self.k
+        k2 = other.k
+        diff = abs(k1 - k2)
+        parity = diff % 2
+        diff = diff // 2
+        exponent = 2**diff
+        if k1 > k2:
+            # rescale other
+            new_vec = other.copy()
+            for i in range(len(new_vec)):
+                if parity == 0:
+                    # rescale by identity
+                    new_vec[i] = other[i].multiply_by_real(exponent)
+
+                else:
+                    # rescale by M
+                    new_vec[i].a = (other[i].b + other[i].d) * exponent
+                    new_vec[i].b = (other[i].a + other[i].c) * exponent
+                    new_vec[i].c = (other[i].b - other[i].d) * exponent
+                    new_vec[i].d = (other[i].c - other[i].a) * exponent
+            return self, new_vec
+        elif k2 > k1:
+            # rescale self
+            new_vec = self.copy()
+            for i in range(len(new_vec)):
+                if parity == 0:
+                    # rescale by identity
+                    new_vec[i] = self[i].multiply_by_real(exponent)
+                else:
+                    # rescale by M
+                    new_vec[i].a = (self[i].b + self[i].d) * exponent
+                    new_vec[i].b = (self[i].a + self[i].c) * exponent
+                    new_vec[i].c = (self[i].b - self[i].d) * exponent
+                    new_vec[i].d = (self[i].c - self[i].a) * exponent
+            return new_vec, other
+        else:
+            # same k, no rescaling
+            return self, other

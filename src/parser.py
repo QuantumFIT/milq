@@ -23,6 +23,8 @@ class ModelParser:
         for var in gen.integer_variables:
             if var.name.startswith("W"):
                 items.append((var.name, var.value()))
+            if var.name.startswith("I_"):
+                items.append((var.name, var.value()))
         return items
 
 
@@ -67,6 +69,14 @@ class ModelParser:
                     else:
                         if value_obj.is_true():
                             new_items.append(variable)
+                
+                if variable.startswith("I_"):
+                    # check that I_{pair_idx}_{d}, d == depth
+                    d = int(variable.split("_")[2])
+                    if d != depth: continue
+
+                    if isinstance(value_obj, float) or isinstance(value_obj, int):
+                        new_items.append((variable, value_obj))
                 if variable.startswith("W"):
                     if value_obj is None: continue
                     indice = int(variable.split("W")[1].strip())
@@ -126,6 +136,33 @@ class ModelParser:
         self.write_circuit_to_qasm(circuit, qubits, output_qasm)
         return True
     
+    def parse_bools_and_vectors(self, model : any, qubits : int, depth : int) -> tuple[list, list]:
+        items = model
+        if isinstance(model, Generator):
+            try:
+                items = self.expand_milp_model(model)
+            except Exception as e:
+                print(f"Error expanding MILP model: {e}")
+                return False
+
+        gates = []
+        vectors = []
+        new_items = self.filter_items(items, depth)
+        for item in new_items:
+            if isinstance(item, str):
+                variable = item
+                if variable.startswith("L"):
+                    gates.append(variable)
+            else:
+                var_obj, value_obj = item[0], item[1]
+                variable = str(var_obj)
+                if variable.startswith("L"):
+                    gates.append(variable)
+                elif variable.startswith("I_"):
+                    vectors.append((variable, value_obj))
+        return gates, vectors
+
+
     def get_stats(self) -> dict:
         return self.stats
     

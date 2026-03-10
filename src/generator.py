@@ -213,7 +213,7 @@ class Generator:
         self.declared_names.add(x)
         return var
     
-    def declare_real(self, x):
+    def declare_real(self, x, lb=None, ub=None):
         if x not in self.declared_names:
             self.stats['reals'] += 1
             if self.mode == "pysmt":
@@ -221,7 +221,7 @@ class Generator:
             elif self.mode == "smtlib":
                 return self._smtlib_declaration(x, "Real")
             elif self.mode == "milp":
-                raise ValueError("real in milp")
+                return self._milp_declaration(x, LpContinuous, lb, ub)
         else:
             return self.format_real(x)      
             
@@ -240,7 +240,12 @@ class Generator:
                 return str(x)
             return x
         elif self.mode == "milp":
-            raise NotImplementedError("real numbers in milp mode not yet supported")
+            if isinstance(x, float):
+                return x
+            elif isinstance(x, str):
+                if x in self.symbols:
+                    return self.symbols[x]
+            return x
 
     def Real(self, x):
         return self.format_real(x)
@@ -472,7 +477,7 @@ class Generator:
             for j, s in enumerate(constants):
                 for parity in [("even", (1 - q)), ("odd", q)]:
                     for rel in [("<=", sleq), (">", (1 - sleq))]:
-                        and_var = self.declare_bool(f"and_var{i}_{j}_{parity[0]}_{"lower" if rel[0] == "<=" else "upper"}")
+                        and_var = self.declare_bool(f"and_var{i}_{j}_{parity[0]}_{'lower' if rel[0] == '<=' else 'upper'}")
                         self.add_assertion(and_var <= rel[1])
                         self.add_assertion(and_var <= s)
                         self.add_assertion(and_var <= parity[1])
@@ -541,3 +546,12 @@ class Generator:
             raise NotImplementedError("pop not supported in smtlib mode")
         elif self.mode == "pysmt":
             self.solver.pop()
+    
+    def filter_model(self, model, depth):
+        # not model -> not (g1 and g2 and g3 ...) -> (not g1 or not g2 or not g3 ...)
+        # in milp, depth - g1 - g2 - g3 - ... >= 1 (if all gate are 1, this becomes 0, which is false)
+        if self.mode == "milp":
+            # cant just make it depth >= ... because of numerical imprecisions
+            self.add_assertion(depth - 0.5 >= lpSum([self.symbols[bool_var] for bool_var in model]))
+        elif self.mode == "smtlib" or self.mode == "pysmt":
+            self.add_assertion(self.Not(self.And(*[self.symbols[bool_var] for bool_var in model])))

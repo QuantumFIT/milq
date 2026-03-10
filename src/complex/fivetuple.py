@@ -373,3 +373,15 @@ class FiveTuple:
         
     def max_coefficient(self) -> int:
         return max(abs(self.a), abs(self.b), abs(self.c), abs(self.d))
+    
+    def multiply_by_real(self, num):
+        if self.gen is None:
+            return FiveTuple(a=self.a * num, b=self.b * num, c=self.c * num, d=self.d * num)
+        else:
+            return FiveTuple(
+                a = self.gen.Times(self.gen.format_integer(self.a), self.gen.format_real(num)),
+                b = self.gen.Times(self.gen.format_integer(self.b), self.gen.format_real(num)),
+                c = self.gen.Times(self.gen.format_integer(self.c), self.gen.format_real(num)),
+                d = self.gen.Times(self.gen.format_integer(self.d), self.gen.format_real(num)),
+                generator=self.gen
+            )

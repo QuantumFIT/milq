@@ -792,23 +792,80 @@ class Synthesizer:
                     self.encode_layer(inter_vectors[pair_idx][depth-1], inter_vectors[pair_idx][depth], depth-1, weights[depth-1], weights[depth])
                     self.gen.add_constraints(self.gate_set, depth-1, self.q)
                 self.gen.push()
-                for pair_idx in range(len(vector_pairs)):
-                    rescaled1, rescaled2 = self.encode_equivalence(inter_vectors[pair_idx][depth], target_vectors[pair_idx], pair_idx)
-            
-                if self.gen.mode == "milp":
-                    #self.gen.add_objective(weights[depth])
+                enumerate_models = True
+                models_found = 0
+                if enumerate_models:
+                    models = []
+                    for pair_idx in range(len(vector_pairs)):
+                        target = vector_pairs[pair_idx][1]
+                        inter = inter_vectors[pair_idx][depth]
+                        k = self.gen.declare_real(f"k_real_{pair_idx}")
+                        for i in range(2**self.q):
+                            self.gen.add_assertion(self.gen.Equals(inter[i], target[i].multiply_by_real(k)))
+
                     formula_file = output_qasm.split(".")[0] + ".lp"
                     self.gen.lp_problem.writeLP(formula_file)
+                    # enumerate models for this depth
+                    sat = True
+                    while sat:
+                        # returns (bool_variables, [out_vectors])
+                        model, out_vectors = self.get_current_model(formula_file=formula_file)
+                        if model:
+                            models.append((model, out_vectors))
+                            # add (not model to the formula)
+                            self.gen.filter_model(model, depth)
+                            models_found += 1
+                        else:
+                            sat = False
+
+                    if len(models) == 0:
+                        self.gen.pop()
+                        depth += 1
+                    else:
+                        # post-process the models - find the best one and exit
+                        for model in models:
+                            print("Processing model")
+                            bool_vars = model[0]
+                            vector = model[1]
+                            print(f"Bool vars: {bool_vars}")
+                            print(f"Vector: {vector}")
+                            vectors = []
+                            for pair_idx in range(len(vector_pairs)):
+                                vec = Vector(q=2**self.q, generator=self.gen, element_representation=FiveTuple, k=0)
+                                var_name = f"I_{pair_idx}_{depth}"
+                                for i in range(2**self.q):
+                                    var_name = f"{var_name}_{i}"
+                                    for indice in ['a', 'b', 'c', 'd']:
+                                        tmp = var_name
+                                        var_name = f"{var_name}_{indice}"
+                                        var_name = tmp
+                                        vec[i] = model[var_name]
+                                    var_name = f"{var_name}_k"
+                                    vec.k = model[var_name]
+                                vectors.append(vec)
+
+                            rescaled1, rescaled2 = vectors[0].rescale_with(target_vectors[pair_idx])
+                            print(f"Rescaled1: {rescaled1}")
+                            print(f"Rescaled2: {rescaled2}")
+                            res = True
                 else:
-                    formula_file = output_qasm.split(".")[0] + ".smt2"
-                    self.gen.write_smtlib(formula_file)                
-                result = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm)
-                if result:
-                    res = True
-                else:
-                    # remove rescaled_... variables from the problem
-                    self.gen.pop()
-                    depth += 1
+                    for pair_idx in range(len(vector_pairs)):
+                        rescaled1, rescaled2 = self.encode_equivalence(inter_vectors[pair_idx][depth], target_vectors[pair_idx], pair_idx)
+                
+                    if self.gen.mode == "milp":
+                        #self.gen.add_objective(weights[depth])
+                        formula_file = output_qasm.split(".")[0] + ".lp"
+                        self.gen.lp_problem.writeLP(formula_file)
+                    else:
+                        formula_file = output_qasm.split(".")[0] + ".smt2"
+                        self.gen.write_smtlib(formula_file)                
+                    result = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm)
+                    if result:
+                        res = True
+                    else:
+                        # remove rescaled_... variables from the problem
+                        self.gen.pop()
+                        depth += 1
         else:
             raise ValueError(f"Invalid encoding method: {self.encoding_method}")
         
@@ -957,3 +1014,26 @@ class Synthesizer:
                 return True
             else:
                 return False
+    
+    def get_current_model(self, formula_file="formula.smt2", solver = None):
+        circuit = None
+        vectors = []
+        if self.gen.mode == "milp":
+            if solver is None:
+                solver = "gurobi"
+            solver_to_class = {
+                "gurobi": GUROBI,
+                "cbc": PULP_CBC_CMD,
+            }
+            solver = solver_to_class[solver](msg=False)
+            solver.solve(self.gen.lp_problem)
+            if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
+                print(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
+                circuit, vectors = self.parser.parse_bools_and_vectors(self.gen, self.q, self.d)
+            elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":
+                circuit, vectors = None, None
+            else:
+                # solution can be Sub-optimal (unable to solve some node relaxations)
+                circuit, vectors = self.parser.parse_bools_and_vectors(self.gen, self.q, self.d)
+
+        return circuit, vectors

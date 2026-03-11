@@ -223,7 +223,7 @@ class Simulator:
         results = []
         for i, vector in enumerate(vectors):
             results.append((input_vectors[i], vector))
-                
+        
         return results
 
     """
@@ -269,9 +269,8 @@ class Simulator:
         # |+>^targets
         vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=targets)
         for i in range(2**targets):
-            vector[i] = self.complex_representation.one(None)
+            vector[i] = self.complex_representation.inv_sqrt2(None)
         vectors.append(vector)
-
         return self.simulate(vectors, gates)
 
     """

@@ -3,11 +3,12 @@ from pysmt.shortcuts import Plus, Minus, Times, Equals, And, Real
 
 class Complex:
     def __init__(self, a=None, b=None, name=None, generator=None, bound=None):
+        bound = 1.0 # always in -1, 1 range
         self.gen = generator
         if name is not None:
             safe_name = name.replace('[', '_').replace(']', '')
-            self.real = generator.declare_real(safe_name + 'r')
-            self.imag = generator.declare_real(safe_name + 'i')
+            self.real = generator.declare_real(safe_name + '_r', lb=-bound, ub=bound)
+            self.imag = generator.declare_real(safe_name + '_i', lb=-bound, ub=bound)
         else:
             if generator is not None:
                 if isinstance(a, str) and isinstance(b, str):
@@ -19,7 +20,18 @@ class Complex:
             else:
                 self.real = a
                 self.imag = b
-    
+                
+    @classmethod
+    def constrained_equals(cls, sel, bigM, expr1, expr2):
+        gen = expr1.gen
+        gen.add_assertion(gen.And(
+            (expr1.real - expr2.real <= bigM * (1 - sel)),
+            (expr2.real - expr1.real <= bigM * (1 - sel)),
+            (expr1.imag - expr2.imag <= bigM * (1 - sel)),
+            (expr2.imag - expr1.imag <= bigM * (1 - sel)),
+            
+        ))
+        
     def __add__(self, other):
         if self.gen is None:
             return Complex(a=self.real + other.real, b=self.imag + other.imag, generator=self.gen)
@@ -83,40 +95,40 @@ class Complex:
         return self
 
     @classmethod
-    def zero(cls, generator = None):
-        return cls(a=0, b=0, generator=generator)
+    def zero(cls, generator = None, bound=None):
+        return cls(a=0, b=0, generator=generator, bound=bound)
     
     @classmethod
-    def one(cls, generator = None):
-        return cls(a=1, b=0, generator=generator)
+    def one(cls, generator = None, bound=None):
+        return cls(a=1, b=0, generator=generator, bound=bound)
     
     @classmethod
-    def minus_one(cls, generator = None):
-        return cls(a=-1, b=0, generator=generator)
+    def minus_one(cls, generator = None, bound=None):
+        return cls(a=-1, b=0, generator=generator, bound=bound)
     
     @classmethod
-    def i_phase(cls, generator = None):
-        return cls(a=0,b=1, generator=generator)
+    def i_phase(cls, generator = None, bound=None):
+        return cls(a=0,b=1, generator=generator, bound=bound)
     
     @classmethod
-    def t_phase(cls, generator = None):
-        return cls(a=np.sqrt(1/2), b=np.sqrt(1/2), generator=generator)
+    def t_phase(cls, generator = None, bound=None):
+        return cls(a=np.sqrt(1/2), b=np.sqrt(1/2), generator=generator, bound=bound)
     
     @classmethod
-    def inv_sqrt2(cls,generator = None):
-        return cls(a=np.sqrt(1/2), b=0, generator=generator)
+    def inv_sqrt2(cls,generator = None, bound=None):
+        return cls(a=np.sqrt(1/2), b=0, generator=generator, bound=bound)
     
     @classmethod
-    def one_half(cls, generator = None):
-        return cls(a=1/2, b=0, generator=generator)
+    def one_half(cls, generator = None, bound=None):
+        return cls(a=1/2, b=0, generator=generator, bound=bound)
     
     @classmethod
-    def i_half(cls, generator = None):
-        return cls(a=0, b=1/2, generator=generator)
+    def i_half(cls, generator = None, bound=None):
+        return cls(a=0, b=1/2, generator=generator, bound=bound)
     
     @classmethod
-    def two(cls, generator = None):
-        return cls(a=2, b=0, generator=generator)
+    def two(cls, generator = None, bound=None):
+        return cls(a=2, b=0, generator=generator, bound=bound)
 
     def multiply_by_omega(self, generator = None):
         return self * Complex.t_phase(generator)

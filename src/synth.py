@@ -38,6 +38,8 @@ class Synthesizer:
         self.d = None
         self.max_k = 0
         self.encoding_method = None
+        self.curr_depth = 0
+        self.v = 0
         
     def __exit__(self) -> None:
         if self.gen.mode == "pysmt":
@@ -61,7 +63,12 @@ class Synthesizer:
 
     def encode_layer(self, inp : Vector, out : Vector, layer : int, inp_weight : any = None, out_weight : any = None) -> None:
         updates_k_value = []
-        self.layer_bigM = self.layer_bigM * 2
+        if self.complex_representation == Complex:
+            if self.layer_bigM == 1:
+                self.layer_bigM = 4
+            self.layer_bigM = self.layer_bigM
+        else:
+            self.layer_bigM = self.layer_bigM * 2
         def add_implies(sel, expr):
             self.gen.add_assertion(self.gen.Implies(sel, expr))
         
@@ -529,7 +536,7 @@ class Synthesizer:
                 add_implies(self.gen.And(*[self.gen.Not(v) for v in propagate_identities[pos]]), out[pos] == inp[pos])
         
         # propagate the k update
-        if self.gen.mode == "milp":
+        if self.gen.mode == "milp" and self.complex_representation != Complex:
             self.gen.add_assertion(self.gen.Equals(out.k, self.gen.Plus(inp.k, lpSum([v[1] * v[0] for v in updates_k_value]))))
 
         # add gate weights
@@ -564,11 +571,17 @@ class Synthesizer:
             self.gen.add_assertion(self.gen.LE(self.gen.Real(fidelity.real), self.gen.Real(1.0)))
             self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(self.fidelity_threshold)))
         elif self.gen.mode == "milp":
-            rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}", bound=2**self.max_k)
-            rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}", bound=2**self.max_k)
-            self.gen.add_milp_rescaling(rescaled1, rescaled2, vec1, vec2, pair_idx, self.max_k)
-            for i in range(2**self.q):
-                self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
+            if self.complex_representation == Complex:
+                # vector equivalence
+                for i in range(2**self.q):
+                    self.gen.add_assertion(self.gen.Equals(vec1[i], vec2[i]))
+            else:
+                # fivetuple rescaling
+                rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}", bound=2**self.max_k)
+                rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}", bound=2**self.max_k)
+                self.gen.add_milp_rescaling(rescaled1, rescaled2, vec1, vec2, pair_idx, self.max_k)
+                for i in range(2**self.q):
+                    self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
         elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
             # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
             # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
@@ -590,7 +603,7 @@ class Synthesizer:
             bool_var.setInitialValue(1)
     
     def synthesis(self, qasm_file=None, vectors=None, vector_pairs=None, solving="portfolio", solver=None, mode="incremental", output_qasm="circuit.qasm", 
-                  complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=None, ancillas=None) -> bool:
+                  complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1) -> bool:
         """
             qasm_file -> file to synthesize
             vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas, custom -> has to specify vector_pairs, q, d, gate_set)
@@ -630,7 +643,7 @@ class Synthesizer:
         elif complex_representation == "nTuple":
             self.complex_representation = nTuple
         elif complex_representation == "Classic":
-            self.complex_representation = Classic
+            self.complex_representation = Complex
         
         # set circuit statistics to prepare synthesis
         self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
@@ -650,6 +663,8 @@ class Synthesizer:
             self.gate_set = gate_set
             self.q = stats['q']
             self.d = stats['d']
+            self.v = len(vector_pairs)
+            self.curr_depth = self.d
             self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
             max = 0
             for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
@@ -774,23 +789,23 @@ class Synthesizer:
                 self.gen.write_smtlib(formula_file)
             
             if self.encoding_method == "basic":
-                res = self.solve_and_extract_circuit(output_qasm=output_qasm, formula_file=formula_file)
+                res, circuit, vectors = self.solve_and_extract_circuit(output_qasm=output_qasm, formula_file=formula_file, write_to_file=True)
             elif self.encoding_method == "binary":
-                res = self.binary_cost_search(weights, output_qasm=output_qasm, formula_file=formula_file)
+                res, circuit, vectors = self.binary_cost_search(weights, output_qasm=output_qasm, formula_file=formula_file)
             elif self.encoding_method == "topdown":
-                res = self.incremental_top_down_cost_search(weights, output_qasm=output_qasm, formula_file=formula_file)
+                res, circuit, vectors = self.incremental_top_down_cost_search(weights, output_qasm=output_qasm, formula_file=formula_file)
             elif self.encoding_method == "bottomup":
-                res = self.incremental_bottom_up_cost_search(weights, output_qasm=output_qasm, formula_file=formula_file)
+                res, circuit, vectors = self.incremental_bottom_up_cost_search(weights, output_qasm=output_qasm, formula_file=formula_file)
         
         elif self.encoding_method == "incremental":
             # incrementally generate circuit and equivalence
-            depth = 1
-            while depth <= self.d and not res:
-                print(f"Trying depth: {depth}")
+            self.curr_depth = 1
+            while self.curr_depth <= self.d and not res:
+                print(f"Trying depth: {self.curr_depth}")
                 for pair_idx in range(len(vector_pairs)):
                     # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
-                    self.encode_layer(inter_vectors[pair_idx][depth-1], inter_vectors[pair_idx][depth], depth-1, weights[depth-1], weights[depth])
-                    self.gen.add_constraints(self.gate_set, depth-1, self.q)
+                    self.encode_layer(inter_vectors[pair_idx][self.curr_depth-1], inter_vectors[pair_idx][self.curr_depth], self.curr_depth-1, weights[self.curr_depth-1], weights[self.curr_depth])
+                    self.gen.add_constraints(self.gate_set, self.curr_depth-1, self.q)
                 self.gen.push()
                 enumerate_models = True
                 models_found = 0
@@ -798,7 +813,7 @@ class Synthesizer:
                     models = []
                     for pair_idx in range(len(vector_pairs)):
                         target = vector_pairs[pair_idx][1]
-                        inter = inter_vectors[pair_idx][depth]
+                        inter = inter_vectors[pair_idx][self.curr_depth]
                         k = self.gen.declare_real(f"k_real_{pair_idx}")
                         for i in range(2**self.q):
                             self.gen.add_assertion(self.gen.Equals(inter[i], target[i].multiply_by_real(k)))
@@ -809,48 +824,34 @@ class Synthesizer:
                     sat = True
                     while sat:
                         # returns (bool_variables, [out_vectors])
-                        model, out_vectors = self.get_current_model(formula_file=formula_file)
-                        if model:
-                            models.append((model, out_vectors))
+                        result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=False)
+                        if result:
+                            models.append((circuit, vectors))
                             # add (not model to the formula)
-                            self.gen.filter_model(model, depth)
+                            self.gen.filter_model(circuit.bool_variables, self.curr_depth)
                             models_found += 1
                         else:
+                            print("Unsat model found")
                             sat = False
 
                     if len(models) == 0:
                         self.gen.pop()
-                        depth += 1
+                        self.curr_depth += 1
                     else:
+                        res = True
                         # post-process the models - find the best one and exit
                         for model in models:
                             print("Processing model")
-                            bool_vars = model[0]
-                            vector = model[1]
-                            print(f"Bool vars: {bool_vars}")
-                            print(f"Vector: {vector}")
-                            vectors = []
-                            for pair_idx in range(len(vector_pairs)):
-                                vec = Vector(q=2**self.q, generator=self.gen, element_representation=FiveTuple, k=0)
-                                var_name = f"I_{pair_idx}_{depth}"
-                                for i in range(2**self.q):
-                                    var_name = f"{var_name}_{i}"
-                                    for indice in ['a', 'b', 'c', 'd']:
-                                        tmp = var_name
-                                        var_name = f"{var_name}_{indice}"
-                                        var_name = tmp
-                                        vec[i] = model[var_name]
-                                    var_name = f"{var_name}_k"
-                                    vec.k = model[var_name]
-                                vectors.append(vec)
+                            circuit = model[0]
+                            vectors = model[1]
 
-                            rescaled1, rescaled2 = vectors[0].rescale_with(target_vectors[pair_idx])
-                            print(f"Rescaled1: {rescaled1}")
-                            print(f"Rescaled2: {rescaled2}")
-                            res = True
+                            for pair_idx in range(len(vector_pairs)):
+                                print(f"V_out: {vectors[pair_idx]}")
+                                print(f"T: {vector_pairs[pair_idx][1]}")
+                                print(f"-----------------------------------")
                 else:
                     for pair_idx in range(len(vector_pairs)):
-                        rescaled1, rescaled2 = self.encode_equivalence(inter_vectors[pair_idx][depth], target_vectors[pair_idx], pair_idx)
+                        rescaled1, rescaled2 = self.encode_equivalence(inter_vectors[pair_idx][self.curr_depth], target_vectors[pair_idx], pair_idx)
                 
                     if self.gen.mode == "milp":
                         #self.gen.add_objective(weights[depth])
@@ -859,13 +860,13 @@ class Synthesizer:
                     else:
                         formula_file = output_qasm.split(".")[0] + ".smt2"
                         self.gen.write_smtlib(formula_file)                
-                    result = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm)
+                    result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)
                     if result:
                         res = True
                     else:
                         # remove rescaled_... variables from the problem
                         self.gen.pop()
-                        depth += 1
+                        self.curr_depth += 1
         else:
             raise ValueError(f"Invalid encoding method: {self.encoding_method}")
         
@@ -903,10 +904,9 @@ class Synthesizer:
             self.gen.solver.pop()
 
         if best_model is not None:
-            self.parser.parse(best_model, self.q, self.d, output_qasm)
-            return True
+            return self.parser.parse(best_model, self.q, self.d, output_qasm, write_to_file=True, v=self.v)
         else:
-            return False
+            return False, None, None
         
     def incremental_bottom_up_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         i = 0
@@ -915,12 +915,11 @@ class Synthesizer:
             self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(i)))
             result = self.gen.solver.solve()
             if result:
-                self.parser.parse(self.gen.solver.get_model(), self.q, self.d, output_qasm)
-                return True
+                return self.parser.parse(self.gen.solver.get_model(), self.q, self.d, output_qasm, write_to_file=True, v=self.v)
             self.gen.solver.pop()
             i += 1
 
-        return False
+        return False, None, None
 
     def incremental_top_down_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         i = self.d+1
@@ -935,16 +934,15 @@ class Synthesizer:
             else:
                 # first unsolvable, return best model
                 if best_model is not None:
-                    self.parser.parse(best_model, self.q, self.d, output_qasm)
-                    return True
+                    return self.parser.parse(best_model, self.q, self.d, output_qasm, write_to_file=True, v=self.v)
                 else:
-                    return False
+                    return False, None, None
             self.gen.solver.pop()
             i -= 1
 
-        return False
+        return False, None, None
 
-    def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", solver=None) -> bool:
+    def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", solver=None, write_to_file = True) -> bool:
         """    
             formula_file: Path to the formula file
             output_qasm: Output filename for QASM circuit
@@ -962,12 +960,12 @@ class Synthesizer:
             solver.solve(self.gen.lp_problem)
             if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
                 print(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
-                return self.parser.parse(self.gen, self.q, self.d, output_qasm)
+                return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
             elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":
-                return False
+                return False, None, None
             else:
                 # solution can be Sub-optimal (unable to solve some node relaxations)
-                return self.parser.parse(self.gen, self.q, self.d, output_qasm)
+                return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
 
         elif self.gen.mode == "smtlib":
             solver_to_filename = {
@@ -1001,39 +999,14 @@ class Synthesizer:
                 )
             except Exception as e:
                 raise ValueError(f"Error: {e}")
-                return False
+                return False, None, None
             if result is None:
-                return False
-            self.parser.parse(result.stdout, self.q, self.d, output_qasm)
-            return True
+                return False, None, None
+            return self.parser.parse(result.stdout, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
         elif self.gen.mode == "pysmt":
             result = self.gen.solver.solve()
             if result:
                 model = self.gen.solver.get_model()
-                self.parser.parse(model, self.q, self.d, output_qasm)
-                return True
+                return self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
             else:
-                return False
-    
-    def get_current_model(self, formula_file="formula.smt2", solver = None):
-        circuit = None
-        vectors = []
-        if self.gen.mode == "milp":
-            if solver is None:
-                solver = "gurobi"
-            solver_to_class = {
-                "gurobi": GUROBI,
-                "cbc": PULP_CBC_CMD,
-            }
-            solver = solver_to_class[solver](msg=False)
-            solver.solve(self.gen.lp_problem)
-            if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
-                print(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
-                circuit, vectors = self.parser.parse_bools_and_vectors(self.gen, self.q, self.d)
-            elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":
-                circuit, vectors = None, None
-            else:
-                # solution can be Sub-optimal (unable to solve some node relaxations)
-                circuit, vectors = self.parser.parse_bools_and_vectors(self.gen, self.q, self.d)
-
-        return circuit, vectors
+                return False, None, None

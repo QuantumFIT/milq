@@ -140,3 +140,66 @@ class GateSet:
             if self.gates[gate] > max_weight:
                 max_weight = self.gates[gate]
         return max_weight
+    
+class Gate:
+    def __init__(self, name: str, qubits: list[int]) -> None:
+        self.name = name
+        self.qubits = qubits
+    
+    def __str__(self) -> str:
+        gate_str = f"{self.name} "
+        for qubit in self.qubits:
+            gate_str += f"q[{qubit}], "
+        gate_str = gate_str[:-2]
+        gate_str += ";"
+        return gate_str
+    
+    def __repr__(self) -> str:
+        return self.__str__()
+    
+    def __eq__(self, other: 'Gate') -> bool:
+        return self.name == other.name and self.qubits == other.qubits
+
+class Circuit:
+    def __init__(self, gates: list[Gate], q: int, d: int) -> None:
+        self.q = q
+        self.d = d
+        self.gates = gates
+        self.bool_variables = []
+        if len(gates) == 0:
+            self.gates = [None] * d
+            self.bool_variables = [None] * d
+        else:
+            for i, gate in enumerate(gates):
+                gate_str = f"L{i}_{gate.name}"
+                for qubit in gate.qubits:
+                    gate_str += f"_q{qubit}"
+                self.bool_variables.append(gate_str)
+    
+    def __str__(self) -> str:
+        circuit_str = f"OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[{self.q}];\ncreg c[{self.q}];\n"
+        for d in range(self.d):
+            gate = self.gates[d]
+            if gate is None: continue
+            circuit_str += f"{gate}\n"
+        return circuit_str
+    
+    def __repr__(self) -> str:
+        return self.__str__()
+    
+    def write_to_file(self, output_qasm: str) -> None:
+        with open(output_qasm, 'w') as f:
+            f.write(self.__str__())
+            
+    def append(self, gate: Gate) -> None:
+        self.gates.append(gate)
+        
+    def __getitem__(self, d: int) -> Gate:
+        return self.gates[d]
+    
+    def __setitem__(self, d: int, gate: Gate) -> None:
+        self.gates[d] = gate
+        gate_str = f"L{d}_{gate.name}"
+        for qubit in gate.qubits:
+            gate_str += f"_q{qubit}"
+        self.bool_variables[d] = gate_str

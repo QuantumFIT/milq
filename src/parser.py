@@ -1,6 +1,8 @@
 
 import re
 from generator import Generator
+from gates import Circuit, Gate
+from complex.vector import Vector
 
 class ModelParser:
     """
@@ -10,6 +12,10 @@ class ModelParser:
         self.stats = {}
         self.stats['gate_counts'] = {} # gate name -> count
         self.stats['cost'] = 0 # total cost of the circuit
+        self.complex_representation = None
+        self.v = None
+        self.q = None
+        self.d = None
 
 
     def expand_milp_model(self, gen : Generator) -> list:
@@ -25,6 +31,10 @@ class ModelParser:
                 items.append((var.name, var.value()))
             if var.name.startswith("I_"):
                 items.append((var.name, var.value()))
+        for var in gen.real_variables:
+            if var.name.startswith("I_"):
+                if var.value() is not None:
+                    items.append((var.name, float(var.value())))
         return items
 
 
@@ -53,30 +63,52 @@ class ModelParser:
             i += 1
         return items
 
-    def filter_items(self, model : any, depth : int) -> list:
+    def filter_items(self, model : any) -> tuple[Circuit, list[Vector]]:
         # get only the (gate, true) tuples
         new_items = []
-        costs = [None] * (depth + 1)
+        costs = [None] * (self.d + 1)
         best_indice = 0
+        circ = Circuit(gates=[], q=self.q, d=self.d)
+        out_vectors = [Vector(q=2**self.q, generator=None, element_representation=self.complex_representation, k=0) for _ in range(self.v)]
         for item in model:
             if isinstance(item, tuple) and len(item) >= 2:
                 var_obj, value_obj = item[0], item[1]
                 variable = str(var_obj)
                 if variable.startswith("L"):
+                    parse = False
                     if isinstance(value_obj, bool):
                         if value_obj:
-                            new_items.append(variable)
+                            parse = True
                     else:
                         if value_obj.is_true():
-                            new_items.append(variable)
+                            parse = True
+                    if parse:
+                        parts = variable.split("_")
+                        d = int(parts[0][1:])
+                        gate = parts[1]
+                        gate_qubits = [int(p[1:]) for p in parts[2:]]
+                        gate = Gate(name=gate, qubits=gate_qubits)
+                        circ[d] = gate
                 
-                if variable.startswith("I_"):
-                    # check that I_{pair_idx}_{d}, d == depth
-                    d = int(variable.split("_")[2])
-                    if d != depth: continue
+                if variable.startswith("I_") and self.v != 0:
+                    # check that I_{pair_idx}_{d}_{indice}_part, d == depth
+                    parts = variable.split("_")
+                    d = int(parts[2])
+                    if d != self.d: continue
 
                     if isinstance(value_obj, float) or isinstance(value_obj, int):
-                        new_items.append((variable, value_obj))
+                        # parse part of a vector -- check which vector by pair_idx, then index in the vector and which coefficient it is
+                        pair_idx = int(parts[1])
+                        if parts[3] == "k":
+                            out_vectors[pair_idx].k = int(value_obj)
+                        else:
+                            indice = int(parts[3])
+                            coeff = parts[4].strip()
+                            if coeff == "r":
+                                coeff = "real"
+                            elif coeff == "i":
+                                coeff = "imag"
+                            setattr(out_vectors[pair_idx][indice], coeff, value_obj)
                 if variable.startswith("W"):
                     if value_obj is None: continue
                     indice = int(variable.split("W")[1].strip())
@@ -89,26 +121,14 @@ class ModelParser:
                     else:
                         costs[indice] = int(value_obj.constant_value())
         self.stats['cost'] = costs[best_indice]
-        return new_items
+        return circ, out_vectors
 
-    def write_circuit_to_qasm(self, circuit : list, qubits : int, output_qasm : str = "circuit.qasm") -> bool:
-        with open(output_qasm, 'w') as f:
-            f.write("OPENQASM 2.0;\n")
-            f.write("include \"qelib1.inc\";\n")
-            f.write(f"qreg q[{qubits}];\n")
-            f.write(f"creg c[{qubits}];\n")
-            for d in range(len(circuit)):
-                if circuit[d] is None: continue
-                gate, qubits = circuit[d]
-                if gate == 'id': continue
-                gate_str = gate + " "
-                for qubit in qubits:
-                    gate_str += f"q[{qubit}], "
-                gate_str = gate_str[:-2]
-                gate_str += ";\n"
-                f.write(gate_str)
-
-    def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm") -> bool:
+    def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm", complex_representation: any = None, write_to_file : bool = True, v : int = 0) -> tuple[bool, Circuit, list[Vector]]:
+        if complex_representation is not None:
+            self.complex_representation = complex_representation
+        self.v = v
+        self.q = qubits
+        self.d = depth
         items = model
         if isinstance(model, Generator):
             try:
@@ -119,49 +139,11 @@ class ModelParser:
         elif isinstance(model, str):
             items = self.parse_model_to_items(model)
 
-        gates = self.filter_items(items, depth)
+        circ, vectors = self.filter_items(items)
 
-        circuit = [None] * depth
-        for gate in gates:
-            # parse L{d}_{gate}_q{q}_q{q2}_q{q3}_
-            parts = gate.split("_")
-            d = int(parts[0][1:])
-            gate = parts[1]
-            if gate not in self.stats['gate_counts']:
-                self.stats['gate_counts'][gate] = 0
-            self.stats['gate_counts'][gate] += 1
-            gate_qubits = [int(p[1:]) for p in parts[2:]]
-            circuit[d] = (gate, gate_qubits)
-
-        self.write_circuit_to_qasm(circuit, qubits, output_qasm)
-        return True
-    
-    def parse_bools_and_vectors(self, model : any, qubits : int, depth : int) -> tuple[list, list]:
-        items = model
-        if isinstance(model, Generator):
-            try:
-                items = self.expand_milp_model(model)
-            except Exception as e:
-                print(f"Error expanding MILP model: {e}")
-                return False
-
-        gates = []
-        vectors = []
-        new_items = self.filter_items(items, depth)
-        for item in new_items:
-            if isinstance(item, str):
-                variable = item
-                if variable.startswith("L"):
-                    gates.append(variable)
-            else:
-                var_obj, value_obj = item[0], item[1]
-                variable = str(var_obj)
-                if variable.startswith("L"):
-                    gates.append(variable)
-                elif variable.startswith("I_"):
-                    vectors.append((variable, value_obj))
-        return gates, vectors
-
+        if write_to_file:
+            circ.write_to_file(output_qasm)
+        return True, circ, vectors
 
     def get_stats(self) -> dict:
         return self.stats

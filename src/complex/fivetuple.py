@@ -118,6 +118,7 @@ class FiveTuple:
             (expr1.d - expr2.d <= bigM * (1 - sel)),
             (expr2.d - expr1.d <= bigM * (1 - sel)),
         ))
+        
 
     @classmethod
     def constrained_rescaling(cls, bigM, sel, r1, r2, fivetuple1, fivetuple2, exponent, parity, rel):
@@ -220,6 +221,10 @@ class FiveTuple:
     @classmethod
     def zero(cls, generator, bound=None):
         return cls(a=0, b=0, c=0, d=0, generator=generator, bound=bound)
+    
+    @classmethod
+    def inv_sqrt2(cls, generator, bound=None):
+        return cls(a=1, b=0, c=0, d=0, generator=generator, bound=bound)
     
     def multiply_by_omega(self, generator):
         if self.gen is None:

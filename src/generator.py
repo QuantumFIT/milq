@@ -24,6 +24,7 @@ class Generator:
         self.lp_problem = None
         self.bool_variables = set()
         self.integer_variables = set()
+        self.real_variables = set()
         self.saved_lp_problem = None
         self.objective_assertions = []
         self.stats['reals'] = 0
@@ -214,17 +215,22 @@ class Generator:
         return var
     
     def declare_real(self, x, lb=None, ub=None):
+        res = None
         if x not in self.declared_names:
             self.stats['reals'] += 1
             if self.mode == "pysmt":
-                return self._pysmt_declaration(x, self.REAL)
+                res = self._pysmt_declaration(x, self.REAL)
             elif self.mode == "smtlib":
-                return self._smtlib_declaration(x, "Real")
+                res = self._smtlib_declaration(x, "Real")
             elif self.mode == "milp":
-                return self._milp_declaration(x, LpContinuous, lb, ub)
+                res = self._milp_declaration(x, LpContinuous, lb, ub)
         else:
-            return self.format_real(x)      
-            
+            res = self.format_real(x)
+        
+        if res is not None:
+            self.real_variables.add(res)
+        return res
+         
     def format_real(self, x):
         if self.mode == "pysmt":
             if isinstance(x, (int, float)):

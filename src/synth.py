@@ -604,20 +604,35 @@ class Synthesizer:
                 # vec1 == e^(j*theta) * norm(vec1) * vec2
                 # vec1 == (a+bi) * vec2
                 # equivalence up to global phase and up to normalization factor
-                e = self.complex_representation(name=f"unknown_e", generator=self.gen)
+                #e = self.complex_representation(name=f"unknown_e", generator=self.gen)
                 # e cant be equal to zero, so e >= eps or e <= -eps
+                
+                """
+                e = self.gen.declare_real(f"unknown_e_{self.gen.stats['reals']}")
                 eps = self.gen.declare_real(f"eps_{self.gen.stats['reals']}")
                 or_var = self.gen.declare_bool(f"or_var_{self.gen.stats['bools']}")
                 bigM = 1.5
                 self.gen.add_assertion(self.gen.Equals(eps, self.gen.Real(1e-3)))
+                self.gen.add_assertion(self.gen.GE(e, self.gen.Minus(eps, bigM * (1 - or_var))))
+                self.gen.add_assertion(self.gen.LE(e, self.gen.Plus(-eps, bigM * or_var)))
+                for i in range(2**self.q):
+                    self.gen.add_assertion(self.gen.Equals(vec[i],  vec2[i].multiply_by_real(e)))
+                """
+
+                e = self.complex_representation(name=f"unknown_e", generator=self.gen)
+                # e cant be equal to zero, so e >= eps or e <= -eps
+                eps = 1e-3
+                or_var = self.gen.declare_bool(f"or_var_{self.gen.stats['bools']}")
+                bigM = 1.5
                 self.gen.add_assertion(self.gen.GE(e.real, self.gen.Minus(eps, bigM * (1 - or_var))))
                 self.gen.add_assertion(self.gen.LE(e.real, self.gen.Plus(-eps, bigM * or_var)))
                 self.gen.add_assertion(self.gen.GE(e.imag, self.gen.Minus(eps, bigM * (1 - or_var))))
                 self.gen.add_assertion(self.gen.LE(e.imag, self.gen.Plus(-eps, bigM * or_var)))
                 for i in range(2**self.q):
-                    print(f"Adding assertion: {vec[i]} == {e} * {vec2[i]}")
-                    self.gen.add_assertion(self.gen.Equals(vec[i], self.gen.Times(e, vec2[i])))            
-        
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec[i].real, self.gen.Times(e, vec2[i]).real), eps))
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(self.gen.Times(e, vec2[i]).real, vec[i].real), eps))
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec[i].imag, self.gen.Times(e, vec2[i]).imag), eps))
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(self.gen.Times(e, vec2[i]).imag, vec[i].imag), eps))
 
 
     def set_initial_values(self):
@@ -875,7 +890,7 @@ class Synthesizer:
 
                             print(f"Circuit: {circuit}")
                             for pair_idx in range(len(vector_pairs)):
-                                print(f"V_out: {vectors[pair_idx]}")
+                                print(f"V_out: {vectors[pair_idx].normalize()}")
                                 print(f"T: {vector_pairs[pair_idx][1]}")
                                 print(f"-----------------------------------")
                 else:

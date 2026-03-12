@@ -186,13 +186,11 @@ class Vector:
                 if self.gen is None:
                     new_vec[pos] = self.element_representation.zero(self.gen)
                 else:
-                    print(f"Adding assertion: {new_vec[pos]} == {self.element_representation.zero(None)}")
                     self.gen.add_assertion(new_vec[pos] == self.element_representation.zero(None))
             else:
                 if self.gen is None:
                     new_vec[pos] = self.vec[pos]
                 else:
-                    print(f"Adding assertion: {new_vec[pos]} == {self.vec[pos]}")
                     self.gen.add_assertion(new_vec[pos] == self.vec[pos])
                 
         if self.gen is None:
@@ -211,3 +209,13 @@ class Vector:
         for i in range(items_to_add):
             self.vec.append(self.element_representation.zero(self.gen))
         return self
+
+    def normalize(self) -> "Vector":
+        if self.gen is None:
+            norm = self.norm()
+            if norm != 0:
+                for i in range(len(self.vec)):
+                    self.vec[i] = self.vec[i] / norm
+            return self
+        else:
+            raise ValueError("normalize not supported for formulae generation")

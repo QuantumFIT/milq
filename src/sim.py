@@ -10,7 +10,9 @@ from complex.vector import Vector
 from complex.fivetuple import FiveTuple
 from complex.ntuple import nTuple
 from complex.classic import Complex
+from complex.matrix import Matrix
 from gates import GateSet
+import numpy as np
 
 
 class Simulator:
@@ -18,9 +20,16 @@ class Simulator:
     simulate quantum circuit using the representation for synthesis - complex, fivetuples, ntuples
     can simulate either normal circuits (all cbs) or RUS circuits (0, 1, + states)
     """
-    def __init__(self, qasm_file: str, complex_representation: type[Vector] = FiveTuple):
+    def __init__(self, qasm_file: str = None, matrix: np.array = None, complex_representation: type[Vector] = FiveTuple):
+        if matrix is not None and qasm_file is not None:
+            raise ValueError("matrix and qasm_file cannot be provided at the same time")
+        if matrix is None and qasm_file is None:
+            raise ValueError("matrix or qasm_file has to be provided")
+        if matrix is not None and complex_representation != Complex:
+            raise ValueError("matrix can be provided only for Classic complex representation")
         self.qasm_file = qasm_file
         self.complex_representation = complex_representation
+        self.matrix = matrix
         self.stats = {}
         self.stats['gate_set'] = GateSet()
         self.stats['d'] = 0
@@ -34,11 +43,21 @@ class Simulator:
     also collects information about the input circuits -- qubits, gate set ...
     """
     def parse_file(self) -> tuple[list[tuple[str, list[int]]], list[Vector]]:
+        vectors = []
+        if self.qasm_file is None:
+            # matrix 2**q x 2**q
+            self.stats['q'] = self.matrix.qubits
+            for i in range(2**self.stats['q']):
+                vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
+                vec[i] = self.complex_representation.one(None)
+                vectors.append(vec)  
+                
+            return [], vectors
+
         with open(self.qasm_file, 'r') as f:
             qasm_content = f.read()
         
         lines = qasm_content.split('\n')
-        vectors = []
         gates = []
         for line in lines:
             line = line.strip()
@@ -70,9 +89,7 @@ class Simulator:
             
             if line.startswith('creg') or line.startswith('bit'):
                 continue
-            
-            if line.startswith('barrier') or line.startswith('measure') or line.startswith('meas'):
-                continue
+
             
             qreg_name = self.stats['qreg']
             # find gates using the register name
@@ -91,8 +108,8 @@ class Simulator:
                         qubits.append(int(part.split('[')[1].split(']')[0]))
                 gates.append((gate, qubits))
                 self.stats['input_circuit'].append((gate, qubits))
-                self.stats['d'] += 1
-                if gate not in self.stats['gate_set']:
+                self.stats['d'] += 1 if gate != 'measure' and gate != 'meas' else 0
+                if gate not in self.stats['gate_set'] and (gate != 'measure' and gate != 'meas'):
                     self.stats['gate_set'].append(gate, qubits=len(qubits))
                 continue
 
@@ -106,6 +123,14 @@ class Simulator:
         input_vectors = []
         for i, vector in enumerate(vectors):
             input_vectors.append(vector.copy())
+        
+        if self.matrix is not None:
+            results = []
+            for i, vector in enumerate(vectors):
+                vectors[i] = self.matrix * vector
+                results.append((input_vectors[i], vectors[i]))
+            return results
+            
 
         for (op, qubits) in parsed_file:
             for i, vector in enumerate(vectors):
@@ -208,6 +233,11 @@ class Simulator:
                                 modified_positions.append(other)
                                 new_vec[pos] = vector[other]
                                 new_vec[other] = vector[pos]
+                                
+                        elif op == 'measure' or op == 'meas':
+                            # TODO: MEASUREMENT ALWAYS RESULTS IN |0> ON THE QUBIT
+                            new_vec = vector.measure(qubits[0], 0)
+                            break
                         else:
                             raise NotImplementedError(f"Gate {op} is not yet implemented")
 
@@ -255,7 +285,16 @@ class Simulator:
         gates, vectors = self.parse_file()
         
         if self.stats['q'] != targets + ancillas:
-            raise ValueError(f"Mismatch between circuit qubits and targets + ancillas")
+            if self.matrix is not None:
+                # expand the matrix (only target matrix can be set, and ancillas are to be expanded)
+                # I \otimes I \otimes ... \otimes Target
+                new_matrix = Matrix.i()
+                for _ in range(1, ancillas):
+                    new_matrix = new_matrix.tensor(Matrix.i())
+                self.matrix = new_matrix.tensor(self.matrix)
+                
+            # else : just add new ancillae to the circuit, expand the vectors
+            self.stats['q'] = targets + ancillas
                 
         # initialize the basis_states |0>, |1>, |+>
         vectors = []

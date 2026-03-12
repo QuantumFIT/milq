@@ -29,10 +29,10 @@ class ModelParser:
         for var in gen.integer_variables:
             if var.name.startswith("W"):
                 items.append((var.name, var.value()))
-            if var.name.startswith("I_"):
+            if var.name.startswith("I_") or var.name.startswith("Measured_"):
                 items.append((var.name, var.value()))
         for var in gen.real_variables:
-            if var.name.startswith("I_"):
+            if var.name.startswith("I_") or var.name.startswith("Measured_"):
                 if var.value() is not None:
                     items.append((var.name, float(var.value())))
         return items
@@ -70,6 +70,8 @@ class ModelParser:
         best_indice = 0
         circ = Circuit(gates=[], q=self.q, d=self.d)
         out_vectors = [Vector(q=2**self.q, generator=None, element_representation=self.complex_representation, k=0) for _ in range(self.v)]
+        measured_vectors = [Vector(q=2**self.q, generator=None, element_representation=self.complex_representation, k=0) for _ in range(self.v)]
+        return_measured = False
         for item in model:
             if isinstance(item, tuple) and len(item) >= 2:
                 var_obj, value_obj = item[0], item[1]
@@ -90,9 +92,11 @@ class ModelParser:
                         gate = Gate(name=gate, qubits=gate_qubits)
                         circ[d] = gate
                 
-                if variable.startswith("I_") and self.v != 0:
+                if (variable.startswith("I_") or variable.startswith("Measured_")) and self.v != 0:
                     # check that I_{pair_idx}_{d}_{indice}_part, d == depth
                     parts = variable.split("_")
+                    if variable.startswith("Measured_"):
+                        parts = parts[1:]
                     d = int(parts[2])
                     if d != self.d: continue
 
@@ -108,6 +112,10 @@ class ModelParser:
                                 coeff = "real"
                             elif coeff == "i":
                                 coeff = "imag"
+                        if variable.startswith("Measured_"):
+                            setattr(measured_vectors[pair_idx][indice], coeff, value_obj)
+                            return_measured = True
+                        else:
                             setattr(out_vectors[pair_idx][indice], coeff, value_obj)
                 if variable.startswith("W"):
                     if value_obj is None: continue
@@ -121,7 +129,10 @@ class ModelParser:
                     else:
                         costs[indice] = int(value_obj.constant_value())
         self.stats['cost'] = costs[best_indice]
-        return circ, out_vectors
+        if return_measured:
+            return circ, measured_vectors
+        else:
+            return circ, out_vectors
 
     def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm", complex_representation: any = None, write_to_file : bool = True, v : int = 0) -> tuple[bool, Circuit, list[Vector]]:
         if complex_representation is not None:

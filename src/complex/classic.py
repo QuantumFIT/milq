@@ -62,6 +62,20 @@ class Complex:
                 b = self.gen.Plus(self.gen.Times(self.gen.format_real(self.real), self.gen.format_real(other.imag)), self.gen.Times(self.gen.format_real(self.imag), self.gen.format_real(other.real))),
                 generator = self.gen
             )
+            
+    def __div__(self, other):
+        if self.gen is None:
+            if isinstance(other, Complex):
+                pass
+            elif isinstance(other, float) or isinstance(other, int):
+                return Complex(a=self.real / other, b=self.imag / other, generator=self.gen)
+            else:
+                raise ValueError("division not supported for this representation")
+        else:
+            raise NotImplementedError("division not supported for formulae generation")
+
+    def __truediv__(self, other):
+        return self.__div__(other)
     
     def __eq__(self, other):
         if self.gen is None:
@@ -71,6 +85,12 @@ class Complex:
                 self.gen.Equals(self.gen.format_real(self.real), self.gen.format_real(other.real)),
                 self.gen.Equals(self.gen.format_real(self.imag), self.gen.format_real(other.imag))
             )
+            
+    def __ne__(self, other):
+        if self.gen is None:
+            return self.real != other.real or self.imag != other.imag
+        else:
+            return self.gen.Not(self.__eq__(other))
 
     def __repr__(self):
         if self.gen is None:
@@ -159,6 +179,12 @@ class Complex:
     
     def max_coefficient(self) -> int:
         return max(abs(self.real), abs(self.imag))
+
+    def abs2(self) -> float:
+        if self.gen is None:
+            return self.real**2 + self.imag**2
+        else:
+            raise ValueError("abs2 not supported for formulae generation")
 
     def multiply_by_real(self, num):
         if self.gen is None:

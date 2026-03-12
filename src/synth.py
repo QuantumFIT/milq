@@ -40,6 +40,7 @@ class Synthesizer:
         self.encoding_method = None
         self.curr_depth = 0
         self.v = 0
+        self.vec_mode = None
         
     def __exit__(self) -> None:
         if self.gen.mode == "pysmt":
@@ -591,6 +592,31 @@ class Synthesizer:
             self.gen.add_assertion(rescaled1 == rescaled2)
         
         return rescaled1, rescaled2
+    
+    def encode_equivalence_enumeration(self, vec1, vec2, pair_idx):
+        if self.gen.mode == "milp":
+            if self.complex_representation == Complex:
+                vec = None
+                if self.vec_mode == "rus":
+                    vec = vec1.measure(1, 0) # measure the ancilla q1
+                else:
+                    vec = vec1
+                # vec1 == e^(j*theta) * norm(vec1) * vec2
+                # vec1 == (a+bi) * vec2
+                # equivalence up to global phase and up to normalization factor
+                e = self.complex_representation(name=f"unknown_e", generator=self.gen)
+                # e cant be equal to zero, so e >= eps or e <= -eps
+                eps = self.gen.declare_real(f"eps_{self.gen.stats['reals']}")
+                or_var = self.gen.declare_bool(f"or_var_{self.gen.stats['bools']}")
+                bigM = 1.5
+                self.gen.add_assertion(self.gen.Equals(eps, self.gen.Real(1e-3)))
+                self.gen.add_assertion(self.gen.GE(e.real, self.gen.Minus(eps, bigM * (1 - or_var))))
+                self.gen.add_assertion(self.gen.LE(e.real, self.gen.Plus(-eps, bigM * or_var)))
+                self.gen.add_assertion(self.gen.GE(e.imag, self.gen.Minus(eps, bigM * (1 - or_var))))
+                self.gen.add_assertion(self.gen.LE(e.imag, self.gen.Plus(-eps, bigM * or_var)))
+                for i in range(2**self.q):
+                    print(f"Adding assertion: {vec[i]} == {e} * {vec2[i]}")
+                    self.gen.add_assertion(self.gen.Equals(vec[i], self.gen.Times(e, vec2[i])))            
         
 
 
@@ -602,7 +628,7 @@ class Synthesizer:
             bool_var = self.gen.declare_bool(bool_var_str)
             bool_var.setInitialValue(1)
     
-    def synthesis(self, qasm_file=None, vectors=None, vector_pairs=None, solving="portfolio", solver=None, mode="incremental", output_qasm="circuit.qasm", 
+    def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="portfolio", solver=None, mode="incremental", output_qasm="circuit.qasm", 
                   complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1) -> bool:
         """
             qasm_file -> file to synthesize
@@ -619,8 +645,10 @@ class Synthesizer:
             targets -> number of target qubits (used for RUS -- targets are always the lowest indices)
             ancillas -> number of ancilla qubits (used for RUS -- ancillas are always the highest indices)
         """
-        if qasm_file is None:
-            raise ValueError("input qasm_file is required")
+        if qasm_file is None and matrix is None:
+            raise ValueError("input qasm_file or matrix is required")
+        if qasm_file is not None and matrix is not None:
+            raise ValueError("qasm_file and matrix cannot be provided at the same time")
         
         if vectors is None:
             raise ValueError("provide vectors to select vector-mode")
@@ -628,6 +656,8 @@ class Synthesizer:
             raise ValueError("vector_pairs cannot be provided when vectors are specified")
         if vectors == "custom" and (vector_pairs is None or q is None or d is None or gate_set is None):
             raise ValueError("vector_pairs, q, d, and gate_set are required when vectors are custom")
+        if matrix is not None and vectors != "rus":
+            raise ValueError("matrix can be provided only for rus mode")
         if solving in ["smt", "milp"] and solver is None:
             raise ValueError("a solver is required for basic smt and milp solving")
         if solving == "portfolio" and solver is not None:
@@ -646,7 +676,8 @@ class Synthesizer:
             self.complex_representation = Complex
         
         # set circuit statistics to prepare synthesis
-        self.simulator = Simulator(qasm_file, complex_representation=self.complex_representation)
+        self.simulator = Simulator(qasm_file, matrix, complex_representation=self.complex_representation)
+        self.vec_mode = vectors
         if vectors in ["zero", "all", "rus"]:
             if vectors == "zero":
                 vector_pairs = self.simulator.simulate_zero()
@@ -711,7 +742,6 @@ class Synthesizer:
     
     
     def _synth(self, vector_pairs, output_qasm="circuit.qasm") -> bool:
-        
         # encode weights
         weights = []
         weight_bound = 0
@@ -814,9 +844,7 @@ class Synthesizer:
                     for pair_idx in range(len(vector_pairs)):
                         target = vector_pairs[pair_idx][1]
                         inter = inter_vectors[pair_idx][self.curr_depth]
-                        k = self.gen.declare_real(f"k_real_{pair_idx}")
-                        for i in range(2**self.q):
-                            self.gen.add_assertion(self.gen.Equals(inter[i], target[i].multiply_by_real(k)))
+                        self.encode_equivalence_enumeration(inter, target, pair_idx)
 
                     formula_file = output_qasm.split(".")[0] + ".lp"
                     self.gen.lp_problem.writeLP(formula_file)
@@ -845,6 +873,7 @@ class Synthesizer:
                             circuit = model[0]
                             vectors = model[1]
 
+                            print(f"Circuit: {circuit}")
                             for pair_idx in range(len(vector_pairs)):
                                 print(f"V_out: {vectors[pair_idx]}")
                                 print(f"T: {vector_pairs[pair_idx][1]}")
@@ -960,6 +989,8 @@ class Synthesizer:
             solver.solve(self.gen.lp_problem)
             if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
                 print(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
+                for var in self.gen.lp_problem.variables():
+                    print(f"Variable: {var.name}, Value: {var.value()}")
                 return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
             elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":
                 return False, None, None

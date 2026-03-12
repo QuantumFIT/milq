@@ -1,3 +1,4 @@
+import numpy as np
 from .classic import Complex
 from .ntuple import nTuple
 from .fivetuple import FiveTuple
@@ -163,3 +164,50 @@ class Vector:
         else:
             # same k, no rescaling
             return self, other
+    
+    def norm(self) -> float:
+        if self.gen is None:
+            norm = 0
+            for i in range(len(self.vec)):
+                norm = norm + self.vec[i].abs2()
+            return np.sqrt(norm)
+        else:
+            raise ValueError("norm not supported for formulae generation")
+    
+    def measure(self, q : int, result : int) -> "Vector":
+        # measure qubit q to result r in {0, 1}
+        new_vec = self.copy()
+        if self.gen is not None:
+            new_vec = Vector(q=len(self.vec), name=f"Measured_{self.name}", generator=self.gen, element_representation=self.element_representation, k=self.k)
+        # first make the projection, zero out elements
+        for pos in range(len(self.vec)):
+            if pos & (1 << q) != result:
+                # zero out
+                if self.gen is None:
+                    new_vec[pos] = self.element_representation.zero(self.gen)
+                else:
+                    print(f"Adding assertion: {new_vec[pos]} == {self.element_representation.zero(None)}")
+                    self.gen.add_assertion(new_vec[pos] == self.element_representation.zero(None))
+            else:
+                if self.gen is None:
+                    new_vec[pos] = self.vec[pos]
+                else:
+                    print(f"Adding assertion: {new_vec[pos]} == {self.vec[pos]}")
+                    self.gen.add_assertion(new_vec[pos] == self.vec[pos])
+                
+        if self.gen is None:
+            # also normalize the vector
+            norm = new_vec.norm()
+            if norm != 0:
+                for i in range(len(new_vec)):
+                    new_vec[i] = new_vec[i] / norm 
+        return new_vec
+
+    def expand_to(self, q : int) -> "Vector":
+        if 2**q < len(self.vec):
+            raise ValueError("vector already longer than desired length")
+        
+        items_to_add = 2**q - len(self.vec)
+        for i in range(items_to_add):
+            self.vec.append(self.element_representation.zero(self.gen))
+        return self

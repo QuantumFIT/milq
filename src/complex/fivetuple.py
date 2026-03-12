@@ -102,6 +102,12 @@ class FiveTuple:
                 self.gen.Equals(self.gen.format_integer(self.d), self.gen.format_integer(other.d))
             )
 
+    def __ne__(self, other):
+        if self.gen is None:
+            return self.a != other.a or self.b != other.b or self.c != other.c or self.d != other.d
+        else:
+            return self.gen.Not(self.__eq__(other))
+
     def __repr__(self):
         return f"({self.a} + {self.b} ω + {self.c} ω² + {self.d} ω³)"
 

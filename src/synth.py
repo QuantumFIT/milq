@@ -677,7 +677,7 @@ class Synthesizer:
         """
         if vectors is None:
             raise ValueError("provide vectors to select vector-mode")
-        if vectors in ["zero", "all", "rus"] and vector_pairs is not None:
+        if vectors in ["zero", "all", "rus", "jamiolkowski"] and vector_pairs is not None:
             raise ValueError("vector_pairs cannot be provided when vectors are specified")
         if vectors == "custom" and (vector_pairs is None or q is None or d is None or gate_set is None):
             raise ValueError("vector_pairs, q, d, and gate_set are required when vectors are custom")
@@ -708,7 +708,7 @@ class Synthesizer:
         self.vec_mode = vectors
         self.q = q
         self.d = d
-        if vectors in ["zero", "all", "rus"]:
+        if vectors in ["zero", "all", "rus", "jamiolkowski"]:
             # set circuit statistics to prepare synthesis
             self.simulator = Simulator(qasm_file, matrix, complex_representation=self.complex_representation)
             self.gate_set = gate_set
@@ -719,11 +719,14 @@ class Synthesizer:
             elif vectors == "rus":
                 # simulate based on number of ancilas and targets!
                 vector_pairs = self.simulator.simulate_rus(targets, ancillas)
+            elif vectors == "jamiolkowski":
+                vector_pairs = self.simulator.simulate_jamiolkowski()
             
             stats = self.simulator.circuit_stats()
             if self.gate_set is None:
                 self.gate_set = stats['gate_set']
-            self.gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
+            if vectors == "rus":
+                self.gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
             print(stats)
             if self.q is None:
                 self.q = stats['q']
@@ -948,8 +951,9 @@ class Synthesizer:
                             
                 else:
                     for pair_idx in range(len(vector_pairs)):
-                        #rescaled1, rescaled2 = self.encode_equivalence(inter_vectors[pair_idx][self.curr_depth], target_vectors[pair_idx], pair_idx)
+                        rescaled1, rescaled2 = self.encode_equivalence(inter_vectors[pair_idx][self.curr_depth], target_vectors[pair_idx], pair_idx)
                         # TODO: testing up-to-global phase equivalence
+                        """
                         vec = inter_vectors[pair_idx][self.curr_depth]
                         vec2 = vector_pairs[pair_idx][1]
                         e = self.complex_representation(name=f"unknown_e", generator=self.gen)
@@ -966,6 +970,7 @@ class Synthesizer:
                             self.gen.add_assertion(self.gen.LE(self.gen.Minus(self.gen.Times(e, vec2[i]).real, vec[i].real), eps))
                             self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec[i].imag, self.gen.Times(e, vec2[i]).imag), eps))
                             self.gen.add_assertion(self.gen.LE(self.gen.Minus(self.gen.Times(e, vec2[i]).imag, vec[i].imag), eps))
+                        """
                 
                     if self.gen.mode == "milp":
                         #self.gen.add_objective(weights[depth])

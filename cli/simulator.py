@@ -12,7 +12,7 @@ from gates import GateSet
 
 parser = argparse.ArgumentParser(description='CLI for the synthesis tool')
 parser.add_argument('qasm_file', type=str, help='qasm file to synthesize')
-parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for the synthesis', choices=["zero", "all", "rus"], default="all")
+parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for the synthesis', choices=["zero", "all", "rus", "jamiolkowski"], default="all")
 parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "nTuple", "Classic"], default="FiveTuple")
 parser.add_argument('-T', '--targets', type=int, help='number of target qubits', required=False, default=1)
 parser.add_argument('-A', '--ancillas', type=int, help='number of ancilla qubits', required=False, default=1)
@@ -33,6 +33,8 @@ elif args.vectors == "all":
     res = simulator.simulate_circuit()
 elif args.vectors == "rus":
     res = simulator.simulate_rus(args.targets, args.ancillas)
+elif args.vectors == "jamiolkowski":
+    res = simulator.simulate_jamiolkowski()
 
 for (input_vector, output_vector) in res:
     print(input_vector)

@@ -311,7 +311,34 @@ class Simulator:
             vector[i] = self.complex_representation.inv_sqrt2(None)
         vectors.append(vector)
         return self.simulate(vectors, gates)
-
+    
+    def simulate_jamiolkowski(self) -> list[tuple[Vector, Vector]]:
+        # expand the circuit to 2n qubits and using jamiolkowski isomporhism,
+        # prepare maximally entangled state and simulate the circuit on it
+        gates, vectors = self.parse_file()
+        # add new gates creating the maximally entangled state
+        pre_gates = []
+        for i in range(self.stats['q']):
+            pre_gates.append(('h', [i]))
+        
+        for i in range(self.stats['q']):
+            j = i + self.stats['q']
+            pre_gates.append(('cx', [i, j]))
+        
+        self.stats['gate_set'].add_gate('h', qubits=1, weight=1)
+        self.stats['gate_set'].add_gate('cx', qubits=2, weight=1)
+        
+        # create new input state
+        self.stats['q'] = 2 * self.stats['q']
+        vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
+        vec[0] = self.complex_representation.one(None)
+        vectors = [vec]
+        res = self.simulate(vectors, pre_gates)
+        input_state = res[0][1] # get output of the simulation
+        vectors = [input_state]
+        
+        return self.simulate(vectors, gates)
+        
     """
     return the statistics about the input circuit
     """

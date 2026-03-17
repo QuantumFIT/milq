@@ -143,6 +143,8 @@ class ModelParser:
 
         if write_to_file:
             circ.write_to_file(output_qasm)
+            png_filename = output_qasm.split(".")[0] + ".png"
+            circ.draw(output_file=png_filename)
         return True, circ, vectors
 
     def get_stats(self) -> dict:

@@ -203,6 +203,16 @@ class Circuit:
         with open(output_qasm, 'w') as f:
             f.write(self.__str__())
             
+    def draw(self, output_file : str) -> None:
+        from qiskit import QuantumCircuit
+        circuit = QuantumCircuit(self.q)
+        for gate in self.gates:
+            attribute = getattr(circuit, gate.name)
+            attribute(*gate.qubits)
+        circuit.draw(output="mpl", filename=output_file, reverse_bits=True)
+        
+        
+            
     def append(self, gate: Gate) -> None:
         self.gates.append(gate)
         

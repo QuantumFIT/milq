@@ -20,7 +20,7 @@ from pysmt.typing import REAL, INT
 from pysmt.solvers.solver import Solver
 from gates import GateSet, supported_gates, check_supported
 from pulp import *
-
+import numpy as np
 
 class Synthesizer:
     def __init__(self) -> None:
@@ -598,7 +598,7 @@ class Synthesizer:
             if self.complex_representation == Complex:
                 vec = None
                 if self.vec_mode == "rus":
-                    vec = vec1.measure(1, 0) # measure the ancilla q1
+                    vec = vec1.measure(list(range(1, self.q)), 0) # measure the ancilla q1
                 else:
                     vec = vec1
                 # vec1 == e^(j*theta) * norm(vec1) * vec2
@@ -606,19 +606,17 @@ class Synthesizer:
                 # equivalence up to global phase and up to normalization factor
                 #e = self.complex_representation(name=f"unknown_e", generator=self.gen)
                 # e cant be equal to zero, so e >= eps or e <= -eps
-                
                 """
                 e = self.gen.declare_real(f"unknown_e_{self.gen.stats['reals']}")
                 eps = self.gen.declare_real(f"eps_{self.gen.stats['reals']}")
                 or_var = self.gen.declare_bool(f"or_var_{self.gen.stats['bools']}")
                 bigM = 1.5
-                self.gen.add_assertion(self.gen.Equals(eps, self.gen.Real(1e-3)))
+                self.gen.add_assertion(self.gen.Equals(eps, self.gen.Real(1e-4)))
                 self.gen.add_assertion(self.gen.GE(e, self.gen.Minus(eps, bigM * (1 - or_var))))
                 self.gen.add_assertion(self.gen.LE(e, self.gen.Plus(-eps, bigM * or_var)))
                 for i in range(2**self.q):
                     self.gen.add_assertion(self.gen.Equals(vec[i],  vec2[i].multiply_by_real(e)))
                 """
-
                 e = self.complex_representation(name=f"unknown_e", generator=self.gen)
                 # e cant be equal to zero, so e >= eps or e <= -eps
                 eps = 1e-3
@@ -634,6 +632,23 @@ class Synthesizer:
                     self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec[i].imag, self.gen.Times(e, vec2[i]).imag), eps))
                     self.gen.add_assertion(self.gen.LE(self.gen.Minus(self.gen.Times(e, vec2[i]).imag, vec[i].imag), eps))
 
+    def rus_cost(self, circuit, vectors) -> float:
+        # Cost(circuit) / P[success]
+        print(f"Calculating RUS circuit cost")
+        target_zero = vectors[0][0]
+        target_one = vectors[0][1]
+        prob = target_zero.abs2() + target_one.abs2()
+        t_count = circuit.t_count()
+        sum = 0
+        for i in range(len(vectors[0])):
+            sum += vectors[0][i].abs2()
+            
+        prob_success = prob / sum
+        print(f"Probability of success: {prob_success}")
+        print(f"T count: {t_count}")
+        print(f"Cost: {t_count / prob_success}")
+        
+        return t_count / prob_success
 
     def set_initial_values(self):
         for i, (gate, qubits) in enumerate(self.simulator.stats['input_circuit']):
@@ -644,7 +659,7 @@ class Synthesizer:
             bool_var.setInitialValue(1)
     
     def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="portfolio", solver=None, mode="incremental", output_qasm="circuit.qasm", 
-                  complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1) -> bool:
+                  complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1, enum_models=False) -> bool:
         """
             qasm_file -> file to synthesize
             vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas, custom -> has to specify vector_pairs, q, d, gate_set)
@@ -660,17 +675,17 @@ class Synthesizer:
             targets -> number of target qubits (used for RUS -- targets are always the lowest indices)
             ancillas -> number of ancilla qubits (used for RUS -- ancillas are always the highest indices)
         """
-        if qasm_file is None and matrix is None:
-            raise ValueError("input qasm_file or matrix is required")
-        if qasm_file is not None and matrix is not None:
-            raise ValueError("qasm_file and matrix cannot be provided at the same time")
-        
         if vectors is None:
             raise ValueError("provide vectors to select vector-mode")
         if vectors in ["zero", "all", "rus"] and vector_pairs is not None:
             raise ValueError("vector_pairs cannot be provided when vectors are specified")
         if vectors == "custom" and (vector_pairs is None or q is None or d is None or gate_set is None):
             raise ValueError("vector_pairs, q, d, and gate_set are required when vectors are custom")
+        if qasm_file is None and matrix is None and vector_pairs is None:
+            raise ValueError("input qasm_file or matrix is required")
+        if qasm_file is not None and matrix is not None and vector_pairs is not None:
+            raise ValueError("qasm_file and matrix cannot be provided at the same time")
+        
         if matrix is not None and vectors != "rus":
             raise ValueError("matrix can be provided only for rus mode")
         if solving in ["smt", "milp"] and solver is None:
@@ -690,10 +705,13 @@ class Synthesizer:
         elif complex_representation == "Classic":
             self.complex_representation = Complex
         
-        # set circuit statistics to prepare synthesis
-        self.simulator = Simulator(qasm_file, matrix, complex_representation=self.complex_representation)
         self.vec_mode = vectors
+        self.q = q
+        self.d = d
         if vectors in ["zero", "all", "rus"]:
+            # set circuit statistics to prepare synthesis
+            self.simulator = Simulator(qasm_file, matrix, complex_representation=self.complex_representation)
+            self.gate_set = gate_set
             if vectors == "zero":
                 vector_pairs = self.simulator.simulate_zero()
             elif vectors == "all":
@@ -703,27 +721,28 @@ class Synthesizer:
                 vector_pairs = self.simulator.simulate_rus(targets, ancillas)
             
             stats = self.simulator.circuit_stats()
+            if self.gate_set is None:
+                self.gate_set = stats['gate_set']
+            self.gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
             print(stats)
-            if gate_set is None:
-                gate_set = stats['gate_set']
-            self.gate_set = gate_set
-            self.q = stats['q']
-            self.d = stats['d']
+            if self.q is None:
+                self.q = stats['q']
+            if self.d is None:
+                self.d = stats['d']
             self.v = len(vector_pairs)
             self.curr_depth = self.d
             self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
-            max = 0
-            for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
-                tmp = input_vector.max_value()
-                if tmp > max:
-                    max = tmp
-            self.bound = max
         else:
             self.q = q
             self.d = d
             self.max_k = 2*self.d
             self.gate_set = gate_set
-            self.bound = None
+        max = 0
+        for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
+            tmp = input_vector.max_value()
+            if tmp > max:
+                max = tmp
+        self.bound = max
         
         # set generator mode and solver
         if solving == "smt":
@@ -748,7 +767,13 @@ class Synthesizer:
         # start synthesis
         res = False
         self.encoding_method = mode
-        res = self._synth(vector_pairs, output_qasm)
+        for vector_pair in vector_pairs:
+            print(vector_pair[0])
+            print(vector_pair[1])
+            print("--------------------------------")
+        print("Gate set: ", self.gate_set)
+
+        res = self._synth(vector_pairs, output_qasm, enum_models)
         
         if solving == "portfolio":
             self.gen.solver.exit()
@@ -756,7 +781,7 @@ class Synthesizer:
     
     
     
-    def _synth(self, vector_pairs, output_qasm="circuit.qasm") -> bool:
+    def _synth(self, vector_pairs, output_qasm="circuit.qasm", enum_models=False) -> bool:
         # encode weights
         weights = []
         weight_bound = 0
@@ -852,10 +877,13 @@ class Synthesizer:
                     self.encode_layer(inter_vectors[pair_idx][self.curr_depth-1], inter_vectors[pair_idx][self.curr_depth], self.curr_depth-1, weights[self.curr_depth-1], weights[self.curr_depth])
                     self.gen.add_constraints(self.gate_set, self.curr_depth-1, self.q)
                 self.gen.push()
-                enumerate_models = True
                 models_found = 0
-                if enumerate_models:
-                    models = []
+                if enum_models:
+                    best_model = {
+                        "circuit": None,
+                        "vectors": None,
+                        "cost": np.inf
+                    }
                     for pair_idx in range(len(vector_pairs)):
                         target = vector_pairs[pair_idx][1]
                         inter = inter_vectors[pair_idx][self.curr_depth]
@@ -867,35 +895,77 @@ class Synthesizer:
                     sat = True
                     while sat:
                         # returns (bool_variables, [out_vectors])
-                        result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=False)
+                        result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)
                         if result:
-                            models.append((circuit, vectors))
+                            cost = self.rus_cost(circuit, vectors)
+                            print(circuit)
+                            if cost < best_model["cost"]:
+                                print(f"New best model found with cost: {cost}")
+                                best_model["circuit"] = circuit
+                                best_model["vectors"] = vectors
+                                best_model["cost"] = cost
+                            else:
+                                print(f"Model with cost {cost} not better than best model with cost {best_model['cost']}")
                             # add (not model to the formula)
                             self.gen.filter_model(circuit.bool_variables, self.curr_depth)
                             models_found += 1
+                            sat = False
                         else:
                             print("Unsat model found")
                             sat = False
 
-                    if len(models) == 0:
+                    if models_found == 0:
                         self.gen.pop()
                         self.curr_depth += 1
                     else:
                         res = True
-                        # post-process the models - find the best one and exit
-                        for model in models:
-                            print("Processing model")
-                            circuit = model[0]
-                            vectors = model[1]
-
-                            print(f"Circuit: {circuit}")
-                            for pair_idx in range(len(vector_pairs)):
-                                print(f"V_out: {vectors[pair_idx].normalize()}")
-                                print(f"T: {vector_pairs[pair_idx][1]}")
-                                print(f"-----------------------------------")
+                        best_model["circuit"].write_to_file(output_qasm)
+                        # post-process the best model
+                        # synthesize recovery operation
+                        measured_vectors = []
+                        for vector in best_model["vectors"]:
+                            measured_vectors.append(vector.measure(list(range(1, self.q)), 1)) # measure ancilla to 1, indicating failure
+                            
+                        vector_pairs_recovery = []
+                        for pair_idx in range(len(vector_pairs)):
+                            # create input state from the post-measurement state
+                            vector_pairs_recovery.append((measured_vectors[pair_idx].to_precision(1e-4), vector_pairs[pair_idx][0].to_precision(1e-4)))
+                        
+                        print(f"Synthesizing recovery operation")
+                        print("Input for recovery operation:")
+                        for pair_idx in range(len(vector_pairs_recovery)):
+                            print(f"Input {pair_idx}: {vector_pairs_recovery[pair_idx][0]}")
+                            print(f"Output {pair_idx}: {vector_pairs_recovery[pair_idx][1]}")
+                            print("--------------------------------")
+                        try:
+                            synthesizer = Synthesizer()
+                            gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
+                            res_recovery = synthesizer.synthesis(vector_pairs=vector_pairs_recovery, vectors="custom", q=self.q, d=self.d, gate_set=gate_set, output_qasm=output_qasm.split(".")[0] + "_recovery.qasm", solving="milp", solver="gurobi", mode="incremental", complex_representation="Classic", targets=1, ancillas=1, enum_models=False)
+                            if not res_recovery:
+                                raise ValueError(f"Recovery operation synthesis failed")
+                        except Exception as e:
+                            raise ValueError(f"Error synthesizing recovery operation: {e}")
+                            
                 else:
                     for pair_idx in range(len(vector_pairs)):
-                        rescaled1, rescaled2 = self.encode_equivalence(inter_vectors[pair_idx][self.curr_depth], target_vectors[pair_idx], pair_idx)
+                        #rescaled1, rescaled2 = self.encode_equivalence(inter_vectors[pair_idx][self.curr_depth], target_vectors[pair_idx], pair_idx)
+                        # TODO: testing up-to-global phase equivalence
+                        vec = inter_vectors[pair_idx][self.curr_depth]
+                        vec2 = vector_pairs[pair_idx][1]
+                        e = self.complex_representation(name=f"unknown_e", generator=self.gen)
+                        # e cant be equal to zero, so e >= eps or e <= -eps
+                        eps = 1e-4
+                        or_var = self.gen.declare_bool(f"or_var_{self.gen.stats['bools']}")
+                        bigM = 1.5
+                        self.gen.add_assertion(self.gen.GE(e.real, self.gen.Minus(eps, bigM * (1 - or_var))))
+                        self.gen.add_assertion(self.gen.LE(e.real, self.gen.Plus(-eps, bigM * or_var)))
+                        self.gen.add_assertion(self.gen.GE(e.imag, self.gen.Minus(eps, bigM * (1 - or_var))))
+                        self.gen.add_assertion(self.gen.LE(e.imag, self.gen.Plus(-eps, bigM * or_var)))
+                        for i in range(2**self.q):
+                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec[i].real, self.gen.Times(e, vec2[i]).real), eps))
+                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(self.gen.Times(e, vec2[i]).real, vec[i].real), eps))
+                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec[i].imag, self.gen.Times(e, vec2[i]).imag), eps))
+                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(self.gen.Times(e, vec2[i]).imag, vec[i].imag), eps))
                 
                     if self.gen.mode == "milp":
                         #self.gen.add_objective(weights[depth])
@@ -1004,8 +1074,8 @@ class Synthesizer:
             solver.solve(self.gen.lp_problem)
             if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
                 print(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
-                for var in self.gen.lp_problem.variables():
-                    print(f"Variable: {var.name}, Value: {var.value()}")
+                #for var in self.gen.lp_problem.variables():
+                #    print(f"Variable: {var.name}, Value: {var.value()}")
                 return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
             elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":
                 return False, None, None

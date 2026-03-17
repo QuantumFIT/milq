@@ -195,3 +195,11 @@ class Complex:
                 b = self.gen.Times(self.gen.format_real(self.imag), self.gen.format_real(num)),
                 generator = self.gen
             )
+            
+    def to_precision(self, prec : float) -> "Complex":
+        if self.gen is None:
+            a = self.real if abs(self.real) >= prec else 0.0
+            b = self.imag if abs(self.imag) >= prec else 0.0
+            return Complex(a=a, b=b, generator=self.gen)
+        else:
+            raise ValueError("to_precision not supported for formulae generation")

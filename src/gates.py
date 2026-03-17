@@ -121,6 +121,15 @@ class GateSet:
     def __iter__(self):
         return iter(self.gates)
     
+    @classmethod
+    def union(cls, set1, set2) -> 'GateSet':
+        new_set = GateSet()
+        for gate in set1:
+            new_set.add_gate(gate, set1.gates[gate], set1.qubits[gate])
+        for gate in set2:
+            new_set.add_gate(gate, set2.gates[gate], set2.qubits[gate])
+        return new_set
+    
     """
     get all gates from the gate set with respective number of qubits
     """
@@ -133,6 +142,9 @@ class GateSet:
     
     def get_weight(self, gate : str) -> int:
         return self.gates[gate]
+    
+    def get_qubits(self, gate : str) -> int:
+        return self.qubits[gate]
     
     def max_weight(self) -> int:
         max_weight = 0
@@ -203,3 +215,10 @@ class Circuit:
         for qubit in gate.qubits:
             gate_str += f"_q{qubit}"
         self.bool_variables[d] = gate_str
+        
+    def t_count(self) -> int:
+        count = 0
+        for gate in self.gates:
+            if gate.name == 't' or gate.name == 'tdg':
+                count += 1
+        return count

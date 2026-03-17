@@ -169,19 +169,24 @@ class Vector:
         if self.gen is None:
             norm = 0
             for i in range(len(self.vec)):
-                norm = norm + self.vec[i].abs2()
+                if self.element_representation == Complex:
+                    norm = norm + self.vec[i].abs2()
+                else:
+                    norm = norm + self.vec[i].abs2(self.k)
             return np.sqrt(norm)
         else:
             raise ValueError("norm not supported for formulae generation")
     
-    def measure(self, q : int, result : int) -> "Vector":
+    def measure(self, q : list[int], result : int) -> "Vector":
         # measure qubit q to result r in {0, 1}
         new_vec = self.copy()
         if self.gen is not None:
             new_vec = Vector(q=len(self.vec), name=f"Measured_{self.name}", generator=self.gen, element_representation=self.element_representation, k=self.k)
+        else:
+            new_vec = Vector(q=len(self.vec), element_representation=self.element_representation, k=0)
         # first make the projection, zero out elements
         for pos in range(len(self.vec)):
-            if pos & (1 << q) != result:
+            if any(pos & (1 << q_i) != (result << q_i) for q_i in q):
                 # zero out
                 if self.gen is None:
                     new_vec[pos] = self.element_representation.zero(self.gen)
@@ -219,3 +224,12 @@ class Vector:
             return self
         else:
             raise ValueError("normalize not supported for formulae generation")
+        
+    def to_precision(self, prec : float) -> "Vector":
+        new_vec = self.copy()
+        if self.gen is None:
+            for i in range(len(new_vec)):
+                new_vec[i] = self.vec[i].to_precision(prec)
+            return new_vec
+        else:
+            raise ValueError("to_precision not supported for formulae generation")

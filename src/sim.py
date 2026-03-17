@@ -236,7 +236,7 @@ class Simulator:
                                 
                         elif op == 'measure' or op == 'meas':
                             # TODO: MEASUREMENT ALWAYS RESULTS IN |0> ON THE QUBIT
-                            new_vec = vector.measure(qubits[0], 0)
+                            new_vec = vector.measure(qubits, 0)
                             break
                         else:
                             raise NotImplementedError(f"Gate {op} is not yet implemented")

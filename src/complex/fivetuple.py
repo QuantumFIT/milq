@@ -90,7 +90,24 @@ class FiveTuple:
                 d = Plus(Plus(Plus(Times(Int(self.a), Int(other.d)), Times(Int(self.b), Int(other.c))), Times(Int(self.c), Int(other.b))), Times(Int(self.d), Int(other.a))),
                 generator=self.gen
             )
-    
+            
+    def __div__(self, other):
+        if isinstance(other, float):
+            if self.gen is None:
+                return FiveTuple(a=self.a / other, b=self.b / other, c=self.c / other, d=self.d / other)
+            else:
+                return FiveTuple(
+                    a = self.gen.Div(self.gen.format_integer(self.a), self.gen.format_real(other)),
+                    b = self.gen.Div(self.gen.format_integer(self.b), self.gen.format_real(other)),
+                    c = self.gen.Div(self.gen.format_integer(self.c), self.gen.format_real(other)),
+                    d = self.gen.Div(self.gen.format_integer(self.d), self.gen.format_real(other)),
+                    generator=self.gen)
+        else:
+            raise ValueError("division not supported for this representation")
+        
+    def __truediv__(self, other):
+        return self.__div__(other)
+
     def __eq__(self, other):
         if self.gen is None:
             return self.a == other.a and self.b == other.b and self.c == other.c and self.d == other.d

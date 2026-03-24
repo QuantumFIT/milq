@@ -86,18 +86,18 @@ class GateSet:
     # define the T-optimality objective
     # only T weight matters
     def set_t_optimal(self) -> None:
-        if 'T' not in self.gates or 'Tdg' not in self.gates:
-            raise ValueError("T and Tdg are not in the gate set")
+        if 't' not in self.gates or 'tdg' not in self.gates:
+            raise ValueError("t and tdg are not in the gate set")
         self.set_all_to_zero()
-        self.set_gate('T', 1)
-        self.set_gate('Tdg', 1)
+        self.set_gate('t', 1)
+        self.set_gate('tdg', 1)
 
     # set only CX count to matter
     def set_cx_optimal(self) -> None:
-        if 'CX' not in self.gates:
-            raise ValueError("CX is not in the gate set")
+        if 'cx' not in self.gates:
+            raise ValueError("cx is not in the gate set")
         self.set_all_to_zero()
-        self.set_gate('CX', 1)
+        self.set_gate('cx', 1)
 
     # reset all weights to 0
     def set_all_to_zero(self) -> None:
@@ -178,6 +178,7 @@ class Circuit:
         self.d = d
         self.gates = gates
         self.bool_variables = []
+        self.cost = 0
         if len(gates) == 0:
             self.gates = [None] * d
             self.bool_variables = [None] * d

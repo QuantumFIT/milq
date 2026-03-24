@@ -121,6 +121,7 @@ class ModelParser:
                     else:
                         costs[indice] = int(value_obj.constant_value())
         self.stats['cost'] = costs[best_indice]
+        circ.cost = self.stats['cost']
         return circ, out_vectors
 
     def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm", complex_representation: any = None, write_to_file : bool = True, v : int = 0) -> tuple[bool, Circuit, list[Vector]]:

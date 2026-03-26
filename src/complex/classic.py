@@ -72,7 +72,20 @@ class Complex:
             else:
                 raise ValueError("division not supported for this representation")
         else:
-            raise NotImplementedError("division not supported for formulae generation")
+            if isinstance(other, Complex):
+                if other.gen is not None:
+                    raise ValueError("division not supported for this representation")
+                else:
+                    c2_d2 = other.real**2 + other.imag**2
+                    return Complex(a=self.gen.Div(self.gen.Plus(self.gen.Times(self.real, other.real), self.gen.Times(self.imag, other.imag)), c2_d2),
+                                   b=self.gen.Div(self.gen.Minus(self.gen.Times(self.imag, other.real), self.gen.Times(self.real, other.imag)), c2_d2),
+                                   generator=self.gen
+                    )
+                
+            elif isinstance(other, float) or isinstance(other, int):
+                return Complex(a=self.gen.Div(self.real, self.gen.format_real(other)), b=self.gen.Div(self.imag, self.gen.format_real(other)), generator=self.gen)
+            else:
+                raise ValueError("division not supported for this representation")
 
     def __truediv__(self, other):
         return self.__div__(other)

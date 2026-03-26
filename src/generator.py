@@ -4,10 +4,12 @@ from pysmt.shortcuts import Real, Int, Bool, Symbol, And, Equals, Div, Plus, GT,
 from pysmt.typing import REAL, INT, BOOL
 from pulp import *
 from gates import self_adjoints, gate_to_qubits
+import gurobipy as gp
+from gurobipy import GRB, quicksum
 
 class Generator:
     def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA") -> None:
-        # modes - ["pysmt", "smtlib", "milp"]
+        # modes - ["pysmt", "smtlib", "milp", "gurobi"]
         self.mode = mode
         self.declarations = []
         self.declared_names = set()
@@ -35,7 +37,27 @@ class Generator:
         self.stats['objectives'] = 0
         if self.solver == "dreal":
             self.logic = "QF_NRA"
-    
+
+    def _ensure_gurobi_model(self):
+        if gp is None:
+            raise RuntimeError("gurobi mode requires gurobipy installed and a Gurobi license")
+        if self.lp_problem is None:
+            self.lp_problem = gp.Model("Circuit_Synthesis")
+
+    def _gurobi_declare_var(self, name, vtype, lb=None, ub=None):
+        self._ensure_gurobi_model()
+        if GRB is None:
+            raise RuntimeError("gurobipy is not installed")
+        if lb is None:
+            lb = -GRB.INFINITY
+        if ub is None:
+            ub = GRB.INFINITY
+        v = self.lp_problem.addVar(name=name, lb=lb, ub=ub, vtype=vtype)
+        self.lp_problem.update()
+        self.symbols[name] = v
+        self.declared_names.add(name)
+        return v
+
     def add_assertion(self, assertion):
         if self.mode == "pysmt":
             if self.solver is None:
@@ -49,8 +71,21 @@ class Generator:
             if self.lp_problem is None:
                 self.lp_problem = LpProblem("Circuit_Synthesis", LpMinimize)
             self.lp_problem += assertion, f"assertion_{self.stats['assertions']}"
+        elif self.mode == "gurobi":
+            if assertion is None:
+                return
+            self._ensure_gurobi_model()
+            self.lp_problem.addConstr(assertion, name=f"assertion_{self.stats['assertions']}")
         self.stats['assertions'] += 1
     
+    def add_quadratic_assertion(self, assertion):
+        if self.mode == "gurobi":
+            self._ensure_gurobi_model()
+            self.lp_problem.addQConstr(assertion, name=f"assertion_{self.stats['assertions']}")
+            self.stats['assertions'] += 1
+        else:
+            raise NotImplementedError("quadratic assertions only in gurobipy api")
+
     def add_objective(self, objective):
         if self.mode == "pysmt":
             raise NotImplementedError("add_objective not supported in pysmt mode")
@@ -61,6 +96,9 @@ class Generator:
             self.lp_problem += objective, f"assertion_{self.stats['assertions']}"
             self.objective_assertions.append(self.stats['assertions'])
             self.stats['assertions'] += 1
+        elif self.mode == "gurobi":
+            self._ensure_gurobi_model()
+            self.lp_problem.setObjective(objective, GRB.MINIMIZE)
         self.stats['objectives'] += 1
 
     def Plus(self, x, y):
@@ -68,7 +106,7 @@ class Generator:
             return Plus(x, y)
         elif self.mode == "smtlib":
             return f"(+ {x} {y})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             return x + y
     
     def Minus(self, x, y):
@@ -76,7 +114,7 @@ class Generator:
             return Minus(x, y)
         elif self.mode == "smtlib":
             return f"(- {x} {y})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             return x - y
     
     def Times(self, x, y):
@@ -84,7 +122,7 @@ class Generator:
             return Times(x, y)
         elif self.mode == "smtlib":
             return f"(* {x} {y})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             return x * y
         
     def Pow(self, x, y):
@@ -92,21 +130,27 @@ class Generator:
             return f"(pow {x} {y})"
         else:
             raise NotImplementedError("pow not yet supported")
+    
+    def Square(self, x):
+        if self.mode == "gurobi":
+            return self.Times(x, x)
+        else:
+            raise NotImplementedError("square not yet supported")
         
     def Div(self, x, y):
         if self.mode == "pysmt":
             return Div(x, y)
         elif self.mode == "smtlib":
             return f"(/ {x} {y})"
-        elif self.mode == "milp":
-            raise NotImplementedError("Div not supported in milp mode")
+        elif self.mode == "milp" or self.mode == "gurobi":
+            return x / y
     
     def Equals(self, x, y):
         if self.mode == "pysmt":
             return Equals(x, y)
         elif self.mode == "smtlib":
             return f"(= {x} {y})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             return x == y
     
     def GE(self, x, y):
@@ -114,7 +158,7 @@ class Generator:
             return GE(x, y)
         elif self.mode == "smtlib":
             return f"(>= {x} {y})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             return x >= y
     
     def LE(self, x, y):
@@ -122,7 +166,7 @@ class Generator:
             return LE(x, y)
         elif self.mode == "smtlib":
             return f"(<= {x} {y})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             return x <= y
     
     def LT(self, x, y):
@@ -130,7 +174,7 @@ class Generator:
             return LT(x, y)
         elif self.mode == "smtlib":
             return f"(< {x} {y})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             return x < y
     
     def GT(self, x, y):
@@ -138,7 +182,7 @@ class Generator:
             return GT(x, y)
         elif self.mode == "smtlib":
             return f"(> {x} {y})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             return x > y
     
     def Ite(self, condition, true_value, false_value):
@@ -146,15 +190,15 @@ class Generator:
             return Ite(condition, true_value, false_value)
         elif self.mode == "smtlib":
             return f"(ite {condition} {true_value} {false_value})"
-        elif self.mode == "milp":
-            raise NotImplementedError("explicit Ite not supported in milp mode")
+        elif self.mode == "milp" or self.mode == "gurobi":
+            raise NotImplementedError("explicit Ite not supported in milp/gurobi mode")
     
     def And(self, *args):
         if self.mode == "pysmt":
             return And(*args)
         elif self.mode == "smtlib":
             return f"(and {' '.join(args)})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             for arg in args:
                 self.add_assertion(arg)
     
@@ -168,13 +212,18 @@ class Generator:
             for arg in args:
                 self.add_assertion(self.LE(arg, helper_var))
             self.add_assertion(self.LE(helper_var, lpSum(args)))
+        elif self.mode == "gurobi":
+            helper_var = self.declare_bool(f"or_{self.stats['bools']}")
+            for arg in args:
+                self.add_assertion(self.LE(arg, helper_var))
+            self.add_assertion(self.LE(helper_var, quicksum(args)))
 
     def Not(self, x):
         if self.mode == "pysmt":
             return Not(x)
         elif self.mode == "smtlib":
             return f"(not {x})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             return 1 - x
     
     def Implies(self, condition, expr):
@@ -182,8 +231,8 @@ class Generator:
             return Implies(condition, expr)
         elif self.mode == "smtlib":
             return f"(=> {condition} {expr})"
-        elif self.mode == "milp":
-            raise NotImplementedError("explicit Implies not supported in milp mode")
+        elif self.mode == "milp" or self.mode == "gurobi":
+            raise NotImplementedError("explicit Implies not supported in milp/gurobi mode")
         
     def Mod(self, x, y):
         if self.mode == "pysmt":
@@ -193,8 +242,8 @@ class Generator:
             return r
         elif self.mode == "smtlib":
             return f"(mod {x} {y})"
-        elif self.mode == "milp":
-            raise NotImplementedError("Mod not supported in milp mode")
+        elif self.mode == "milp" or self.mode == "gurobi":
+            raise NotImplementedError("Mod not supported in milp/gurobi mode")
     
     def _pysmt_declaration(self, x, type):
         symbol = self.Symbol(x, type)
@@ -224,6 +273,8 @@ class Generator:
                 res = self._smtlib_declaration(x, "Real")
             elif self.mode == "milp":
                 res = self._milp_declaration(x, LpContinuous, lb, ub)
+            elif self.mode == "gurobi":
+                res = self._gurobi_declare_var(x, GRB.CONTINUOUS, lb, ub)
         else:
             res = self.format_real(x)
         
@@ -245,7 +296,7 @@ class Generator:
                     return f"{x:.15f}".rstrip('0').rstrip('.') # 2.00 -> 2, 2.100 -> 2.1 ...
                 return str(x)
             return x
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             if isinstance(x, float):
                 return x
             elif isinstance(x, str):
@@ -268,6 +319,8 @@ class Generator:
                 res = self._smtlib_declaration(x, "Int")
             elif self.mode == "milp":
                 res =  self._milp_declaration(x, LpInteger, lb, ub)
+            elif self.mode == "gurobi":
+                res = self._gurobi_declare_var(x, GRB.INTEGER, lb, ub)
             self.stats['integers'] += 1
         else:
             res = self.format_integer(x)
@@ -288,7 +341,7 @@ class Generator:
             if isinstance(x, int):
                 return str(x)
             return x
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             if isinstance(x, int):
                 return x
             elif isinstance(x, str):
@@ -309,6 +362,8 @@ class Generator:
                 res =  self._smtlib_declaration(x, "Bool")
             elif self.mode == "milp":
                 res = self._milp_declaration(x, LpBinary)
+            elif self.mode == "gurobi":
+                res = self._gurobi_declare_var(x, GRB.BINARY, lb=0.0, ub=1.0)
         else:
             if self.mode == "pysmt":
                 if x in self.symbols:
@@ -317,7 +372,7 @@ class Generator:
                     res = x
             elif self.mode == "smtlib":
                 res = x
-            elif self.mode == "milp":
+            elif self.mode == "milp" or self.mode == "gurobi":
                 if x in self.symbols:
                     res = self.symbols[x]
                 else:
@@ -340,6 +395,9 @@ class Generator:
             self.optimize_objectives.append(("maximize", expression))
         elif self.mode == "milp":
             raise NotImplementedError("milp mode not yet supported")
+        elif self.mode == "gurobi":
+            self._ensure_gurobi_model()
+            self.lp_problem.setObjective(expression, GRB.MAXIMIZE)
     
     def minimize(self, expression):
         if self.mode == "pysmt":
@@ -348,6 +406,9 @@ class Generator:
             self.optimize_objectives.append(("minimize", expression))
         elif self.mode == "milp":
             raise NotImplementedError("milp mode not yet supported")
+        elif self.mode == "gurobi":
+            self._ensure_gurobi_model()
+            self.lp_problem.setObjective(expression, GRB.MINIMIZE)
     
     def write_smtlib(self, filename):
         if self.mode == "pysmt":
@@ -374,6 +435,9 @@ class Generator:
                 f.write("\n")
         elif self.mode == "milp":
             self.lp_problem.writeLP(filename)
+        elif self.mode == "gurobi":
+            self._ensure_gurobi_model()
+            self.lp_problem.write(filename)
         
     def enumerate_k_values(self, n, pair_idx):
         if self.mode == "pysmt" or self.mode == "smtlib":
@@ -384,7 +448,6 @@ class Generator:
             self.add_assertion(self.Or(*eqs))
         elif self.mode == "milp":
             raise NotImplementedError("milp mode not yet supported")
-        
 
     def enumerate_powers_of_2(self, n, pair_idx):
         if self.mode == "pysmt" or self.mode == "smtlib":
@@ -393,7 +456,7 @@ class Generator:
             for i in range(n):
                 self.add_assertion(self.Implies(self.Equals(self.format_integer(f"k{pair_idx}"), self.format_integer(i)), self.Equals(self.format_integer(f"pow2{pair_idx}"), self.format_integer(2**i))))
             
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             raise NotImplementedError("milp mode not yet supported")
     
     def add_rescaling(self, r1, r2, v1, v2, pair_idx, d):   
@@ -469,8 +532,12 @@ class Generator:
 
         # now retreive the boolean variable that will express the 2^i constant
         constants = [self.declare_bool(f"s{pair_idx}_{i}") for i in range(d+1)]
-        self.add_assertion(lpSum([s for s in constants]) == 1)
-        self.add_assertion(k == lpSum([constants[i] * i for i in range(d+1)]))
+        if self.mode == "milp":
+            self.add_assertion(lpSum([s for s in constants]) == 1)
+            self.add_assertion(k == lpSum([constants[i] * i for i in range(d+1)]))
+        elif self.mode == "gurobi":
+            self.add_assertion(quicksum(constants) == 1)
+            self.add_assertion(k == quicksum(constants[i] * i for i in range(d + 1)))
         # now constants[i] is True iff k = i
         # next, determine if k is odd or even
 
@@ -539,7 +606,10 @@ class Generator:
 
     def push(self):
         if self.mode == "milp":
-            self.saved_lp_problem = self.lp_problem.deepcopy()      
+            self.saved_lp_problem = self.lp_problem.deepcopy()
+        elif self.mode == "gurobi":
+            self._ensure_gurobi_model()
+            self.saved_lp_problem = self.lp_problem.copy()
         elif self.mode == "smtlib":
             raise NotImplementedError("push not supported in smtlib mode")
         elif self.mode == "pysmt":
@@ -547,6 +617,8 @@ class Generator:
     
     def pop(self):
         if self.mode == "milp":
+            self.lp_problem = self.saved_lp_problem
+        elif self.mode == "gurobi":
             self.lp_problem = self.saved_lp_problem
         elif self.mode == "smtlib":
             raise NotImplementedError("pop not supported in smtlib mode")
@@ -559,5 +631,7 @@ class Generator:
         if self.mode == "milp":
             # cant just make it depth >= ... because of numerical imprecisions
             self.add_assertion(depth - 0.5 >= lpSum([self.symbols[bool_var] for bool_var in model]))
+        elif self.mode == "gurobi":
+            self.add_assertion(depth - 0.5 >= quicksum([self.symbols[bool_var] for bool_var in model]))
         elif self.mode == "smtlib" or self.mode == "pysmt":
             self.add_assertion(self.Not(self.And(*[self.symbols[bool_var] for bool_var in model])))

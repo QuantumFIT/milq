@@ -16,15 +16,15 @@ import subprocess
 from sim import Simulator
 from multiprocessing import cpu_count
 from pysmt.logics import QF_NRA, QF_LIA, QF_NIA
-from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Minus, Div, Times, write_smtlib
+from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Minus, Div, Times, write_smtlib, Solver
 from pysmt.typing import REAL, INT
-from pysmt.solvers.solver import Solver
 from pareto import Pareto
 from gates import GateSet, supported_gates, check_supported, Circuit
 from pulp import *
 import numpy as np
 import gurobipy as gp
 from gurobipy import GRB, quicksum
+from solvers import PortfolioSMTSolver, SMTSolver
 
 class Synthesizer:
     def __init__(self) -> None:
@@ -50,6 +50,7 @@ class Synthesizer:
         self.targets = 1
         self.ancillas = 0
         self.vector_mode = None
+        self.solvers = {}
         
     def __exit__(self) -> None:
         if self.gen.mode == "pysmt":
@@ -57,21 +58,29 @@ class Synthesizer:
             
     def add_solvers(self) -> None:
         # register custom solvers for pySMT portfolio solving
-        env = get_env()
-        # z3 already in pysmt
         repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
         if self.gen.logic != "QF_NRA":
             path = [os.path.join(repo_root, "solvers", "opensmt", "opensmt")]
-            env.factory.add_generic_solver(name="opensmt", args=path, logics=[QF_LIA])
-        path = [os.path.join(repo_root, "solvers", "yices2", "yices_smt2")]
-        env.factory.add_generic_solver(name="yices2", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
+            self.add_one_solver(name="opensmt", args=path, logics=[QF_LIA])
+        path = ["z3"]
+        self.add_one_solver(name="z3", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
+        path = [os.path.join(repo_root, "solvers", "yices2", "yices_smt2"), '--incremental']
+        self.add_one_solver(name="yices2", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
         path = [os.path.join(repo_root, "solvers", "smtinterpol", "smtinterpol")]
-        env.factory.add_generic_solver(name="smtinterpol", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
-        path = [os.path.join(repo_root, "solvers", "cvc5", "cvc5")]
-        env.factory.add_generic_solver(name="cvc5", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
-        path = [os.path.join(repo_root, "solvers", "dreal", "run_dreal.sh")]
-        env.factory.add_generic_solver(name="dreal", args=path, logics=[QF_NRA])
-        
+        self.add_one_solver(name="smtinterpol", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
+        path = [os.path.join(repo_root, "solvers", "cvc5", "cvc5"), '--incremental']
+        self.add_one_solver(name="cvc5", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
+        path = ['/opt/dreal/4.21.06.2/bin/dreal', '--precision', '1e-9', '--produce-models']
+        self.add_one_solver(name="dreal", args=path, logics=[QF_NRA])
+    
+    def add_one_solver(self, name: str, args: list[str], logics: list[str]) -> None:
+        if name == "z3" and self.gen.mode == "pysmt": 
+            return
+        if self.gen.mode == "pysmt":
+            env = get_env()
+            env.factory.add_generic_solver(name=name, args=args, logics=logics)
+        else:
+            self.solvers[name] = SMTSolver(name, args, logics)
 
     def encode_layer(self, inp : Vector, out : Vector, layer : int, inp_weight : any = None, out_weight : any = None) -> None:
         updates_k_value = []
@@ -648,13 +657,14 @@ class Synthesizer:
             bool_var = self.gen.declare_bool(bool_var_str)
             bool_var.setInitialValue(1)
     
-    def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="portfolio", solver=None, mode="incremental", output_qasm="circuit.qasm", 
+    def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="gurobi", solver=None, mode="incremental", output_qasm="circuit.qasm", 
                 complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1, up_to_global_phase=False) -> tuple[bool, Circuit, list[Vector]]:
         """
             qasm_file -> file to synthesize
             vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas, custom -> has to specify vector_pairs, q, d, gate_set)
             vector_pairs -> list of pairs (input_vector, output_vector) for input and its expected output.
-            solving -> specify if smt (has to specify solver), portfolio (of smt solvers), milp (specify milp solver TODO: now only gurobi)
+            solving -> specify if smt (has to specify solver), pysmt, milp, gurobipy
+            solver -> specify specific solver or portfolio of solvers
             mode -> specify solving method (basic -> create whole formula and get the best model, incremental -> incrementally generate the formula, binary, topdown, bottomup -> searches to optimize cost function)
             output_qasm -> file to write the output circuit to
             complex_representation -> specify the complex representation ["FiveTuple", "nTuple", "Classic"]
@@ -679,10 +689,8 @@ class Synthesizer:
         
         if matrix is not None and vectors != "rus":
             raise ValueError("matrix can be provided only for rus mode")
-        if solving in ["smt", "milp"] and solver is None:
+        if solving in ["smt", "milp", "pysmt"] and solver is None:
             raise ValueError("a solver is required for basic smt and milp solving")
-        if solving == "portfolio" and solver is not None:
-            raise ValueError("portfolio uses a set of predefined solvers [opensmt, z3, z3alpha, cvc5, yices2, smtinterpol]")
         if mode not in ["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"]:
             raise ValueError("mode can be only basic, incremental, binary, topdown, or bottomup")
         if complex_representation not in ["FiveTuple", "nTuple", "Classic"]:
@@ -745,21 +753,30 @@ class Synthesizer:
         
         # set generator mode and solver
         if solving == "smt":
-            if solver not in ["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal"]:
+            if solver not in ["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "portfolio"]:
                 raise ValueError(f"Invalid solver: {solver}")
+            self.gen.mode = "smtlib"
+            self.add_solvers()
             if solver == "dreal":
                 self.gen.logic = "QF_NRA"
                 self.fidelity_threshold = fidelity_threshold
-            self.gen.solver = solver
-            self.gen.mode = "smtlib"
-        elif solving == "portfolio":
+            if solver == "portfolio":
+                self.gen.solver = PortfolioSMTSolver(self.solvers, logic=self.gen.logic)
+            else:
+                self.gen.solver = self.solvers[solver]
+        elif solving == "pysmt":
+            if solver not in ["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "portfolio"]:
+                raise ValueError(f"Invalid solver: {solver}")
             self.gen.mode = "pysmt"
             self.add_solvers()
-            if self.gen.logic != "QF_NRA":
-                solvers = ["z3", "cvc5", "yices2", "opensmt", "smtinterpol"]
+            if solver == "portfolio":
+                if self.gen.logic != "QF_NRA":
+                    solvers = ["z3", "cvc5", "yices2", "opensmt", "smtinterpol"]
+                else:
+                    solvers = ["z3", "cvc5", "yices2", "smtinterpol"]
+                self.gen.solver = Portfolio(solvers, logic=self.gen.logic, incremental=True, generate_models=True)
             else:
-                solvers = ["z3", "cvc5", "yices2", "smtinterpol"]
-            self.gen.solver = Portfolio(solvers, logic=self.gen.logic, incremental=True, generate_models=True)
+                self.gen.solver = Solver(name=solver, logic=self.gen.logic, incremental=True, generate_models=True)
         elif solving == "milp":
             self.gen.mode = "milp"
             self.gen.solver = solver
@@ -772,7 +789,7 @@ class Synthesizer:
         # start synthesis
         res, circuit, vectors = self._synth(vector_pairs, output_qasm)
         
-        if solving == "portfolio":
+        if solving == "pysmt":
             self.gen.solver.exit()
         return res, circuit, vectors
     
@@ -1052,7 +1069,7 @@ class Synthesizer:
 
         return False, None, None
 
-    def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", solver=None, write_to_file = True, draw_circuit = False) -> bool:
+    def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", write_to_file = True, draw_circuit = False) -> bool:
         """    
             formula_file: Path to the formula file
             output_qasm: Output filename for QASM circuit
@@ -1092,49 +1109,15 @@ class Synthesizer:
                 return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)    
         
         elif self.gen.mode == "smtlib":
-            repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-            solver_to_filename = {
-                "z3": "z3",
-                "z3alpha": os.path.join(repo_root, "solvers", "z3alpha", "z3alpha.py"),
-                "cvc5": os.path.join(repo_root, "solvers", "cvc5", "starexec_run_sq"),
-                "opensmt": os.path.join(repo_root, "solvers", "opensmt", "opensmt"),
-                "smtinterpol": os.path.join(repo_root, "solvers", "smtinterpol", "smtinterpol"),
-                "yices2": os.path.join(repo_root, "solvers", "yices2", "yices_smt2"),
-                "dreal": os.path.join(repo_root, "solvers", "dreal", "dreal")
-            }
-            
-            if solver is None and self.gen.solver is not None:
-                solver = self.gen.solver
-            else:
-                raise ValueError("solver is not set")
-
-            jobs = cpu_count()
-            if jobs is None:
-                jobs = 1
-            args = {
-                "dreal": [ "-j",  str(jobs), "--precision", "1e-6", "--produce-models"]
-            }
-            if solver not in solver_to_filename:
-                raise ValueError(f"Invalid solver: {solver}")
-            try:
-                result = subprocess.run(
-                    [solver_to_filename[solver], formula_file] + args.get(solver, []),
-                    capture_output=True,
-                    text=True,
-                )
-            except Exception as e:
-                raise ValueError(f"Error: {e}")
-                return False, None, None
+            result = self.gen.solver.solve(formula_file)
             if result is None:
                 return False, None, None
-            if result.returncode != 0:
-                return False, None, None
-            if not self.parser.is_sat(result.stdout):
-                return False, None, None
-            return self.parser.parse(result.stdout, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
+            return self.parser.parse(result, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
         elif self.gen.mode == "pysmt":
-            result = self.gen.solver.solve()
-            print(result)
+            try:
+                result = self.gen.solver.solve()
+            except Exception as e:
+                return False, None, None
             if result:
                 model = self.gen.solver.get_model()
                 return self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)

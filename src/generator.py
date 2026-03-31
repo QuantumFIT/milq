@@ -505,6 +505,8 @@ class Generator:
     def write_formula(self, filename):
         if self.mode == "pysmt":
             filename = filename.split(".")[0] + ".smt2"
+            if not hasattr(self.solver, "assertions"):
+                return filename
             from pysmt.shortcuts import write_smtlib
             formula = self.solver.environment.formula_manager.And(self.solver.assertions)
             write_smtlib(formula, filename)

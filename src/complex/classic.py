@@ -141,7 +141,10 @@ class Complex:
     
     @classmethod
     def minus_one(cls, generator = None, bound=None):
-        return cls(a=-1, b=0, generator=generator, bound=bound)
+        if generator is None:
+            return cls(a=-1, b=0, generator=generator, bound=bound)
+        else:
+            return cls(a=generator.Minus(generator.format_integer(0), generator.format_integer(1)), b=generator.format_integer(0), generator=generator)
     
     @classmethod
     def i_phase(cls, generator = None, bound=None):

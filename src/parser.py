@@ -111,7 +111,7 @@ class ModelParser:
                     pair_idx = int(parts[1])
                     if parts[3] == "k":
                         out_vectors[pair_idx].k = int(value_obj)
-                        coeff = parts[3].strip()
+                        setattr(out_vectors[pair_idx], "k", value_obj)
                     else:
                         coeff = parts[4].strip()
                         indice = int(parts[3])
@@ -119,7 +119,7 @@ class ModelParser:
                             coeff = "real"
                         elif coeff == "i":
                             coeff = "imag"
-                    setattr(out_vectors[pair_idx][indice], coeff, value_obj)
+                        setattr(out_vectors[pair_idx][indice], coeff, value_obj)
             if variable.startswith("W"):
                 if value_obj is None: continue
                 indice = int(variable.split("W")[1].strip())

@@ -1,6 +1,7 @@
 from ast import Return
 from pysmt.smtlib.parser import SmtLibParser
-from pysmt.shortcuts import Real, Int, Bool, Symbol, And, Equals, Div, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Times, Minus, Plus
+from pysmt.shortcuts import Real, Int, Bool, Symbol, And, Div, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Times, Minus, Plus
+from pysmt.shortcuts import Equals as pysmtEquals
 from pysmt.typing import REAL, INT, BOOL
 from pulp import *
 from gates import self_adjoints, gate_to_qubits
@@ -28,7 +29,7 @@ class Generator:
         self.integer_variables = set()
         self.real_variables = set()
         self.saved_lp_problem = None
-        self.gurobi_saved_push = None
+        self.saved_push = None
         self.objective_assertions = []
         self.stats['reals'] = 0
         self.stats['integers'] = 0
@@ -92,25 +93,54 @@ class Generator:
 
     def Plus(self, x, y):
         if self.mode == "pysmt":
-            return Plus(x, y)
+            plus_expr = x + y
+            if isinstance(plus_expr, bool):
+                return Plus(x, y)
+            return plus_expr
         elif self.mode == "smtlib":
-            return f"(+ {x} {y})"
+            if isinstance(x, str) and isinstance(y, str):
+                return f"(+ {x} {y})"
+            elif isinstance(x, str) and isinstance(y, (int, float)):
+                return f"(+ {x} {y})"
+            elif isinstance(x, (int, float)) and isinstance(y, str):
+                return f"(+ {x} {y})"
+            else:
+                return x + y
         elif self.mode == "milp" or self.mode == "gurobi":
             return x + y
     
     def Minus(self, x, y):
         if self.mode == "pysmt":
-            return Minus(x, y)
+            minus_expr = x - y
+            if isinstance(minus_expr, bool):
+                return Minus(x, y)
+            return minus_expr
         elif self.mode == "smtlib":
-            return f"(- {x} {y})"
+            if isinstance(x, str) and isinstance(y, str):
+                return f"(- {x} {y})"
+            elif isinstance(x, str) and isinstance(y, (int, float)):
+                return f"(- {x} {y})"
+            elif isinstance(x, (int, float)) and isinstance(y, str):
+                return f"(- {x} {y})"
+            else:
+                return x - y
         elif self.mode == "milp" or self.mode == "gurobi":
             return x - y
     
     def Times(self, x, y):
         if self.mode == "pysmt":
-            return Times(x, y)
+            times_expr = x * y
+            if isinstance(times_expr, bool):
+                return Times(x, y)
+            return times_expr
         elif self.mode == "smtlib":
-            return f"(* {x} {y})"
+            if isinstance(x, str) and isinstance(y, str):
+                return f"(* {x} {y})"
+            elif isinstance(x, str) and isinstance(y, (int, float)):
+                return f"(* {x} {y})"
+            elif isinstance(x, (int, float)) and isinstance(y, str):
+                return f"(* {x} {y})"
+            return x * y
         elif self.mode == "milp" or self.mode == "gurobi":
             return x * y
         
@@ -136,15 +166,22 @@ class Generator:
     
     def Equals(self, x, y):
         if self.mode == "pysmt":
-            return Equals(x, y)
+            eq_expr = (x == y)
+            if isinstance(eq_expr, bool):
+                return pysmtEquals(x, y)
+            return eq_expr
         elif self.mode == "smtlib":
-            return f"(= {x} {y})"
+            eq_expr = (x == y)
+            if isinstance(eq_expr, bool):
+                return f"(= {x} {y})"
+            elif isinstance(eq_expr, str):
+                return eq_expr
         elif self.mode == "milp" or self.mode == "gurobi":
             return x == y
 
     def ConstrainedEquals(self, sel, x, y, bigM=None):
         if self.mode == "pysmt" or self.mode == "smtlib":
-            return self.Implies(sel, self.Equals(x, y))
+            return self.add_assertion(self.Implies(sel, self.Equals(x, y)))
         elif self.mode == "milp" or self.mode == "gurobi":
             return x.constrained_equals(sel, bigM, x, y)
     
@@ -340,7 +377,7 @@ class Generator:
     def format_real(self, x):
         if self.mode == "pysmt":
             if isinstance(x, (int, float)):
-                return Real(x)
+                return Real(float(x))
             elif isinstance(x, str):
                 if x in self.symbols:
                     return self.symbols[x]
@@ -352,8 +389,8 @@ class Generator:
                 return str(x)
             return x
         elif self.mode == "milp" or self.mode == "gurobi":
-            if isinstance(x, float):
-                return x
+            if isinstance(x, (float, int)):
+                return float(x)
             elif isinstance(x, str):
                 if x in self.symbols:
                     return self.symbols[x]
@@ -385,6 +422,8 @@ class Generator:
         return res
             
     def format_integer(self, x):
+        if self.logic == "QF_NRA":
+            return self.format_real(x)
         if self.mode == "pysmt":
             if isinstance(x, int):
                 return Int(x)
@@ -439,7 +478,7 @@ class Generator:
     def declare_helpers(self):
         # possible helper methods
         #sqrt2 for dreal
-        if self.logic == "QF_NRA":
+        if self.logic == "QF_NRA" and (self.mode in ["pysmt", "smtlib"]):
             self.declare_real("sqrt2")
             self.add_assertion(self.Equals(self.Times(self.format_real("sqrt2"), self.format_real("sqrt2")), self.Real(2.0)))
 
@@ -473,7 +512,6 @@ class Generator:
             filename = filename.split(".")[0] + ".smt2"
             with open(filename, 'w') as f:
                 f.write(f"(set-logic {self.logic})\n")
-                self.declare_helpers()
                 
                 for decl_type, name, sig in self.declarations:
                     f.write(f"({decl_type} {name} {sig})\n")
@@ -516,7 +554,8 @@ class Generator:
         elif self.mode == "milp" or self.mode == "gurobi":
             raise NotImplementedError("milp mode not yet supported")
     
-    def add_rescaling(self, r1, r2, v1, v2, pair_idx, d):   
+    def add_rescaling(self, r1, r2, v1, v2, pair_idx, d):
+        print("Adding rescaling")
         n = self.declare_integer(f"n{pair_idx}")
         k = self.declare_integer(f"k{pair_idx}")
         # n = k1 - k2 or n = k2 - k1
@@ -663,9 +702,14 @@ class Generator:
             self.saved_lp_problem = self.lp_problem.deepcopy()
         elif self.mode == "gurobi":
             self.lp_problem.update()
-            self.gurobi_saved_push = [constraint.ConstrName for constraint in self.lp_problem.getConstrs()]
+            self.saved_push = [constraint.ConstrName for constraint in self.lp_problem.getConstrs()]
         elif self.mode == "smtlib":
-            raise NotImplementedError("push not supported in smtlib mode")
+            assertions_to_push = self.assertions.copy()
+            optimize_objectives = self.optimize_objectives.copy()
+            self.saved_push = {
+                "assertions": assertions_to_push,
+                "optimize_objectives": optimize_objectives
+            }
         elif self.mode == "pysmt":
             self.solver.push()
     
@@ -674,13 +718,15 @@ class Generator:
             self.lp_problem = self.saved_lp_problem
         elif self.mode == "gurobi":
             self.lp_problem.update()
-            to_remove = [constr for constr in self.lp_problem.getConstrs() if constr.ConstrName not in self.gurobi_saved_push]
+            to_remove = [constr for constr in self.lp_problem.getConstrs() if constr.ConstrName not in self.saved_push]
             if to_remove:
                 self.lp_problem.remove(to_remove)
             self.lp_problem.update()
-            self.gurobi_saved_push = []
+            self.saved_push = []
         elif self.mode == "smtlib":
-            raise NotImplementedError("pop not supported in smtlib mode")
+            self.assertions = self.saved_push["assertions"]
+            self.optimize_objectives = self.saved_push["optimize_objectives"]
+            self.saved_push = None
         elif self.mode == "pysmt":
             self.solver.pop()
     

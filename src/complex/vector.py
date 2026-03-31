@@ -54,11 +54,9 @@ class Vector:
         if self.gen is None:
             return all(self.vec[i] == other.vec[i] for i in range(len(self.vec))) and self.k == other.k
         else:
-            if self.k is None or other.k is None:
-                raise ValueError("k must be provided for vectors")
-            
             eqs = [self.vec[i] == other.vec[i] for i in range(len(self.vec))]
-            eqs.append(self.gen.Equals(self.k, other.k))
+            if self.k is not None and other.k is not None:
+                eqs.append(self.gen.Equals(self.k, other.k))
             return self.gen.And(*eqs)
     
     def __repr__(self):
@@ -86,7 +84,7 @@ class Vector:
     def conjugate(self, generator = None):
         new_vec = Vector(q=len(self.vec), generator=self.gen, element_representation=self.element_representation, k=self.k)
         for i in range(len(self.vec)):
-            new_vec[i] = self.vec[i].conjugate(generator)
+            new_vec[i] = self.vec[i].conjugate()
         return new_vec
     
     def __len__(self):

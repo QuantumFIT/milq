@@ -11,6 +11,7 @@ from complex.fivetuple import FiveTuple
 from complex.ntuple import nTuple
 from generator import Generator
 from parser import ModelParser
+import os
 import subprocess
 from sim import Simulator
 from multiprocessing import cpu_count
@@ -55,18 +56,20 @@ class Synthesizer:
             self.gen.solver.exit() # portfolio is still alive
             
     def add_solvers(self) -> None:
-        # register custom solvers for pySMT portfolio solving (TODO change for relative paths, change logics to match the respective solvers)
+        # register custom solvers for pySMT portfolio solving
         env = get_env()
         # z3 already in pysmt
-        path = ["/home/jakubhavlik/rus-synth/solvers/opensmt/opensmt"]
-        env.factory.add_generic_solver(name="opensmt", args=path, logics=[QF_LIA])
-        path = ["/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2"]
+        repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+        if self.gen.logic != "QF_NRA":
+            path = [os.path.join(repo_root, "solvers", "opensmt", "opensmt")]
+            env.factory.add_generic_solver(name="opensmt", args=path, logics=[QF_LIA])
+        path = [os.path.join(repo_root, "solvers", "yices2", "yices_smt2")]
         env.factory.add_generic_solver(name="yices2", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
-        path = ["/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol"]
+        path = [os.path.join(repo_root, "solvers", "smtinterpol", "smtinterpol")]
         env.factory.add_generic_solver(name="smtinterpol", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
-        path = ["/home/jakubhavlik/rus-synth/solvers/cvc5/cvc5"]
+        path = [os.path.join(repo_root, "solvers", "cvc5", "cvc5")]
         env.factory.add_generic_solver(name="cvc5", args=path, logics=[QF_LIA, QF_NRA, QF_NIA])
-        path = ["/home/jakubhavlik/rus-synth/solvers/dreal/run_dreal.sh"]
+        path = [os.path.join(repo_root, "solvers", "dreal", "run_dreal.sh")]
         env.factory.add_generic_solver(name="dreal", args=path, logics=[QF_NRA])
         
 
@@ -554,17 +557,16 @@ class Synthesizer:
         rescaled1 = None
         rescaled2 = None
         if self.gen.logic == "QF_NRA": 
-        # FIDELITY
-            fidelity = Complex(a=1.0, b=0.0, name="Fidelity", generator=self.gen)
-            conjugate = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Conjugate")
-            self.gen.add_assertion(conjugate == vec1.conjugate(self.gen))
-            self.gen.add_assertion(self.gen.Equals(conjugate.k, vec1.k))
-            prod, k_final = conjugate * vec2
-            prod_real = prod.abs2(k_final) # abs2 <==> fidelity
-            self.gen.add_assertion(self.gen.Equals(self.gen.Real(fidelity.real), self.gen.Real(prod_real)))
-            self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(0.0)))
-            self.gen.add_assertion(self.gen.LE(self.gen.Real(fidelity.real), self.gen.Real(1.0)))
-            self.gen.add_assertion(self.gen.GE(self.gen.Real(fidelity.real), self.gen.Real(self.fidelity_threshold)))
+            for i in range(2**self.q):
+                if self.gen.mode in ["milp", "gurobi"]:
+                    # implicit epsilon
+                    self.gen.add_assertion(self.gen.Equals(vec1[i], vec2[i]))
+                else:
+                    eps = self.gen.Real(1e-9)
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].real, vec2[i].real), eps))
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i].real, vec1[i].real), eps))
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].imag, vec2[i].imag), eps))
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i].imag, vec1[i].imag), eps))
         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
             if self.complex_representation == Complex:
                 # vector equivalence
@@ -588,23 +590,29 @@ class Synthesizer:
         return rescaled1, rescaled2
     
     def encode_equivalence_up_to_global_phase(self, vec1, vec2, pair_idx, post_measurement : bool = False):
-        if self.gen.mode == "milp" or self.gen.mode == "gurobi":
-            if self.complex_representation == Complex:
-                e = self.complex_representation(name=f"unknown_e", generator=self.gen)
-                if post_measurement:
-                    # if post-measurement, e includes norm of v1, which means that it cant be equal to zero
+        if self.complex_representation == Complex:
+            e = self.complex_representation(name=f"unknown_e", generator=self.gen)
+            if post_measurement:
+                # if post-measurement, e includes norm of v1, which means that it cant be equal to zero
+                if self.gen.mode in ["milp", "gurobi"]:
                     eps = 1e-6
                     abs_r = self.gen.declare_real(f"abs_r_e", lb=0.0, ub=1.0)
                     abs_i = self.gen.declare_real(f"abs_i_e", lb=0.0, ub=1.0)
                     self.gen.add_assertion(self.gen.Equals(abs_r, self.gen.Abs(e.real)))
                     self.gen.add_assertion(self.gen.Equals(abs_i, self.gen.Abs(e.imag)))
                     self.gen.add_assertion(self.gen.GE(self.gen.Plus(abs_r, abs_i), self.gen.Real(eps)))
-                for i in range(2**self.q):
+                else:
+                    self.gen.add_assertion(self.gen.Not(self.gen.Equals(e, self.complex_representation.zero())))
+            for i in range(2**self.q):
+                if self.gen.mode in ["milp", "gurobi"]:
                     self.gen.add_assertion(self.gen.Equals(vec1[i], self.gen.Times(e, vec2[i])))
-            else:
-                raise ValueError("up-to-global-phase equivalence only for classic a+bj representation")
+                else:
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].real, self.gen.Times(e.real, vec2[i].real)), self.gen.Real(1e-9)))
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].imag, self.gen.Times(e.imag, vec2[i].imag)), self.gen.Real(1e-9)))
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i].real, self.gen.Times(e.real, vec1[i].real)), self.gen.Real(1e-9)))
+                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i].imag, self.gen.Times(e.imag, vec1[i].imag)), self.gen.Real(1e-9)))
         else:
-            raise ValueError("up-to-global-phase equivalence only for milp mode")
+            raise ValueError("up-to-global-phase equivalence only for classic a+bj representation")
 
     def rus_cost(self, circuit, recovery_circuit, vectors) -> tuple[int, float]:
         # Cost(circuit) / P[success]
@@ -677,8 +685,6 @@ class Synthesizer:
             raise ValueError("portfolio uses a set of predefined solvers [opensmt, z3, z3alpha, cvc5, yices2, smtinterpol]")
         if mode not in ["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"]:
             raise ValueError("mode can be only basic, incremental, binary, topdown, or bottomup")
-        if mode in ["binary", "topdown", "bottomup"] and solving != "portfolio": # TODO
-            raise ValueError("mode binary, topdown, bottomup requires portfolio solving")
         if complex_representation not in ["FiveTuple", "nTuple", "Classic"]:
             raise ValueError("complex_representation can be only FiveTuple, nTuple, or Classic")
         if complex_representation == "FiveTuple":
@@ -686,6 +692,7 @@ class Synthesizer:
         elif complex_representation == "nTuple":
             self.complex_representation = nTuple
         elif complex_representation == "Classic":
+            self.gen.logic = "QF_NRA"
             self.complex_representation = Complex
         
         self.vec_mode = vectors
@@ -743,14 +750,15 @@ class Synthesizer:
             if solver == "dreal":
                 self.gen.logic = "QF_NRA"
                 self.fidelity_threshold = fidelity_threshold
-            else:
-                self.gen.logic = "QF_LIA"
             self.gen.solver = solver
             self.gen.mode = "smtlib"
         elif solving == "portfolio":
             self.gen.mode = "pysmt"
             self.add_solvers()
-            solvers = ["z3", "cvc5", "yices2", "opensmt", "smtinterpol"]
+            if self.gen.logic != "QF_NRA":
+                solvers = ["z3", "cvc5", "yices2", "opensmt", "smtinterpol"]
+            else:
+                solvers = ["z3", "cvc5", "yices2", "smtinterpol"]
             self.gen.solver = Portfolio(solvers, logic=self.gen.logic, incremental=True, generate_models=True)
         elif solving == "milp":
             self.gen.mode = "milp"
@@ -759,6 +767,8 @@ class Synthesizer:
             self.gen.mode = "gurobi"
             self.gen.solver = solver
         
+        if self.gen.logic == "QF_NRA":
+            self.gen.declare_helpers()
         # start synthesis
         res, circuit, vectors = self._synth(vector_pairs, output_qasm)
         
@@ -787,7 +797,7 @@ class Synthesizer:
             max_value_in_input = input_vector.max_value()
             In = Vector(q=2**self.q, name=f"In_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k=input_vector.k, n=input_vector.n, bound=max_value_in_input, k_bound = input_vector.k)
             for i, val in enumerate(input_vector.vec):
-                self.gen.add_assertion(In[i] == val)
+                self.gen.add_assertion(self.gen.Equals(In[i], val))
             if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                 self.gen.add_assertion(self.gen.Equals(In.k, self.gen.format_integer(input_vector.k)))
             
@@ -807,7 +817,7 @@ class Synthesizer:
                             self.gen.add_assertion(self.gen.Equals(vec[i], In[i]))
                         self.gen.add_assertion(self.gen.Equals(vec.k, In.k))
                     else:
-                        self.gen.add_assertion(vec == In)
+                        self.gen.add_assertion(self.gen.Equals(vec, In))
                 inter[d] = vec
             
             inter_vectors.append(inter)
@@ -974,7 +984,8 @@ class Synthesizer:
         unsolved = []
         lower_bound = 0
         upper_bound = self.d+1
-        best_model = None
+        best_circuit = None
+        best_vectors = None
         while True:
             middle = lower_bound + (upper_bound - lower_bound) // 2
             if lower_bound + 1 >= upper_bound:
@@ -985,53 +996,58 @@ class Synthesizer:
                     middle = upper_bound # know that the result is unsat
                 else:
                     break
-            self.gen.solver.push()
-            self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(middle)))
-            result = self.gen.solver.solve()                       
+            self.gen.push()
+            self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(middle)))
+            formula_file = self.gen.write_formula(output_qasm)          
+            result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)                
             if result:
                 upper_bound = middle
                 # save the best circuit so far
-                best_model = self.gen.solver.get_model()
+                best_circuit = circuit
+                best_vectors = vectors
                 solved.append(middle)
             else:
                 lower_bound = middle
                 unsolved.append(middle)
-            self.gen.solver.pop()
+            self.gen.pop()
 
-        if best_model is not None:
-            return self.parser.parse(best_model, self.q, self.d, output_qasm, write_to_file=True, draw_circuit=False, v=self.v)
+        if best_circuit is not None:
+            return True, best_circuit, best_vectors
         else:
             return False, None, None
         
     def incremental_bottom_up_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         i = 0
         while i < self.d+2:
-            self.gen.solver.push()
-            self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(i)))
-            result = self.gen.solver.solve()
+            self.gen.push()
+            self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(i)))
+            formula_file = self.gen.write_formula(output_qasm)          
+            result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)                
             if result:
-                return self.parser.parse(self.gen.solver.get_model(), self.q, self.d, output_qasm, write_to_file=True, draw_circuit=False, v=self.v)
-            self.gen.solver.pop()
+                return result, circuit, vectors
+            self.gen.pop()
             i += 1
 
         return False, None, None
 
     def incremental_top_down_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         i = self.d+1
-        best_model = None
+        best_circuit = None
         while i > 0:
-            self.gen.solver.push()
-            self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(i)))
-            result = self.gen.solver.solve()
+            self.gen.push()
+            self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(i)))
+            formula_file = self.gen.write_formula(output_qasm)          
+            result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)                
             if result:
-                best_model = self.gen.solver.get_model()
+                best_circuit = circuit
+                best_vectors = vectors
             else:
                 # first unsolvable, return best model
-                if best_model is not None:
-                    return self.parser.parse(best_model, self.q, self.d, output_qasm, write_to_file=True, draw_circuit=False, v=self.v)
+                if best_circuit is not None:
+                    return True, best_circuit, best_vectors
                 else:
                     return False, None, None
-            self.gen.solver.pop()
+            self.gen.pop()
             i -= 1
 
         return False, None, None
@@ -1076,14 +1092,15 @@ class Synthesizer:
                 return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)    
         
         elif self.gen.mode == "smtlib":
+            repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
             solver_to_filename = {
                 "z3": "z3",
-                "z3alpha": "/home/jakubhavlik/rus-synth/solvers/z3alpha/z3alpha.py",
-                "cvc5": "/home/jakubhavlik/rus-synth/solvers/cvc5/starexec_run_sq",
-                "opensmt": "/home/jakubhavlik/rus-synth/solvers/opensmt/opensmt",
-                "smtinterpol": "/home/jakubhavlik/rus-synth/solvers/smtinterpol/smtinterpol",
-                "yices2": "/home/jakubhavlik/rus-synth/solvers/yices2/yices_smt2",
-                "dreal": "/opt/dreal/4.21.06.2/bin/dreal"
+                "z3alpha": os.path.join(repo_root, "solvers", "z3alpha", "z3alpha.py"),
+                "cvc5": os.path.join(repo_root, "solvers", "cvc5", "starexec_run_sq"),
+                "opensmt": os.path.join(repo_root, "solvers", "opensmt", "opensmt"),
+                "smtinterpol": os.path.join(repo_root, "solvers", "smtinterpol", "smtinterpol"),
+                "yices2": os.path.join(repo_root, "solvers", "yices2", "yices_smt2"),
+                "dreal": os.path.join(repo_root, "solvers", "dreal", "dreal")
             }
             
             if solver is None and self.gen.solver is not None:
@@ -1110,9 +1127,14 @@ class Synthesizer:
                 return False, None, None
             if result is None:
                 return False, None, None
+            if result.returncode != 0:
+                return False, None, None
+            if not self.parser.is_sat(result.stdout):
+                return False, None, None
             return self.parser.parse(result.stdout, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
         elif self.gen.mode == "pysmt":
             result = self.gen.solver.solve()
+            print(result)
             if result:
                 model = self.gen.solver.get_model()
                 return self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)

@@ -152,7 +152,7 @@ class Complex:
         return cls(a=np.sqrt(1/2), b=np.sqrt(1/2), generator=generator, bound=bound)
     
     @classmethod
-    def inv_sqrt2(cls,generator = None, bound=None):
+    def inv_sqrt2(cls, generator = None, bound=None):
         return cls(a=np.sqrt(1/2), b=0, generator=generator, bound=bound)
     
     @classmethod

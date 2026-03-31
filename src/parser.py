@@ -170,7 +170,7 @@ class ModelParser:
 
     def is_sat(self, model : any) -> bool:
         if isinstance(model, str):
-            if "sat" in model.lower() or "delta-sat" in model.lower():
+            if ("sat" in model.lower() and "unsat" not in model.lower()) or "delta-sat" in model.lower():
                 return True
             else:
                 return False

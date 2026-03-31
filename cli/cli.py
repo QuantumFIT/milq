@@ -22,7 +22,7 @@ args = parser.parse_args()
 synthesizer = Synthesizer()
 start_time = time.time()
 
-res = synthesizer.synthesis(qasm_file=args.qasm_file, vectors=args.vectors, solving=args.solving, mode=args.mode, solver=args.solver, output_qasm=args.output_qasm, complex_representation=args.complex_representation, fidelity_threshold=args.fidelity_threshold, targets=args.targets, ancillas=args.ancillas, up_to_global_phase=args.up_to_global_phase)
+res, _, _ = synthesizer.synthesis(qasm_file=args.qasm_file, vectors=args.vectors, solving=args.solving, mode=args.mode, solver=args.solver, output_qasm=args.output_qasm, complex_representation=args.complex_representation, fidelity_threshold=args.fidelity_threshold, targets=args.targets, ancillas=args.ancillas, up_to_global_phase=args.up_to_global_phase)
 if res:
     print("synthesis successful")
 else:

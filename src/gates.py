@@ -179,6 +179,7 @@ class Circuit:
         self.gates = gates
         self.bool_variables = []
         self.cost = 0
+        self.measured_qubits = []
         if len(gates) == 0:
             self.gates = [None] * d
             self.bool_variables = [None] * d
@@ -195,6 +196,8 @@ class Circuit:
             gate = self.gates[d]
             if gate is None: continue
             circuit_str += f"{gate}\n"
+        for qubit in self.measured_qubits:
+            circuit_str += f"measure q[{qubit}] -> c[{qubit}];\n"
         return circuit_str
     
     def __repr__(self) -> str:
@@ -212,7 +215,8 @@ class Circuit:
             attribute(*gate.qubits)
         circuit.draw(output="mpl", filename=output_file, reverse_bits=True)
         
-        
+    def add_measurement(self, qubits: list[int]) -> None:
+        self.measured_qubits.extend(qubits)
             
     def append(self, gate: Gate) -> None:
         self.gates.append(gate)
@@ -233,3 +237,12 @@ class Circuit:
             if gate.name == 't' or gate.name == 'tdg':
                 count += 1
         return count
+    
+    def gate_count(self) -> int:
+        return len(self.gates)
+    
+    def get_cost(self) -> int:
+        return self.cost
+    
+    def set_cost(self, cost: int) -> None:
+        self.cost = cost

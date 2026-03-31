@@ -143,10 +143,10 @@ class FiveTuple:
                 (expr2.d - expr1.d <= bigM * (1 - sel)),
             ))
         elif gen.mode == "gurobi":
-            gen.add_assertion((sel == 1) >> (expr1.a == expr2.a))
-            gen.add_assertion((sel == 1) >> (expr1.b == expr2.b))
-            gen.add_assertion((sel == 1) >> (expr1.c == expr2.c))
-            gen.add_assertion((sel == 1) >> (expr1.d == expr2.d))
+            gen.add_assertion(gen.Indicator(sel, gen.Equals(expr1.a, expr2.a)))
+            gen.add_assertion(gen.Indicator(sel, gen.Equals(expr1.b, expr2.b)))
+            gen.add_assertion(gen.Indicator(sel, gen.Equals(expr1.c, expr2.c)))
+            gen.add_assertion(gen.Indicator(sel, gen.Equals(expr1.d, expr2.d)))
 
     @classmethod
     def constrained_rescaling(cls, bigM, sel, r1, r2, fivetuple1, fivetuple2, exponent, parity, rel):
@@ -160,10 +160,10 @@ class FiveTuple:
             # rescale fivetuple1 by exponent
                 bigM = 2 * tmp * a1
                 if gen.mode == "gurobi":
-                    gen.add_assertion((sel == 1) >> (a1 * fivetuple1.a == r1.a))
-                    gen.add_assertion((sel == 1) >> (a1 * fivetuple1.b == r1.b))
-                    gen.add_assertion((sel == 1) >> (a1 * fivetuple1.c == r1.c))
-                    gen.add_assertion((sel == 1) >> (a1 * fivetuple1.d == r1.d))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a1 * fivetuple1.a, r1.a)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a1 * fivetuple1.b, r1.b)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a1 * fivetuple1.c, r1.c)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a1 * fivetuple1.d, r1.d)))
                 else:
                     gen.add_assertion(a1 * fivetuple1.a - r1.a <= bigM * (1 - sel)) 
                     gen.add_assertion(r1.a - a1 * fivetuple1.a <= bigM * (1 - sel))
@@ -176,10 +176,10 @@ class FiveTuple:
 
                 bigM = 2 * tmp
                 if gen.mode == "gurobi":
-                    gen.add_assertion((sel == 1) >> (fivetuple2.a == r2.a))
-                    gen.add_assertion((sel == 1) >> (fivetuple2.b == r2.b))
-                    gen.add_assertion((sel == 1) >> (fivetuple2.c == r2.c))
-                    gen.add_assertion((sel == 1) >> (fivetuple2.d == r2.d))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple2.a, r2.a)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple2.b, r2.b)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple2.c, r2.c)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple2.d, r2.d)))
                 else:
                     gen.add_assertion(r2.a - fivetuple2.a <= bigM * (1 - sel))
                     gen.add_assertion(fivetuple2.a - r2.a <= bigM * (1 - sel))
@@ -192,10 +192,10 @@ class FiveTuple:
             else:
                 bigM = 2 * tmp
                 if gen.mode == "gurobi":
-                    gen.add_assertion((sel == 1) >> (fivetuple1.a == r1.a))
-                    gen.add_assertion((sel == 1) >> (fivetuple1.b == r1.b))
-                    gen.add_assertion((sel == 1) >> (fivetuple1.c == r1.c))
-                    gen.add_assertion((sel == 1) >> (fivetuple1.d == r1.d))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple1.a, r1.a)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple1.b, r1.b)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple1.c, r1.c)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple1.d, r1.d)))
                 else:
                     gen.add_assertion(r1.a - fivetuple1.a <= bigM * (1 - sel)) 
                     gen.add_assertion(fivetuple1.a - r1.a <= bigM * (1 - sel))
@@ -208,10 +208,10 @@ class FiveTuple:
 
                 bigM = 2 * a2 * tmp
                 if gen.mode == "gurobi":
-                    gen.add_assertion((sel == 1) >> (a2 * fivetuple2.a == r2.a))
-                    gen.add_assertion((sel == 1) >> (a2 * fivetuple2.b == r2.b))
-                    gen.add_assertion((sel == 1) >> (a2 * fivetuple2.c == r2.c))
-                    gen.add_assertion((sel == 1) >> (a2 * fivetuple2.d == r2.d))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a2 * fivetuple2.a, r2.a)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a2 * fivetuple2.b, r2.b)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a2 * fivetuple2.c, r2.c)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a2 * fivetuple2.d, r2.d)))
                 else:
                     gen.add_assertion(r2.a - a2 * fivetuple2.a <= bigM * (1 - sel))
                     gen.add_assertion(a2 * fivetuple2.a - r2.a <= bigM * (1 - sel))
@@ -226,10 +226,10 @@ class FiveTuple:
             if rel == "<=":
                 bigM = 3 * tmp * a1
                 if gen.mode == "gurobi":
-                    gen.add_assertion((sel == 1) >> (a1 * (fivetuple1.b - fivetuple1.d) == r1.a))
-                    gen.add_assertion((sel == 1) >> (a1 * (fivetuple1.a + fivetuple1.c) == r1.b))
-                    gen.add_assertion((sel == 1) >> (a1 * (fivetuple1.b + fivetuple1.d) == r1.c))
-                    gen.add_assertion((sel == 1) >> (a1 * (fivetuple1.c - fivetuple1.a) == r1.d))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a1 * (fivetuple1.b - fivetuple1.d), r1.a)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a1 * (fivetuple1.a + fivetuple1.c), r1.b)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a1 * (fivetuple1.b + fivetuple1.d), r1.c)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a1 * (fivetuple1.c - fivetuple1.a), r1.d)))
                 else:
                     gen.add_assertion(a1 * (fivetuple1.b - fivetuple1.d) - r1.a <= bigM * (1 - sel))
                     gen.add_assertion(r1.a - a1 * (fivetuple1.b - fivetuple1.d) <= bigM * (1 - sel))
@@ -243,10 +243,10 @@ class FiveTuple:
 
                 bigM = 2 * tmp
                 if gen.mode == "gurobi":
-                    gen.add_assertion((sel == 1) >> (fivetuple2.a == r2.a))
-                    gen.add_assertion((sel == 1) >> (fivetuple2.b == r2.b))
-                    gen.add_assertion((sel == 1) >> (fivetuple2.c == r2.c))
-                    gen.add_assertion((sel == 1) >> (fivetuple2.d == r2.d))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple2.a, r2.a)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple2.b, r2.b)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple2.c, r2.c)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple2.d, r2.d)))
                 else:
                     gen.add_assertion(r2.a - fivetuple2.a <= bigM * (1 - sel))
                     gen.add_assertion(fivetuple2.a - r2.a <= bigM * (1 - sel))
@@ -259,10 +259,10 @@ class FiveTuple:
             else:
                 bigM = 3 * tmp * a2
                 if gen.mode == "gurobi":
-                    gen.add_assertion((sel == 1) >> (a2 * (fivetuple2.b - fivetuple2.d) == r2.a))
-                    gen.add_assertion((sel == 1) >> (a2 * (fivetuple2.a + fivetuple2.c) == r2.b))
-                    gen.add_assertion((sel == 1) >> (a2 * (fivetuple2.b + fivetuple2.d) == r2.c))
-                    gen.add_assertion((sel == 1) >> (a2 * (fivetuple2.c - fivetuple2.a) == r2.d))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a2 * (fivetuple2.b - fivetuple2.d), r2.a)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a2 * (fivetuple2.a + fivetuple2.c), r2.b)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a2 * (fivetuple2.b + fivetuple2.d), r2.c)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(a2 * (fivetuple2.c - fivetuple2.a), r2.d)))
                 else:
                     gen.add_assertion(r2.a - a2 * (fivetuple2.b - fivetuple2.d) <= bigM * (1 - sel))
                     gen.add_assertion(a2 * (fivetuple2.b - fivetuple2.d) - r2.a <= bigM * (1 - sel))
@@ -275,10 +275,10 @@ class FiveTuple:
 
                 bigM = 2 * tmp
                 if gen.mode == "gurobi":
-                    gen.add_assertion((sel == 1) >> (fivetuple1.a == r1.a))
-                    gen.add_assertion((sel == 1) >> (fivetuple1.b == r1.b))
-                    gen.add_assertion((sel == 1) >> (fivetuple1.c == r1.c))
-                    gen.add_assertion((sel == 1) >> (fivetuple1.d == r1.d))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple1.a, r1.a)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple1.b, r1.b)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple1.c, r1.c)))
+                    gen.add_assertion(gen.Indicator(sel, gen.Equals(fivetuple1.d, r1.d)))
                 else:
                     gen.add_assertion(r1.a - fivetuple1.a <= bigM * (1 - sel))
                     gen.add_assertion(fivetuple1.a - r1.a <= bigM * (1 - sel))

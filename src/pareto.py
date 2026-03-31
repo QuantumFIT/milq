@@ -98,7 +98,8 @@ class Pareto:
         output_qasm = f"pareto_front/pareto_{depth}_{cost_x}_{cost_y:.3f}.qasm"
         recovery_output_qasm = f"pareto_front/pareto_{depth}_{cost_x}_{cost_y:.3f}_recovery.qasm"
         circuit.write_to_file(output_qasm)
-        recovery_circuit.write_to_file(recovery_output_qasm)
+        if recovery_circuit is not None:
+            recovery_circuit.write_to_file(recovery_output_qasm)
     
     def timeout_met(self) -> bool:
         return self.tmout_met

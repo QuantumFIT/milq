@@ -20,7 +20,7 @@ class Simulator:
     simulate quantum circuit using the representation for synthesis - complex, fivetuples, ntuples
     can simulate either normal circuits (all cbs) or RUS circuits (0, 1, + states)
     """
-    def __init__(self, qasm_file: str = None, matrix: np.array = None, complex_representation: type[Vector] = FiveTuple):
+    def __init__(self, qasm_file: str = None, matrix: np.array = None, complex_representation: type[Vector] = FiveTuple, meas: int = 0):
         if matrix is not None and qasm_file is not None:
             raise ValueError("matrix and qasm_file cannot be provided at the same time")
         if matrix is None and qasm_file is None:
@@ -37,6 +37,7 @@ class Simulator:
         self.stats['qreg'] = ''
         self.stats['max_k'] = 0
         self.stats['input_circuit'] = []
+        self.measurement_outcome = meas
 
     """
     parse the input qasm file into a sequence of gates with a respective list of qubits
@@ -235,8 +236,7 @@ class Simulator:
                                 new_vec[other] = vector[pos]
                                 
                         elif op == 'measure' or op == 'meas':
-                            # TODO: MEASUREMENT ALWAYS RESULTS IN |0> ON THE QUBIT
-                            new_vec = vector.measure(qubits, 0)
+                            new_vec = vector.measure(qubits, self.measurement_outcome)
                             break
                         else:
                             raise NotImplementedError(f"Gate {op} is not yet implemented")
@@ -276,6 +276,13 @@ class Simulator:
         vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
         vec[0] = self.complex_representation.one(None)
         vectors = [vec]
+        return self.simulate(vectors, gates)
+    
+    """
+    simulate input circuit with a set of custom input vectors
+    """
+    def simulate_custom(self, vectors: list[Vector]) -> list[tuple[Vector, Vector]]:
+        gates, _ = self.parse_file()
         return self.simulate(vectors, gates)
 
     """

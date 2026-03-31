@@ -16,6 +16,7 @@ parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for t
 parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "nTuple", "Classic"], default="FiveTuple")
 parser.add_argument('-T', '--targets', type=int, help='number of target qubits', required=False, default=1)
 parser.add_argument('-A', '--ancillas', type=int, help='number of ancilla qubits', required=False, default=1)
+parser.add_argument('-m', '--meas', type=int, help='determine measurement outcome - if not set, default is 0 (|0>)', required=False, default=0)
 args = parser.parse_args()
 
 if args.complex_representation == "FiveTuple":
@@ -25,7 +26,7 @@ elif args.complex_representation == "nTuple":
 elif args.complex_representation == "Classic":
     complex_representation = Complex
 
-simulator = Simulator(qasm_file=args.qasm_file, complex_representation=complex_representation)
+simulator = Simulator(qasm_file=args.qasm_file, complex_representation=complex_representation, meas=args.meas)
 start_time = time.time()
 if args.vectors == "zero":
     res = simulator.simulate_zero()

@@ -123,6 +123,7 @@ class ModelParser:
             if variable.startswith("W"):
                 if value_obj is None: continue
                 indice = int(variable.split("W")[1].strip())
+                if indice > self.d: continue
                 if indice > best_indice:
                     best_indice = indice
                 if isinstance(value_obj, int):
@@ -132,10 +133,10 @@ class ModelParser:
                 else:
                     costs[indice] = int(value_obj.constant_value())
         self.stats['cost'] = costs[best_indice]
-        circ.cost = self.stats['cost']
+        circ.set_cost(self.stats['cost'])
         return circ, out_vectors
 
-    def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm", complex_representation: any = None, write_to_file : bool = True, v : int = 0) -> tuple[bool, Circuit, list[Vector]]:
+    def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm", complex_representation: any = None, write_to_file : bool = True, draw_circuit : bool = False, v : int = 0) -> tuple[bool, Circuit, list[Vector]]:
         if complex_representation is not None:
             self.complex_representation = complex_representation
         self.v = v
@@ -155,8 +156,9 @@ class ModelParser:
 
         if write_to_file:
             circ.write_to_file(output_qasm)
+        if draw_circuit:
             png_filename = output_qasm.split(".")[0] + ".png"
-            #circ.draw(output_file=png_filename)
+            circ.draw(output_file=png_filename)
         return True, circ, vectors
 
     def get_stats(self) -> dict:

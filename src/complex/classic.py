@@ -33,8 +33,8 @@ class Complex:
                 
             ))
         elif gen.mode == "gurobi":
-            gen.add_assertion((sel == 1) >> (expr1.real == expr2.real))
-            gen.add_assertion((sel == 1) >> (expr1.imag == expr2.imag))
+            gen.add_assertion(gen.Indicator(sel, gen.Equals(expr1.real, expr2.real)))
+            gen.add_assertion(gen.Indicator(sel, gen.Equals(expr1.imag, expr2.imag)))
         
     def __add__(self, other):
         if self.gen is None:

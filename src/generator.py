@@ -41,7 +41,9 @@ class Generator:
 
     def _gp_params(self):
         self.lp_problem.Params.IntFeasTol = 1e-9
+        self.lp_problem.Params.FeasibilityTol = 1e-9
         self.lp_problem.Params.MIPGap = 1e-9
+        self.lp_problem.Params.OutputFlag = 0
 
     def add_assertion(self, assertion):
         if self.mode == "pysmt":
@@ -62,6 +64,7 @@ class Generator:
             if self.lp_problem is None:
                 self.lp_problem = gp.Model("Circuit_Synthesis")
                 self._gp_params()
+                self.lp_problem.setObjective(0, GRB.MINIMIZE)
             self.lp_problem.update()
             self.lp_problem.addConstr(assertion, name=f"assertion_{self.stats['assertions']}")
         self.stats['assertions'] += 1
@@ -204,6 +207,25 @@ class Generator:
             for arg in args:
                 self.add_assertion(self.LE(arg, helper_var))
             self.add_assertion(self.LE(helper_var, self.Sum(args)))
+            
+    def Indicator(self, sel, expr):
+        # sel == 1 >> expr
+        if self.mode == "gurobi":
+            return ((sel == 1) >> expr)
+        else:
+            raise NotImplementedError("Indicator not supported in milp/pysmt/smtlib mode")
+    
+    def NotIndicator(self, sel, expr):
+        if self.mode == "gurobi":
+            return ((sel == 0) >> expr)
+        else:
+            raise NotImplementedError("NotIndicator not supported in milp/pysmt/smtlib mode")
+        
+    def Abs(self, x):
+        if self.mode == "gurobi":
+            return gp.abs_(x)
+        else:
+            raise NotImplementedError("Abs not supported in milp/pysmt/smtlib mode")
 
     def Not(self, x):
         if self.mode == "pysmt":
@@ -226,19 +248,17 @@ class Generator:
         if self.mode == "milp" or self.mode == "gurobi":
             return self.add_assertion(self.Sum([bool_variable for bool_variable in args]) >= 1)
         elif self.mode == "pysmt" or self.mode == "smtlib":
-            return self.Or(*args)
+            return self.add_assertion(self.Or(*args))
     
     def AtMostOne(self, *args):
         # (NOT x1 or x2) and NOT (x1 and x3) ...
-        if self.mode == "milp":
+        if self.mode == "milp" or self.mode == "pysmt" or self.mode == "smtlib":
             for i in range(len(args)):
                 others = [args[j] for j in range(len(args)) if j != i]
                 for other in others:
                     self.add_assertion(self.Or(self.Not(args[i]), self.Not(other)))
         elif self.mode == "gurobi":
             self.lp_problem.addSOS(GRB.SOS_TYPE1, [args[i] for i in range(len(args))])
-        elif self.mode == "pysmt" or self.mode == "smtlib":
-            raise NotImplementedError("AtMostOne not supported in milp/gurobi mode")
 
     def ExactlyOne(self, *args):
         if self.mode == "milp":

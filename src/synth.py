@@ -46,6 +46,9 @@ class Synthesizer:
         self.vec_mode = None
         self.pareto_front = None
         self.up_to_global_phase = False
+        self.targets = 1
+        self.ancillas = 0
+        self.vector_mode = None
         
     def __exit__(self) -> None:
         if self.gen.mode == "pysmt":
@@ -584,44 +587,20 @@ class Synthesizer:
         
         return rescaled1, rescaled2
     
-    def encode_equivalence_enumeration(self, vec1, vec2, pair_idx):
+    def encode_equivalence_up_to_global_phase(self, vec1, vec2, pair_idx, post_measurement : bool = False):
         if self.gen.mode == "milp" or self.gen.mode == "gurobi":
             if self.complex_representation == Complex:
-                # vec1 == e^(j*theta) * norm(vec1) * vec2
-                # vec1 == (a+bi) * vec2
-                # equivalence up to global phase and up to normalization factor
-                #e = self.complex_representation(name=f"unknown_e", generator=self.gen)
-                # e cant be equal to zero, so e >= eps or e <= -eps
-                """
-                eps = 1e-8
-                e = self.gen.declare_real(f"unknown_e_{self.gen.stats['reals']}", lb=eps, ub=1.0)
-                bigM = 1.5
-                self.gen.add_assertion(self.gen.GE(e, eps))
-                for i in range(2**self.q):
-                    self.gen.add_assertion(self.gen.Equals(vec1[i],  vec2[i].multiply_by_real(e)))
-                """
                 e = self.complex_representation(name=f"unknown_e", generator=self.gen)
-                non_zero_index = 0
-                for i in range(2**self.q):
-                    if vec2[i] != self.complex_representation.zero():
-                        non_zero_index = i
-                        break
-                #self.gen.add_assertion(self.gen.Equals(e, self.gen.Div(vec1[non_zero_index], vec2[non_zero_index])))
-                for i in range(2**self.q):
-                    if i == non_zero_index:
-                        continue
-                    self.gen.add_assertion(self.gen.Equals(self.gen.Times(vec1[i], vec2[non_zero_index]), self.gen.Times(vec1[non_zero_index], vec2[i])))
-                eps = 1e-8
-                or_var_real = self.gen.declare_bool(f"or_real_{self.gen.stats['bools']}")
-                or_var_imag = self.gen.declare_bool(f"or_imag_{self.gen.stats['bools']}")
-                bigM = 1 + eps
-                self.gen.add_quadratic_assertion(self.gen.GE(self.gen.Plus(self.gen.Square(e.real), self.gen.Square(e.imag)), self.gen.Times(eps, eps)))
+                if post_measurement:
+                    # if post-measurement, e includes norm of v1, which means that it cant be equal to zero
+                    eps = 1e-6
+                    abs_r = self.gen.declare_real(f"abs_r_e", lb=0.0, ub=1.0)
+                    abs_i = self.gen.declare_real(f"abs_i_e", lb=0.0, ub=1.0)
+                    self.gen.add_assertion(self.gen.Equals(abs_r, self.gen.Abs(e.real)))
+                    self.gen.add_assertion(self.gen.Equals(abs_i, self.gen.Abs(e.imag)))
+                    self.gen.add_assertion(self.gen.GE(self.gen.Plus(abs_r, abs_i), self.gen.Real(eps)))
                 for i in range(2**self.q):
                     self.gen.add_assertion(self.gen.Equals(vec1[i], self.gen.Times(e, vec2[i])))
-                    #self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].real, self.gen.Times(e, vec2[i]).real), eps))
-                    #self.gen.add_assertion(self.gen.LE(self.gen.Minus(self.gen.Times(e, vec2[i]).real, vec1[i].real), eps))
-                    #self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].imag, self.gen.Times(e, vec2[i]).imag), eps))
-                    #self.gen.add_assertion(self.gen.LE(self.gen.Minus(self.gen.Times(e, vec2[i]).imag, vec1[i].imag), eps))
             else:
                 raise ValueError("up-to-global-phase equivalence only for classic a+bj representation")
         else:
@@ -648,6 +627,10 @@ class Synthesizer:
             return cost + recovery_cost, prob_success
         except Exception as e:
             return np.inf, 0.0
+        
+    def circuit_cost(self, circuit) -> tuple[int, int]:
+        # x is circuit depth, y is the cost
+        return circuit.gate_count(), circuit.get_cost()
 
     def set_initial_values(self):
         for i, (gate, qubits) in enumerate(self.simulator.stats['input_circuit']):
@@ -710,6 +693,9 @@ class Synthesizer:
         self.d = d
         self.up_to_global_phase = up_to_global_phase
         self.encoding_method = mode
+        self.vector_mode = vectors
+        self.targets = targets
+        self.ancillas = ancillas
 
         if vectors in ["zero", "all", "rus", "jamiolkowski"]:
             # set circuit statistics to prepare synthesis
@@ -879,105 +865,92 @@ class Synthesizer:
                 if self.encoding_method == "pareto-incremental":
                     for pair_idx in range(len(vector_pairs)):
                         target = vector_pairs[pair_idx][1]
-                        inter = inter_vectors[pair_idx][self.curr_depth].measure(list(range(1, self.q)), 0)
-                        print(inter)
-                        for i in range(2**self.q):
-                            if target[i] != self.complex_representation.zero():
-                                # constrain inter[i] to not be equal to 0
-                                eps = 1e-8
-                                or_var_real = self.gen.declare_bool(f"or_real_{self.gen.stats['bools']}")
-                                or_var_imag = self.gen.declare_bool(f"or_imag_{self.gen.stats['bools']}")
-                                bigM = 1.0 + eps
-                                self.gen.add_assertion(self.gen.GE(inter[i].real, self.gen.Minus(eps, bigM*(1 - or_var_real))))
-                                self.gen.add_assertion(self.gen.LE(inter[i].real, self.gen.Plus(-eps, bigM*or_var_real)))
-                                self.gen.add_assertion(self.gen.GE(inter[i].imag, self.gen.Minus(eps, bigM*(1 - or_var_imag))))
-                                self.gen.add_assertion(self.gen.LE(inter[i].imag, self.gen.Plus(-eps, bigM*or_var_imag)))
-                                self.gen.add_assertion(self.gen.GE(self.gen.Plus(or_var_real, or_var_imag), self.gen.Int(1)))
-                        self.encode_equivalence_enumeration(inter, target, pair_idx)
+                        if self.vector_mode == "rus":
+                            inter = inter_vectors[pair_idx][self.curr_depth].measure(list(range(1, self.q)), 0)
+                            self.encode_equivalence_up_to_global_phase(inter, target, pair_idx, post_measurement=True)
+                        else:
+                            inter = inter_vectors[pair_idx][self.curr_depth]
+                            self.encode_equivalence_up_to_global_phase(inter, target, pair_idx, post_measurement=False)
 
-                    if self.gen.mode == "milp":
-                        formula_file = output_qasm.split(".")[0] + ".lp"
-                        self.gen.lp_problem.writeLP(formula_file)
-                    elif self.gen.mode == "gurobi":
-                        formula_file = output_qasm.split(".")[0] + ".lp"
-                        self.gen.lp_problem.write(formula_file)
-                    else:
-                        formula_file = output_qasm.split(".")[0] + ".smt2"
-                        self.gen.write_smtlib(formula_file)
+                    formula_file = self.gen.write_formula(output_qasm)
 
                     # enumerate models for this depth
                     sat = True
                     while sat:
-                        # returns (bool_variables, [out_vectors])
                         result, circuit, vectors = self.pareto_front.start(
                             lambda: self.solve_and_extract_circuit(
                                 formula_file=formula_file,
                                 output_qasm=output_qasm,
                                 write_to_file=True,
+                                draw_circuit=False,
                             )
                         )
                         if self.pareto_front.timeout_met():
                             self.pareto_front.cleanup()
                             return True, None, None
-                        print(result)
+                        print(f"Found RUS circuit:")
                         print(circuit)
-                        print(vectors)
                         if not result:
                             sat = False
                         else:
-                            # synthesize recovery operation
-                            measured_vectors = []
-                            for vector in vectors:
-                                measured_vectors.append(vector.measure(list(range(1, self.q)), 1)) # measure ancilla to 1, indicating failure
-                                
-                            vector_pairs_recovery = []
-                            for pair_idx in range(len(vector_pairs)):
-                                # create input state from the post-measurement state
-                                vector_pairs_recovery.append((measured_vectors[pair_idx].to_precision(1e-8), vector_pairs[pair_idx][0].to_precision(1e-8)))
-                            try:
-                                synthesizer = Synthesizer()
-                                gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
-                                res_recovery, recovery_circuit, recovery_vectors = self.pareto_front.start(
-                                    lambda: synthesizer.synthesis(
-                                        vector_pairs=vector_pairs_recovery,
-                                        vectors="custom",
-                                        q=self.q,
-                                        d=self.d,
-                                        gate_set=gate_set,
-                                        output_qasm=output_qasm.split(".")[0] + "_recovery.qasm",
-                                        solving="milp",
-                                        solver="gurobi",
-                                        mode="incremental",
-                                        complex_representation="Classic",
-                                        targets=1,
-                                        ancillas=1,
-                                        up_to_global_phase=True,
+                            cost_x, cost_y = 0.0, 0.0
+                            if self.vector_mode == "rus":
+                                # synthesize recovery operation
+                                measured_vectors = []
+                                for vector in vectors:
+                                    measured_vectors.append(vector.measure(list(range(1, self.q)), 1)) # measure ancilla to 1, indicating failure
+                                    
+                                vector_pairs_recovery = []
+                                for pair_idx in range(len(vector_pairs)):
+                                    # create input state from the post-measurement state
+                                    vector_pairs_recovery.append((measured_vectors[pair_idx].to_precision(1e-8), vector_pairs[pair_idx][0].to_precision(1e-8)))
+                                try:
+                                    print(vector_pairs_recovery)
+                                    synthesizer = Synthesizer()
+                                    gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
+                                    gate_set.set_t_optimal()
+                                    res_recovery, recovery_circuit, recovery_vectors = self.pareto_front.start(
+                                        lambda: synthesizer.synthesis(
+                                            vector_pairs=vector_pairs_recovery,
+                                            vectors="custom",
+                                            q=self.q,
+                                            d=self.d,
+                                            gate_set=gate_set,
+                                            output_qasm=output_qasm.split(".")[0] + "_recovery.qasm",
+                                            solving="gurobi",
+                                            solver="gurobi",
+                                            mode="incremental",
+                                            complex_representation="Classic",
+                                            targets=self.targets,
+                                            ancillas=self.ancillas,
+                                            up_to_global_phase=True,
+                                        )
                                     )
-                                )
-                                if self.pareto_front.timeout_met():
-                                    self.pareto_front.cleanup()
-                                    return True, None, None
-                                if not res_recovery:
+                                    if self.pareto_front.timeout_met():
+                                        self.pareto_front.cleanup()
+                                        return True, None, None
+                                    if not res_recovery:
+                                        recovery_circuit = Circuit(gates=[], q=self.q, d=self.d)
+                                        recovery_circuit.cost = np.inf
+                                except Exception as e:
                                     recovery_circuit = Circuit(gates=[], q=self.q, d=self.d)
                                     recovery_circuit.cost = np.inf
-                            except Exception as e:
-                                recovery_circuit = Circuit(gates=[], q=self.q, d=self.d)
-                                recovery_circuit.cost = np.inf
-                                
-                            cost_x, cost_y = self.rus_cost(circuit, recovery_circuit, vectors)
+                                    
+                                cost_x, cost_y = self.rus_cost(circuit, recovery_circuit, vectors)
+                            else:
+                                cost_x, cost_y = self.circuit_cost(circuit)
                             self.pareto_front.add_point(cost_x, cost_y, self.curr_depth, circuit, recovery_circuit)
                             self.gen.filter_model(circuit.bool_variables, self.curr_depth)
-
                     self.gen.pop()
                     self.curr_depth += 1
                             
                 else:
                     for pair_idx in range(len(vector_pairs)):
                         if self.up_to_global_phase:
-                            inter = inter_vectors[pair_idx][self.curr_depth].measure(list(range(1, self.q)), 1)
+                            inter = inter_vectors[pair_idx][self.curr_depth]
                             target = vector_pairs[pair_idx][1]
                             # synthesizing recovery operation
-                            self.encode_equivalence_enumeration(inter, target, pair_idx)
+                            self.encode_equivalence_up_to_global_phase(inter, target, pair_idx)
                         else:
                             self.encode_equivalence(inter_vectors[pair_idx][self.curr_depth], target_vectors[pair_idx], pair_idx)
                     
@@ -1026,7 +999,7 @@ class Synthesizer:
             self.gen.solver.pop()
 
         if best_model is not None:
-            return self.parser.parse(best_model, self.q, self.d, output_qasm, write_to_file=True, v=self.v)
+            return self.parser.parse(best_model, self.q, self.d, output_qasm, write_to_file=True, draw_circuit=False, v=self.v)
         else:
             return False, None, None
         
@@ -1037,7 +1010,7 @@ class Synthesizer:
             self.gen.add_assertion(self.gen.LT(weights[self.d], self.gen.Int(i)))
             result = self.gen.solver.solve()
             if result:
-                return self.parser.parse(self.gen.solver.get_model(), self.q, self.d, output_qasm, write_to_file=True, v=self.v)
+                return self.parser.parse(self.gen.solver.get_model(), self.q, self.d, output_qasm, write_to_file=True, draw_circuit=False, v=self.v)
             self.gen.solver.pop()
             i += 1
 
@@ -1055,7 +1028,7 @@ class Synthesizer:
             else:
                 # first unsolvable, return best model
                 if best_model is not None:
-                    return self.parser.parse(best_model, self.q, self.d, output_qasm, write_to_file=True, v=self.v)
+                    return self.parser.parse(best_model, self.q, self.d, output_qasm, write_to_file=True, draw_circuit=False, v=self.v)
                 else:
                     return False, None, None
             self.gen.solver.pop()
@@ -1063,7 +1036,7 @@ class Synthesizer:
 
         return False, None, None
 
-    def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", solver=None, write_to_file = True) -> bool:
+    def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", solver=None, write_to_file = True, draw_circuit = False) -> bool:
         """    
             formula_file: Path to the formula file
             output_qasm: Output filename for QASM circuit
@@ -1081,24 +1054,26 @@ class Synthesizer:
             solver.solve(self.gen.lp_problem)
             if LpStatus[self.gen.lp_problem.status].lower() == "optimal":
                 print(f"Solver status: {LpStatus[self.gen.lp_problem.status]}")
-                for var in self.gen.lp_problem.variables():
-                    print(f"Variable: {var.name}, Value: {var.value()}")
-                return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
+                #for var in self.gen.lp_problem.variables():
+                #    print(f"Variable: {var.name}, Value: {var.value()}")
+                return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
             elif LpStatus[self.gen.lp_problem.status].lower() == "infeasible":
                 return False, None, None
             else:
                 # solution can be Sub-optimal (unable to solve some node relaxations)
-                return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
+                return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
         elif self.gen.mode == "gurobi":
             if self.gen.lp_problem is None:
                 raise ValueError("gurobi model is not set")
             self.gen.lp_problem.optimize()
             if self.gen.lp_problem.status == GRB.OPTIMAL:
-                return self.parser.parse(self.gen.lp_problem.getVars(), self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
+                #for var in self.gen.lp_problem.getVars():
+                #    print(f"Variable: {var.VarName}, Value: {var.X}")
+                return self.parser.parse(self.gen.lp_problem.getVars(), self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
             elif self.gen.lp_problem.status == GRB.INFEASIBLE:
                 return False, None, None
             else:
-                return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)    
+                return self.parser.parse(self.gen, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)    
         
         elif self.gen.mode == "smtlib":
             solver_to_filename = {
@@ -1135,11 +1110,11 @@ class Synthesizer:
                 return False, None, None
             if result is None:
                 return False, None, None
-            return self.parser.parse(result.stdout, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
+            return self.parser.parse(result.stdout, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
         elif self.gen.mode == "pysmt":
             result = self.gen.solver.solve()
             if result:
                 model = self.gen.solver.get_model()
-                return self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, v=self.v)
+                return self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
             else:
                 return False, None, None

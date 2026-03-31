@@ -131,17 +131,22 @@ class FiveTuple:
     @classmethod
     def constrained_equals(cls, sel, bigM, expr1, expr2):
         gen = expr1.gen
-        gen.add_assertion(gen.And(
-            (expr1.a - expr2.a <= bigM * (1 - sel)),
-            (expr2.a - expr1.a <= bigM * (1 - sel)),
-            (expr1.b - expr2.b <= bigM * (1 - sel)),  
-            (expr2.b - expr1.b <= bigM * (1 - sel)),
-            (expr1.c - expr2.c <= bigM * (1 - sel)),
-            (expr2.c - expr1.c <= bigM * (1 - sel)),
-            (expr1.d - expr2.d <= bigM * (1 - sel)),
-            (expr2.d - expr1.d <= bigM * (1 - sel)),
-        ))
-        
+        if gen.mode == "milp":
+            gen.add_assertion(gen.And(
+                (expr1.a - expr2.a <= bigM * (1 - sel)),
+                (expr2.a - expr1.a <= bigM * (1 - sel)),
+                (expr1.b - expr2.b <= bigM * (1 - sel)),  
+                (expr2.b - expr1.b <= bigM * (1 - sel)),
+                (expr1.c - expr2.c <= bigM * (1 - sel)),
+                (expr2.c - expr1.c <= bigM * (1 - sel)),
+                (expr1.d - expr2.d <= bigM * (1 - sel)),
+                (expr2.d - expr1.d <= bigM * (1 - sel)),
+            ))
+        elif gen.mode == "gurobi":
+            gen.add_assertion((sel == 1) >> (expr1.a == expr2.a))
+            gen.add_assertion((sel == 1) >> (expr1.b == expr2.b))
+            gen.add_assertion((sel == 1) >> (expr1.c == expr2.c))
+            gen.add_assertion((sel == 1) >> (expr1.d == expr2.d))
 
     @classmethod
     def constrained_rescaling(cls, bigM, sel, r1, r2, fivetuple1, fivetuple2, exponent, parity, rel):
@@ -154,87 +159,135 @@ class FiveTuple:
             if rel == "<=":
             # rescale fivetuple1 by exponent
                 bigM = 2 * tmp * a1
-                gen.add_assertion(a1 * fivetuple1.a - r1.a <= bigM * sel)
-                gen.add_assertion(r1.a - a1 * fivetuple1.a <= bigM * sel)
-                gen.add_assertion(a1 * fivetuple1.b - r1.b <= bigM * sel)
-                gen.add_assertion(r1.b - a1 * fivetuple1.b <= bigM * sel)
-                gen.add_assertion(a1 * fivetuple1.c - r1.c <= bigM * sel)
-                gen.add_assertion(r1.c - a1 * fivetuple1.c <= bigM * sel)
-                gen.add_assertion(a1 * fivetuple1.d - r1.d <= bigM * sel)
-                gen.add_assertion(r1.d - a1 * fivetuple1.d <= bigM * sel)
+                if gen.mode == "gurobi":
+                    gen.add_assertion((sel == 1) >> (a1 * fivetuple1.a == r1.a))
+                    gen.add_assertion((sel == 1) >> (a1 * fivetuple1.b == r1.b))
+                    gen.add_assertion((sel == 1) >> (a1 * fivetuple1.c == r1.c))
+                    gen.add_assertion((sel == 1) >> (a1 * fivetuple1.d == r1.d))
+                else:
+                    gen.add_assertion(a1 * fivetuple1.a - r1.a <= bigM * (1 - sel)) 
+                    gen.add_assertion(r1.a - a1 * fivetuple1.a <= bigM * (1 - sel))
+                    gen.add_assertion(a1 * fivetuple1.b - r1.b <= bigM * (1 - sel))
+                    gen.add_assertion(r1.b - a1 * fivetuple1.b <= bigM * (1 - sel))
+                    gen.add_assertion(a1 * fivetuple1.c - r1.c <= bigM * (1 - sel))
+                    gen.add_assertion(r1.c - a1 * fivetuple1.c <= bigM * (1 - sel))
+                    gen.add_assertion(a1 * fivetuple1.d - r1.d <= bigM * (1 - sel))
+                    gen.add_assertion(r1.d - a1 * fivetuple1.d <= bigM * (1 - sel))
 
                 bigM = 2 * tmp
-                gen.add_assertion(r2.a - fivetuple2.a <= bigM * sel)
-                gen.add_assertion(fivetuple2.a - r2.a <= bigM * sel)
-                gen.add_assertion(r2.b - fivetuple2.b <= bigM * sel)
-                gen.add_assertion(fivetuple2.b - r2.b <= bigM * sel)
-                gen.add_assertion(r2.c - fivetuple2.c <= bigM * sel)
-                gen.add_assertion(fivetuple2.c - r2.c <= bigM * sel)
-                gen.add_assertion(r2.d - fivetuple2.d <= bigM * sel)
-                gen.add_assertion(fivetuple2.d - r2.d <= bigM * sel)
+                if gen.mode == "gurobi":
+                    gen.add_assertion((sel == 1) >> (fivetuple2.a == r2.a))
+                    gen.add_assertion((sel == 1) >> (fivetuple2.b == r2.b))
+                    gen.add_assertion((sel == 1) >> (fivetuple2.c == r2.c))
+                    gen.add_assertion((sel == 1) >> (fivetuple2.d == r2.d))
+                else:
+                    gen.add_assertion(r2.a - fivetuple2.a <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple2.a - r2.a <= bigM * (1 - sel))
+                    gen.add_assertion(r2.b - fivetuple2.b <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple2.b - r2.b <= bigM * (1 - sel))
+                    gen.add_assertion(r2.c - fivetuple2.c <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple2.c - r2.c <= bigM * (1 - sel))
+                    gen.add_assertion(r2.d - fivetuple2.d <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple2.d - r2.d <= bigM * (1 - sel))
             else:
                 bigM = 2 * tmp
-                gen.add_assertion(r1.a - fivetuple1.a <= bigM * sel)
-                gen.add_assertion(fivetuple1.a - r1.a <= bigM * sel)
-                gen.add_assertion(r1.b - fivetuple1.b <= bigM * sel)
-                gen.add_assertion(fivetuple1.b - r1.b <= bigM * sel)
-                gen.add_assertion(r1.c - fivetuple1.c <= bigM * sel)
-                gen.add_assertion(fivetuple1.c - r1.c <= bigM * sel)
-                gen.add_assertion(r1.d - fivetuple1.d <= bigM * sel)
-                gen.add_assertion(fivetuple1.d - r1.d <= bigM * sel)
+                if gen.mode == "gurobi":
+                    gen.add_assertion((sel == 1) >> (fivetuple1.a == r1.a))
+                    gen.add_assertion((sel == 1) >> (fivetuple1.b == r1.b))
+                    gen.add_assertion((sel == 1) >> (fivetuple1.c == r1.c))
+                    gen.add_assertion((sel == 1) >> (fivetuple1.d == r1.d))
+                else:
+                    gen.add_assertion(r1.a - fivetuple1.a <= bigM * (1 - sel)) 
+                    gen.add_assertion(fivetuple1.a - r1.a <= bigM * (1 - sel))
+                    gen.add_assertion(r1.b - fivetuple1.b <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple1.b - r1.b <= bigM * (1 - sel))
+                    gen.add_assertion(r1.c - fivetuple1.c <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple1.c - r1.c <= bigM * (1 - sel))
+                    gen.add_assertion(r1.d - fivetuple1.d <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple1.d - r1.d <= bigM * (1 - sel))
 
                 bigM = 2 * a2 * tmp
-                gen.add_assertion(r2.a - a2 * fivetuple2.a <= bigM * sel)
-                gen.add_assertion(a2 * fivetuple2.a - r2.a <= bigM * sel)
-                gen.add_assertion(r2.b - a2 * fivetuple2.b <= bigM * sel)
-                gen.add_assertion(a2 * fivetuple2.b - r2.b <= bigM * sel)
-                gen.add_assertion(r2.c - a2 * fivetuple2.c <= bigM * sel)
-                gen.add_assertion(a2 * fivetuple2.c - r2.c <= bigM * sel)
-                gen.add_assertion(r2.d - a2 * fivetuple2.d <= bigM * sel)
-                gen.add_assertion(a2 * fivetuple2.d - r2.d <= bigM * sel)
+                if gen.mode == "gurobi":
+                    gen.add_assertion((sel == 1) >> (a2 * fivetuple2.a == r2.a))
+                    gen.add_assertion((sel == 1) >> (a2 * fivetuple2.b == r2.b))
+                    gen.add_assertion((sel == 1) >> (a2 * fivetuple2.c == r2.c))
+                    gen.add_assertion((sel == 1) >> (a2 * fivetuple2.d == r2.d))
+                else:
+                    gen.add_assertion(r2.a - a2 * fivetuple2.a <= bigM * (1 - sel))
+                    gen.add_assertion(a2 * fivetuple2.a - r2.a <= bigM * (1 - sel))
+                    gen.add_assertion(r2.b - a2 * fivetuple2.b <= bigM * (1 - sel))
+                    gen.add_assertion(a2 * fivetuple2.b - r2.b <= bigM * (1 - sel))
+                    gen.add_assertion(r2.c - a2 * fivetuple2.c <= bigM * (1 - sel))
+                    gen.add_assertion(a2 * fivetuple2.c - r2.c <= bigM * (1 - sel)) 
+                    gen.add_assertion(r2.d - a2 * fivetuple2.d <= bigM * (1 - sel))
+                    gen.add_assertion(a2 * fivetuple2.d - r2.d <= bigM * (1 - sel)) 
         else:
             # rescale fivetuple1 by the matrix M
             if rel == "<=":
                 bigM = 3 * tmp * a1
-                gen.add_assertion(a1 * (fivetuple1.b - fivetuple1.d) - r1.a <= bigM * sel)
-                gen.add_assertion(r1.a - a1 * (fivetuple1.b - fivetuple1.d) <= bigM * sel)
-                gen.add_assertion(a1 * (fivetuple1.a + fivetuple1.c) - r1.b <= bigM * sel)
-                gen.add_assertion(r1.b - a1 * (fivetuple1.a + fivetuple1.c) <= bigM * sel)
-                gen.add_assertion(a1 * (fivetuple1.b + fivetuple1.d) - r1.c <= bigM * sel)
-                gen.add_assertion(r1.c - a1 * (fivetuple1.b + fivetuple1.d) <= bigM * sel)
-                gen.add_assertion(a1 * (fivetuple1.c - fivetuple1.a) - r1.d <= bigM * sel)
-                gen.add_assertion(r1.d - a1 * (fivetuple1.c - fivetuple1.a) <= bigM * sel)
+                if gen.mode == "gurobi":
+                    gen.add_assertion((sel == 1) >> (a1 * (fivetuple1.b - fivetuple1.d) == r1.a))
+                    gen.add_assertion((sel == 1) >> (a1 * (fivetuple1.a + fivetuple1.c) == r1.b))
+                    gen.add_assertion((sel == 1) >> (a1 * (fivetuple1.b + fivetuple1.d) == r1.c))
+                    gen.add_assertion((sel == 1) >> (a1 * (fivetuple1.c - fivetuple1.a) == r1.d))
+                else:
+                    gen.add_assertion(a1 * (fivetuple1.b - fivetuple1.d) - r1.a <= bigM * (1 - sel))
+                    gen.add_assertion(r1.a - a1 * (fivetuple1.b - fivetuple1.d) <= bigM * (1 - sel))
+                    gen.add_assertion(a1 * (fivetuple1.a + fivetuple1.c) - r1.b <= bigM * (1 - sel))
+                    gen.add_assertion(r1.b - a1 * (fivetuple1.a + fivetuple1.c) <= bigM * (1 - sel))
+                    gen.add_assertion(a1 * (fivetuple1.b + fivetuple1.d) - r1.c <= bigM * (1 - sel))
+                    gen.add_assertion(r1.c - a1 * (fivetuple1.b + fivetuple1.d) <= bigM * (1 - sel))
+                    gen.add_assertion(a1 * (fivetuple1.c - fivetuple1.a) - r1.d <= bigM * (1 - sel))
+                    gen.add_assertion(r1.d - a1 * (fivetuple1.c - fivetuple1.a) <= bigM * (1 - sel))
 
 
                 bigM = 2 * tmp
-                gen.add_assertion(r2.a - fivetuple2.a <= bigM * sel)
-                gen.add_assertion(fivetuple2.a - r2.a <= bigM * sel)
-                gen.add_assertion(r2.b - fivetuple2.b <= bigM * sel)
-                gen.add_assertion(fivetuple2.b - r2.b <= bigM * sel)
-                gen.add_assertion(r2.c - fivetuple2.c <= bigM * sel)
-                gen.add_assertion(fivetuple2.c - r2.c <= bigM * sel)
-                gen.add_assertion(r2.d - fivetuple2.d <= bigM * sel)
-                gen.add_assertion(fivetuple2.d - r2.d <= bigM * sel)
+                if gen.mode == "gurobi":
+                    gen.add_assertion((sel == 1) >> (fivetuple2.a == r2.a))
+                    gen.add_assertion((sel == 1) >> (fivetuple2.b == r2.b))
+                    gen.add_assertion((sel == 1) >> (fivetuple2.c == r2.c))
+                    gen.add_assertion((sel == 1) >> (fivetuple2.d == r2.d))
+                else:
+                    gen.add_assertion(r2.a - fivetuple2.a <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple2.a - r2.a <= bigM * (1 - sel))
+                    gen.add_assertion(r2.b - fivetuple2.b <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple2.b - r2.b <= bigM * (1 - sel))
+                    gen.add_assertion(r2.c - fivetuple2.c <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple2.c - r2.c <= bigM * (1 - sel))
+                    gen.add_assertion(r2.d - fivetuple2.d <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple2.d - r2.d <= bigM * (1 - sel))
             else:
                 bigM = 3 * tmp * a2
-                gen.add_assertion(r2.a - a2 * (fivetuple2.b - fivetuple2.d) <= bigM * sel)
-                gen.add_assertion(a2 * (fivetuple2.b - fivetuple2.d) - r2.a <= bigM * sel)
-                gen.add_assertion(r2.b - a2 * (fivetuple2.a + fivetuple2.c) <= bigM * sel)
-                gen.add_assertion(a2 * (fivetuple2.a + fivetuple2.c) - r2.b <= bigM * sel)
-                gen.add_assertion(r2.c - a2 * (fivetuple2.b + fivetuple2.d) <= bigM * sel)
-                gen.add_assertion(a2 * (fivetuple2.b + fivetuple2.d) - r2.c <= bigM * sel)
-                gen.add_assertion(r2.d - a2 * (fivetuple2.c - fivetuple2.a) <= bigM * sel)
-                gen.add_assertion(a2 * (fivetuple2.c - fivetuple2.a) - r2.d <= bigM * sel)
+                if gen.mode == "gurobi":
+                    gen.add_assertion((sel == 1) >> (a2 * (fivetuple2.b - fivetuple2.d) == r2.a))
+                    gen.add_assertion((sel == 1) >> (a2 * (fivetuple2.a + fivetuple2.c) == r2.b))
+                    gen.add_assertion((sel == 1) >> (a2 * (fivetuple2.b + fivetuple2.d) == r2.c))
+                    gen.add_assertion((sel == 1) >> (a2 * (fivetuple2.c - fivetuple2.a) == r2.d))
+                else:
+                    gen.add_assertion(r2.a - a2 * (fivetuple2.b - fivetuple2.d) <= bigM * (1 - sel))
+                    gen.add_assertion(a2 * (fivetuple2.b - fivetuple2.d) - r2.a <= bigM * (1 - sel))
+                    gen.add_assertion(r2.b - a2 * (fivetuple2.a + fivetuple2.c) <= bigM * (1 - sel))
+                    gen.add_assertion(a2 * (fivetuple2.a + fivetuple2.c) - r2.b <= bigM * (1 - sel))
+                    gen.add_assertion(r2.c - a2 * (fivetuple2.b + fivetuple2.d) <= bigM * (1 - sel))
+                    gen.add_assertion(a2 * (fivetuple2.b + fivetuple2.d) - r2.c <= bigM * (1 - sel))
+                    gen.add_assertion(r2.d - a2 * (fivetuple2.c - fivetuple2.a) <= bigM * (1 - sel))
+                    gen.add_assertion(a2 * (fivetuple2.c - fivetuple2.a) - r2.d <= bigM * (1 - sel))
 
                 bigM = 2 * tmp
-                gen.add_assertion(r1.a - fivetuple1.a <= bigM * sel)
-                gen.add_assertion(fivetuple1.a - r1.a <= bigM * sel)
-                gen.add_assertion(r1.b - fivetuple1.b <= bigM * sel)
-                gen.add_assertion(fivetuple1.b - r1.b <= bigM * sel)
-                gen.add_assertion(r1.c - fivetuple1.c <= bigM * sel)
-                gen.add_assertion(fivetuple1.c - r1.c <= bigM * sel)
-                gen.add_assertion(r1.d - fivetuple1.d <= bigM * sel)
-                gen.add_assertion(fivetuple1.d - r1.d <= bigM * sel)
+                if gen.mode == "gurobi":
+                    gen.add_assertion((sel == 1) >> (fivetuple1.a == r1.a))
+                    gen.add_assertion((sel == 1) >> (fivetuple1.b == r1.b))
+                    gen.add_assertion((sel == 1) >> (fivetuple1.c == r1.c))
+                    gen.add_assertion((sel == 1) >> (fivetuple1.d == r1.d))
+                else:
+                    gen.add_assertion(r1.a - fivetuple1.a <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple1.a - r1.a <= bigM * (1 - sel))
+                    gen.add_assertion(r1.b - fivetuple1.b <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple1.b - r1.b <= bigM * (1 - sel))
+                    gen.add_assertion(r1.c - fivetuple1.c <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple1.c - r1.c <= bigM * (1 - sel))
+                    gen.add_assertion(r1.d - fivetuple1.d <= bigM * (1 - sel))
+                    gen.add_assertion(fivetuple1.d - r1.d <= bigM * (1 - sel))
 
     
     @classmethod

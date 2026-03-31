@@ -9,7 +9,7 @@ from synth import Synthesizer
 parser = argparse.ArgumentParser(description='CLI for the synthesis tool')
 parser.add_argument('qasm_file', type=str, help='qasm file to synthesize')
 parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for the synthesis', choices=["zero", "all", "rus", "jamiolkowski"], default="all")
-parser.add_argument('-s', '--solving', type=str, help='solving method to use', choices=["smt", "portfolio", "milp"], default="portfolio")
+parser.add_argument('-s', '--solving', type=str, help='solving method to use', choices=["smt", "portfolio", "milp", "gurobi"], default="portfolio")
 parser.add_argument('-m', '--mode', type=str, help='solving mode to use', choices=["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"], default="incremental")
 parser.add_argument('-a', '--solver', type=str, help='solver to use', required=False, choices=["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "gurobi"], default=None)
 parser.add_argument('-o', '--output_qasm', type=str, help='output qasm file', required=False, default="circuit.qasm")

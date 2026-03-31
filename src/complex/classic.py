@@ -24,13 +24,17 @@ class Complex:
     @classmethod
     def constrained_equals(cls, sel, bigM, expr1, expr2):
         gen = expr1.gen
-        gen.add_assertion(gen.And(
-            (expr1.real - expr2.real <= bigM * (1 - sel)),
-            (expr2.real - expr1.real <= bigM * (1 - sel)),
-            (expr1.imag - expr2.imag <= bigM * (1 - sel)),
-            (expr2.imag - expr1.imag <= bigM * (1 - sel)),
-            
-        ))
+        if gen.mode == "milp":
+            gen.add_assertion(gen.And(
+                (expr1.real - expr2.real <= bigM * (1 - sel)),
+                (expr2.real - expr1.real <= bigM * (1 - sel)),
+                (expr1.imag - expr2.imag <= bigM * (1 - sel)),
+                (expr2.imag - expr1.imag <= bigM * (1 - sel)),
+                
+            ))
+        elif gen.mode == "gurobi":
+            gen.add_assertion((sel == 1) >> (expr1.real == expr2.real))
+            gen.add_assertion((sel == 1) >> (expr1.imag == expr2.imag))
         
     def __add__(self, other):
         if self.gen is None:

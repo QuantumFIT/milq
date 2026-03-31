@@ -28,6 +28,7 @@ class Generator:
         self.integer_variables = set()
         self.real_variables = set()
         self.saved_lp_problem = None
+        self.gurobi_saved_push = None
         self.objective_assertions = []
         self.stats['reals'] = 0
         self.stats['integers'] = 0
@@ -38,25 +39,9 @@ class Generator:
         if self.solver == "dreal":
             self.logic = "QF_NRA"
 
-    def _ensure_gurobi_model(self):
-        if gp is None:
-            raise RuntimeError("gurobi mode requires gurobipy installed and a Gurobi license")
-        if self.lp_problem is None:
-            self.lp_problem = gp.Model("Circuit_Synthesis")
-
-    def _gurobi_declare_var(self, name, vtype, lb=None, ub=None):
-        self._ensure_gurobi_model()
-        if GRB is None:
-            raise RuntimeError("gurobipy is not installed")
-        if lb is None:
-            lb = -GRB.INFINITY
-        if ub is None:
-            ub = GRB.INFINITY
-        v = self.lp_problem.addVar(name=name, lb=lb, ub=ub, vtype=vtype)
-        self.lp_problem.update()
-        self.symbols[name] = v
-        self.declared_names.add(name)
-        return v
+    def _gp_params(self):
+        self.lp_problem.Params.IntFeasTol = 1e-9
+        self.lp_problem.Params.MIPGap = 1e-9
 
     def add_assertion(self, assertion):
         if self.mode == "pysmt":
@@ -74,13 +59,15 @@ class Generator:
         elif self.mode == "gurobi":
             if assertion is None:
                 return
-            self._ensure_gurobi_model()
+            if self.lp_problem is None:
+                self.lp_problem = gp.Model("Circuit_Synthesis")
+                self._gp_params()
+            self.lp_problem.update()
             self.lp_problem.addConstr(assertion, name=f"assertion_{self.stats['assertions']}")
         self.stats['assertions'] += 1
     
     def add_quadratic_assertion(self, assertion):
         if self.mode == "gurobi":
-            self._ensure_gurobi_model()
             self.lp_problem.addQConstr(assertion, name=f"assertion_{self.stats['assertions']}")
             self.stats['assertions'] += 1
         else:
@@ -88,16 +75,15 @@ class Generator:
 
     def add_objective(self, objective):
         if self.mode == "pysmt":
-            raise NotImplementedError("add_objective not supported in pysmt mode")
+            return
         elif self.mode == "smtlib":
-            raise NotImplementedError("add_objective not supported in smtlib mode")
+            return
         elif self.mode == "milp":
             # implementation "hack" for push/pop
             self.lp_problem += objective, f"assertion_{self.stats['assertions']}"
             self.objective_assertions.append(self.stats['assertions'])
             self.stats['assertions'] += 1
         elif self.mode == "gurobi":
-            self._ensure_gurobi_model()
             self.lp_problem.setObjective(objective, GRB.MINIMIZE)
         self.stats['objectives'] += 1
 
@@ -152,6 +138,12 @@ class Generator:
             return f"(= {x} {y})"
         elif self.mode == "milp" or self.mode == "gurobi":
             return x == y
+
+    def ConstrainedEquals(self, sel, x, y, bigM=None):
+        if self.mode == "pysmt" or self.mode == "smtlib":
+            return self.Implies(sel, self.Equals(x, y))
+        elif self.mode == "milp" or self.mode == "gurobi":
+            return x.constrained_equals(sel, bigM, x, y)
     
     def GE(self, x, y):
         if self.mode == "pysmt":
@@ -207,16 +199,11 @@ class Generator:
             return Or(*args)
         elif self.mode == "smtlib":
             return f"(or {' '.join(args)})"
-        elif self.mode == "milp":
+        elif self.mode == "milp" or self.mode == "gurobi":
             helper_var = self.declare_bool(f"or_{self.stats['bools']}")
             for arg in args:
                 self.add_assertion(self.LE(arg, helper_var))
-            self.add_assertion(self.LE(helper_var, lpSum(args)))
-        elif self.mode == "gurobi":
-            helper_var = self.declare_bool(f"or_{self.stats['bools']}")
-            for arg in args:
-                self.add_assertion(self.LE(arg, helper_var))
-            self.add_assertion(self.LE(helper_var, quicksum(args)))
+            self.add_assertion(self.LE(helper_var, self.Sum(args)))
 
     def Not(self, x):
         if self.mode == "pysmt":
@@ -225,6 +212,40 @@ class Generator:
             return f"(not {x})"
         elif self.mode == "milp" or self.mode == "gurobi":
             return 1 - x
+        
+    def Sum(self, *args):
+        if self.mode == "pysmt" or self.mode == "smtlib":
+            raise NotImplementedError("Sum not supported in milp/gurobi mode")
+        elif self.mode == "milp":
+            return lpSum(args)
+        elif self.mode == "gurobi":
+            return quicksum(*args)
+
+    def AtLeastOne(self, *args):
+        # OR between all 
+        if self.mode == "milp" or self.mode == "gurobi":
+            return self.add_assertion(self.Sum([bool_variable for bool_variable in args]) >= 1)
+        elif self.mode == "pysmt" or self.mode == "smtlib":
+            return self.Or(*args)
+    
+    def AtMostOne(self, *args):
+        # (NOT x1 or x2) and NOT (x1 and x3) ...
+        if self.mode == "milp":
+            for i in range(len(args)):
+                others = [args[j] for j in range(len(args)) if j != i]
+                for other in others:
+                    self.add_assertion(self.Or(self.Not(args[i]), self.Not(other)))
+        elif self.mode == "gurobi":
+            self.lp_problem.addSOS(GRB.SOS_TYPE1, [args[i] for i in range(len(args))])
+        elif self.mode == "pysmt" or self.mode == "smtlib":
+            raise NotImplementedError("AtMostOne not supported in milp/gurobi mode")
+
+    def ExactlyOne(self, *args):
+        if self.mode == "milp":
+            self.add_assertion(self.Sum([bool_variable for bool_variable in args]) == 1)
+        else:
+            self.AtLeastOne(*args)
+            self.AtMostOne(*args)
     
     def Implies(self, condition, expr):
         if self.mode == "pysmt":
@@ -262,6 +283,20 @@ class Generator:
         self.symbols[x] = var
         self.declared_names.add(x)
         return var
+
+    def _gurobi_declaration(self, x, type, lb=None, ub=None):
+        if lb is None:
+            lb = -GRB.INFINITY
+        if ub is None:
+            ub = GRB.INFINITY
+        if self.lp_problem is None:
+            self.lp_problem = gp.Model("Circuit_Synthesis")
+            self._gp_params()
+        var = self.lp_problem.addVar(name=x, lb=lb, ub=ub, vtype=type)
+        self.lp_problem.update()
+        self.symbols[x] = var
+        self.declared_names.add(x)
+        return var
     
     def declare_real(self, x, lb=None, ub=None):
         res = None
@@ -274,7 +309,7 @@ class Generator:
             elif self.mode == "milp":
                 res = self._milp_declaration(x, LpContinuous, lb, ub)
             elif self.mode == "gurobi":
-                res = self._gurobi_declare_var(x, GRB.CONTINUOUS, lb, ub)
+                res = self._gurobi_declaration(x, GRB.CONTINUOUS, lb, ub)
         else:
             res = self.format_real(x)
         
@@ -320,7 +355,7 @@ class Generator:
             elif self.mode == "milp":
                 res =  self._milp_declaration(x, LpInteger, lb, ub)
             elif self.mode == "gurobi":
-                res = self._gurobi_declare_var(x, GRB.INTEGER, lb, ub)
+                res = self._gurobi_declaration(x, GRB.INTEGER, lb, ub)
             self.stats['integers'] += 1
         else:
             res = self.format_integer(x)
@@ -363,7 +398,7 @@ class Generator:
             elif self.mode == "milp":
                 res = self._milp_declaration(x, LpBinary)
             elif self.mode == "gurobi":
-                res = self._gurobi_declare_var(x, GRB.BINARY, lb=0.0, ub=1.0)
+                res = self._gurobi_declaration(x, GRB.BINARY, lb=0.0, ub=1.0)
         else:
             if self.mode == "pysmt":
                 if x in self.symbols:
@@ -396,7 +431,6 @@ class Generator:
         elif self.mode == "milp":
             raise NotImplementedError("milp mode not yet supported")
         elif self.mode == "gurobi":
-            self._ensure_gurobi_model()
             self.lp_problem.setObjective(expression, GRB.MAXIMIZE)
     
     def minimize(self, expression):
@@ -407,15 +441,16 @@ class Generator:
         elif self.mode == "milp":
             raise NotImplementedError("milp mode not yet supported")
         elif self.mode == "gurobi":
-            self._ensure_gurobi_model()
             self.lp_problem.setObjective(expression, GRB.MINIMIZE)
     
-    def write_smtlib(self, filename):
+    def write_formula(self, filename):
         if self.mode == "pysmt":
+            filename = filename.split(".")[0] + ".smt2"
             from pysmt.shortcuts import write_smtlib
             formula = self.solver.environment.formula_manager.And(self.solver.assertions)
             write_smtlib(formula, filename)
         elif self.mode == "smtlib":
+            filename = filename.split(".")[0] + ".smt2"
             with open(filename, 'w') as f:
                 f.write(f"(set-logic {self.logic})\n")
                 self.declare_helpers()
@@ -434,10 +469,12 @@ class Generator:
                 f.write("(get-model)\n")                
                 f.write("\n")
         elif self.mode == "milp":
+            filename = filename.split(".")[0] + ".lp"
             self.lp_problem.writeLP(filename)
         elif self.mode == "gurobi":
-            self._ensure_gurobi_model()
+            filename = filename.split(".")[0] + ".lp"
             self.lp_problem.write(filename)
+        return filename
         
     def enumerate_k_values(self, n, pair_idx):
         if self.mode == "pysmt" or self.mode == "smtlib":
@@ -532,12 +569,9 @@ class Generator:
 
         # now retreive the boolean variable that will express the 2^i constant
         constants = [self.declare_bool(f"s{pair_idx}_{i}") for i in range(d+1)]
-        if self.mode == "milp":
-            self.add_assertion(lpSum([s for s in constants]) == 1)
-            self.add_assertion(k == lpSum([constants[i] * i for i in range(d+1)]))
-        elif self.mode == "gurobi":
-            self.add_assertion(quicksum(constants) == 1)
-            self.add_assertion(k == quicksum(constants[i] * i for i in range(d + 1)))
+        if self.mode == "milp" or self.mode == "gurobi":
+            self.add_assertion(self.Sum([s for s in constants]) == 1)
+            self.add_assertion(k == self.Sum([constants[i] * i for i in range(d+1)]))
         # now constants[i] is True iff k = i
         # next, determine if k is odd or even
 
@@ -555,7 +589,7 @@ class Generator:
                         self.add_assertion(and_var <= s)
                         self.add_assertion(and_var <= parity[1])
                         self.add_assertion(and_var >= (rel[1] + s + parity[1] - 2))
-                        complex_representation.constrained_rescaling(bigM, (1 - and_var), r1[i], r2[i], v1[i], v2[i], 2**j, parity[0], rel[0])
+                        complex_representation.constrained_rescaling(bigM, and_var, r1[i], r2[i], v1[i], v2[i], 2**j, parity[0], rel[0])
 
     def add_constraints(self, gate_set, last_encoded_layer, qubits):
         if last_encoded_layer < 1:
@@ -608,8 +642,8 @@ class Generator:
         if self.mode == "milp":
             self.saved_lp_problem = self.lp_problem.deepcopy()
         elif self.mode == "gurobi":
-            self._ensure_gurobi_model()
-            self.saved_lp_problem = self.lp_problem.copy()
+            self.lp_problem.update()
+            self.gurobi_saved_push = [constraint.ConstrName for constraint in self.lp_problem.getConstrs()]
         elif self.mode == "smtlib":
             raise NotImplementedError("push not supported in smtlib mode")
         elif self.mode == "pysmt":
@@ -619,7 +653,12 @@ class Generator:
         if self.mode == "milp":
             self.lp_problem = self.saved_lp_problem
         elif self.mode == "gurobi":
-            self.lp_problem = self.saved_lp_problem
+            self.lp_problem.update()
+            to_remove = [constr for constr in self.lp_problem.getConstrs() if constr.ConstrName not in self.gurobi_saved_push]
+            if to_remove:
+                self.lp_problem.remove(to_remove)
+            self.lp_problem.update()
+            self.gurobi_saved_push = []
         elif self.mode == "smtlib":
             raise NotImplementedError("pop not supported in smtlib mode")
         elif self.mode == "pysmt":
@@ -628,10 +667,8 @@ class Generator:
     def filter_model(self, model, depth):
         # not model -> not (g1 and g2 and g3 ...) -> (not g1 or not g2 or not g3 ...)
         # in milp, depth - g1 - g2 - g3 - ... >= 1 (if all gate are 1, this becomes 0, which is false)
-        if self.mode == "milp":
+        if self.mode == "milp" or self.mode == "gurobi":
             # cant just make it depth >= ... because of numerical imprecisions
-            self.add_assertion(depth - 0.5 >= lpSum([self.symbols[bool_var] for bool_var in model]))
-        elif self.mode == "gurobi":
-            self.add_assertion(depth - 0.5 >= quicksum([self.symbols[bool_var] for bool_var in model]))
+            self.add_assertion(depth - 0.5 >= self.Sum([self.symbols[bool_var] for bool_var in model]))
         elif self.mode == "smtlib" or self.mode == "pysmt":
             self.add_assertion(self.Not(self.And(*[self.symbols[bool_var] for bool_var in model])))

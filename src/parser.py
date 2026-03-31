@@ -71,55 +71,66 @@ class ModelParser:
         circ = Circuit(gates=[], q=self.q, d=self.d)
         out_vectors = [Vector(q=2**self.q, generator=None, element_representation=self.complex_representation, k=0) for _ in range(self.v)]
         for item in model:
+            value_obj = None
+            variable = None
             if isinstance(item, tuple) and len(item) >= 2:
+                # parsing general model
                 var_obj, value_obj = item[0], item[1]
                 variable = str(var_obj)
-                if variable.startswith("L"):
-                    parse = False
-                    if isinstance(value_obj, bool):
-                        if value_obj:
-                            parse = True
-                    else:
-                        if value_obj.is_true():
-                            parse = True
-                    if parse:
-                        parts = variable.split("_")
-                        d = int(parts[0][1:])
-                        gate = parts[1]
-                        gate_qubits = [int(p[1:]) for p in parts[2:]]
-                        gate = Gate(name=gate, qubits=gate_qubits)
-                        circ[d] = gate
-                
-                if variable.startswith("I_") and self.v != 0:
-                    # check that I_{pair_idx}_{d}_{indice}_part, d == depth
+            else:
+                # possibly parsing gurobi model
+                value_obj = item.X
+                variable = item.varName
+            if variable.startswith("L"):
+                parse = False
+                if isinstance(value_obj, bool):
+                    if value_obj:
+                        parse = True
+                elif isinstance(value_obj, float):
+                    if abs(value_obj - 1) < 1e-6:
+                        parse = True
+                else:
+                    if value_obj.is_true():
+                        parse = True
+                if parse:
                     parts = variable.split("_")
-                    d = int(parts[2])
-                    if d != self.d: continue
+                    d = int(parts[0][1:])
+                    gate = parts[1]
+                    gate_qubits = [int(p[1:]) for p in parts[2:]]
+                    gate = Gate(name=gate, qubits=gate_qubits)
+                    circ[d] = gate
+            
+            if variable.startswith("I_") and self.v != 0:
+                # check that I_{pair_idx}_{d}_{indice}_part, d == depth
+                parts = variable.split("_")
+                d = int(parts[2])
+                if d != self.d: continue
 
-                    if isinstance(value_obj, float) or isinstance(value_obj, int):
-                        # parse part of a vector -- check which vector by pair_idx, then index in the vector and which coefficient it is
-                        pair_idx = int(parts[1])
-                        if parts[3] == "k":
-                            out_vectors[pair_idx].k = int(value_obj)
-                        else:
-                            indice = int(parts[3])
-                            coeff = parts[4].strip()
-                            if coeff == "r":
-                                coeff = "real"
-                            elif coeff == "i":
-                                coeff = "imag"
-                        setattr(out_vectors[pair_idx][indice], coeff, value_obj)
-                if variable.startswith("W"):
-                    if value_obj is None: continue
-                    indice = int(variable.split("W")[1].strip())
-                    if indice > best_indice:
-                        best_indice = indice
-                    if isinstance(value_obj, int):
-                        costs[indice] = value_obj
-                    elif isinstance(value_obj, float):
-                        costs[indice] = int(value_obj)
+                if isinstance(value_obj, float) or isinstance(value_obj, int):
+                    # parse part of a vector -- check which vector by pair_idx, then index in the vector and which coefficient it is
+                    pair_idx = int(parts[1])
+                    if parts[3] == "k":
+                        out_vectors[pair_idx].k = int(value_obj)
+                        coeff = parts[3].strip()
                     else:
-                        costs[indice] = int(value_obj.constant_value())
+                        coeff = parts[4].strip()
+                        indice = int(parts[3])
+                        if coeff == "r":
+                            coeff = "real"
+                        elif coeff == "i":
+                            coeff = "imag"
+                    setattr(out_vectors[pair_idx][indice], coeff, value_obj)
+            if variable.startswith("W"):
+                if value_obj is None: continue
+                indice = int(variable.split("W")[1].strip())
+                if indice > best_indice:
+                    best_indice = indice
+                if isinstance(value_obj, int):
+                    costs[indice] = value_obj
+                elif isinstance(value_obj, float):
+                    costs[indice] = int(value_obj)
+                else:
+                    costs[indice] = int(value_obj.constant_value())
         self.stats['cost'] = costs[best_indice]
         circ.cost = self.stats['cost']
         return circ, out_vectors

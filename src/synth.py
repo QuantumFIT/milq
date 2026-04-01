@@ -51,6 +51,7 @@ class Synthesizer:
         self.ancillas = 0
         self.vector_mode = None
         self.solvers = {}
+        self.qubits_to_measure = None
         
     def __exit__(self) -> None:
         if self.gen.mode == "pysmt":
@@ -135,8 +136,11 @@ class Synthesizer:
         self.gen.ExactlyOne(*bool_variables)
 
         propagate_identities = []
+        # list of lists (for each index), each list contains pairs of (bool_var, operation)
+        saved_operations = []
         for pos in range(2**self.q):
             propagate_identities.append([])
+            saved_operations.append([])
 
         for selection_variable in selection_variables:
             bool_var = selection_variable[0]
@@ -147,7 +151,7 @@ class Synthesizer:
                 if gate == 'id':
                     if self.gen.mode == "milp" or self.gen.mode == "gurobi":
                         for pos in range(2**self.q):
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'h':
@@ -157,8 +161,8 @@ class Synthesizer:
                         other = pos ^ (1 << q)
                         modified_positions.append(pos)
                         modified_positions.append(other)
-                        self.gen.ConstrainedEquals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_sqrt2(self.gen)), self.layer_bigM)
-                        self.gen.ConstrainedEquals(bool_var, out[other], ((inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen)), self.layer_bigM)
+                        saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_sqrt2(self.gen))))
+                        saved_operations[other].append((bool_var, ((inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen))))
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
@@ -167,40 +171,40 @@ class Synthesizer:
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_i(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'sdg':
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_minus_i(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 't':
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_omega(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_omega(self.gen)))
                             propagate_identities[pos].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'tdg':
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_omega_counter(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_omega_counter(self.gen)))
                             propagate_identities[pos].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'x':
@@ -210,8 +214,8 @@ class Synthesizer:
                         other = pos ^ (1 << q)
                         modified_positions.append(pos)
                         modified_positions.append(other)
-                        self.gen.ConstrainedEquals(bool_var, out[pos], inp[other], self.layer_bigM)
-                        self.gen.ConstrainedEquals(bool_var, out[other], inp[pos], self.layer_bigM)
+                        saved_operations[pos].append((bool_var, inp[other]))
+                        saved_operations[other].append((bool_var, inp[pos]))
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
@@ -223,8 +227,8 @@ class Synthesizer:
                         other = pos ^ (1 << q)
                         modified_positions.append(pos)
                         modified_positions.append(other)
-                        self.gen.ConstrainedEquals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen)), self.layer_bigM)
-                        self.gen.ConstrainedEquals(bool_var, out[other], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen)), self.layer_bigM)
+                        saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
+                        saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
@@ -236,8 +240,8 @@ class Synthesizer:
                         other = pos ^ (1 << q)
                         modified_positions.append(pos)
                         modified_positions.append(other)
-                        self.gen.ConstrainedEquals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen)), self.layer_bigM)
-                        self.gen.ConstrainedEquals(bool_var, out[other], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen)), self.layer_bigM)
+                        saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
+                        saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
@@ -251,13 +255,13 @@ class Synthesizer:
                         modified_positions.append(other)
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[other].multiply_by_i(self.gen), self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], inp[pos].multiply_by_minus_i(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[other].multiply_by_i(self.gen)))
+                            saved_operations[other].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                         else:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[other].multiply_by_minus_i(self.gen), self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], inp[pos].multiply_by_i(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[other].multiply_by_minus_i(self.gen)))
+                            saved_operations[other].append((bool_var, inp[pos].multiply_by_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
@@ -266,10 +270,10 @@ class Synthesizer:
                     for pos in range(2**self.q):
                         one_flag = (pos >> q) & 1
                         if one_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_minus_one(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_one(self.gen)))
                             propagate_identities[pos].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
             elif len(rest) == 3: # two qubit
@@ -284,12 +288,12 @@ class Synthesizer:
                         if control_flag:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[other], self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[other]))
+                            saved_operations[other].append((bool_var, inp[pos]))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'xcx':
@@ -301,12 +305,12 @@ class Synthesizer:
                         if not control_flag:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[other], self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[other]))
+                            saved_operations[other].append((bool_var, inp[pos]))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'dcx':
@@ -327,7 +331,7 @@ class Synthesizer:
                             other = pos ^ (1 << q1)
                         if other is None: continue
                         modified_positions.append(other)
-                        self.gen.ConstrainedEquals(bool_var, out[other], inp[pos], self.layer_bigM)
+                        saved_operations[other].append((bool_var, inp[pos]))
                         propagate_identities[other].append(bool_var)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -340,12 +344,12 @@ class Synthesizer:
                         if control_flag:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
-                            self.gen.ConstrainedEquals(bool_var, out[pos], (inp[pos] + inp[other]).divide_by_sqrt2(self.gen), self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], (inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, (inp[pos] + inp[other]).divide_by_sqrt2(self.gen)))
+                            saved_operations[other].append((bool_var, (inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen)))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 1)
                 elif gate == 'csx':
@@ -357,12 +361,12 @@ class Synthesizer:
                         if control_flag:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
-                            self.gen.ConstrainedEquals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen)), self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen)), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
+                            saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
                 elif gate == 'cy':
@@ -376,17 +380,17 @@ class Synthesizer:
                             other = pos ^ (1 << q2)
                             modified_positions.append(other)
                             if control_flag and not target_flag:
-                                self.gen.ConstrainedEquals(bool_var, out[pos], inp[other].multiply_by_minus_i(self.gen), self.layer_bigM)
-                                self.gen.ConstrainedEquals(bool_var, out[other], inp[pos].multiply_by_i(self.gen), self.layer_bigM)
+                                saved_operations[pos].append((bool_var, inp[other].multiply_by_minus_i(self.gen)))
+                                saved_operations[other].append((bool_var, inp[pos].multiply_by_i(self.gen)))
                                 propagate_identities[pos].append(bool_var)
                                 propagate_identities[other].append(bool_var)
                             else:
-                                self.gen.ConstrainedEquals(bool_var, out[pos], inp[other].multiply_by_i(self.gen), self.layer_bigM)
-                                self.gen.ConstrainedEquals(bool_var, out[other], inp[pos].multiply_by_minus_i(self.gen), self.layer_bigM)
+                                saved_operations[pos].append((bool_var, inp[other].multiply_by_i(self.gen)))
+                                saved_operations[other].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
                                 propagate_identities[pos].append(bool_var)
                                 propagate_identities[other].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                         
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
@@ -395,10 +399,10 @@ class Synthesizer:
                         control_flag = (pos >> q1) & 1
                         target_flag = (pos >> q2) & 1
                         if control_flag and target_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_minus_one(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_one(self.gen)))
                             propagate_identities[pos].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'cs':
@@ -406,10 +410,10 @@ class Synthesizer:
                         control_flag = (pos >> q1) & 1
                         target_flag = (pos >> q2) & 1
                         if control_flag and target_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_i(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'csdg':
@@ -417,10 +421,10 @@ class Synthesizer:
                         control_flag = (pos >> q1) & 1
                         target_flag = (pos >> q2) & 1
                         if control_flag and target_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_minus_i(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'swap':
@@ -433,12 +437,12 @@ class Synthesizer:
                         if q1_flag != q2_flag:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[other], self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[other]))
+                            saved_operations[other].append((bool_var, inp[pos]))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'iswap':
@@ -451,12 +455,12 @@ class Synthesizer:
                         if q1_flag != q2_flag:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[other].multiply_by_i(self.gen), self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], inp[pos].multiply_by_i(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[other].multiply_by_i(self.gen)))
+                            saved_operations[other].append((bool_var, inp[pos].multiply_by_i(self.gen)))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'sqrtswap':
@@ -469,12 +473,12 @@ class Synthesizer:
                         if q1_flag != q2_flag:
                             other = pos ^ ((1 << q1) | (1 << q2))
                             modified_positions.append(other)
-                            self.gen.ConstrainedEquals(bool_var, out[pos], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen)), self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen)), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
+                            saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                         else:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_two(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_two(self.gen)))
                             propagate_identities[pos].append(bool_var)
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_incr(bool_var, out.k, inp.k, 2)
@@ -492,12 +496,12 @@ class Synthesizer:
                         if q1_flag and q2_flag:
                             other = pos ^ (1 << q3)
                             modified_positions.append(other)
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[other], self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[other]))
+                            saved_operations[other].append((bool_var, inp[pos]))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'cswap':
@@ -511,12 +515,12 @@ class Synthesizer:
                         if q1_flag and (q2_flag != q3_flag):
                             other = pos ^ ((1 << q2) | (1 << q3))
                             modified_positions.append(other)
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[other], self.layer_bigM)
-                            self.gen.ConstrainedEquals(bool_var, out[other], inp[pos], self.layer_bigM)
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
+                            saved_operations[pos].append((bool_var, inp[other]))
+                            saved_operations[other].append((bool_var, inp[pos]))
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'ccz':
@@ -525,10 +529,10 @@ class Synthesizer:
                         q2_flag = (pos >> q2) & 1
                         q3_flag = (pos >> q3) & 1
                         if q1_flag and q2_flag and q3_flag:
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos].multiply_by_minus_one(self.gen), self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_one(self.gen)))
                             propagate_identities[pos].append(bool_var)
                         elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                            self.gen.ConstrainedEquals(bool_var, out[pos], inp[pos], self.layer_bigM)
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                         add_k_eq(bool_var, out.k, inp.k)
         # propagate identities for positions that were not modified by the chosen gate
@@ -541,6 +545,16 @@ class Synthesizer:
                 self.gen.add_assertion(expr)
             else:
                 self.gen.add_assertion(self.gen.Implies(self.gen.And(*[self.gen.Not(v) for v in propagate_identities[pos]]), self.gen.Equals(out[pos], inp[pos])))
+                
+        for pos in range(2**self.q):
+            if self.gen.mode == "gurobi":
+                for i in range(len(out[pos])):
+                    # linearize out[pos][i] = Sum (bool_var * operation[i])
+                    terms = [self.gen.Times(bool_var, operation[i]) for bool_var, operation in saved_operations[pos]]
+                    self.gen.add_assertion(out[pos][i] == self.gen.Sum(terms))
+            else:
+                for bool_var, operation in saved_operations[pos]:
+                    self.gen.ConstrainedEquals(bool_var, out[pos], operation, self.layer_bigM)
         
         # propagate the k update
         if (self.gen.mode == "milp" or self.gen.mode == "gurobi") and self.complex_representation != Complex:
@@ -603,7 +617,17 @@ class Synthesizer:
             e = self.complex_representation(name=f"unknown_e", generator=self.gen)
             if post_measurement:
                 # if post-measurement, e includes norm of v1, which means that it cant be equal to zero
-                if self.gen.mode in ["milp", "gurobi"]:
+                if self.gen.mode == "gurobi":
+                    eps = self.gen.Real(1e-8)
+                    global_phase = self.complex_representation(name=f"global_phase_e", generator=self.gen)
+                    global_phase_norm = self.gen.declare_real(f"global_phase_norm", lb=0.0, ub=1.0)
+                    self.gen.add_norm(global_phase_norm, [global_phase])
+                    self.gen.add_assertion(self.gen.Equals(global_phase_norm, self.gen.Real(1.0)))
+                    norm = self.gen.declare_real(f"norm_e", lb=0.0, ub=1.0)
+                    self.gen.add_assertion(self.gen.GE(norm, eps))
+                    self.gen.add_norm(norm, vec1)
+                    self.gen.add_assertion(self.gen.Equals(e, global_phase.multiply_by_real(norm)))
+                elif self.gen.mode == "milp":
                     eps = 1e-6
                     abs_r = self.gen.declare_real(f"abs_r_e", lb=0.0, ub=1.0)
                     abs_i = self.gen.declare_real(f"abs_i_e", lb=0.0, ub=1.0)
@@ -612,6 +636,11 @@ class Synthesizer:
                     self.gen.add_assertion(self.gen.GE(self.gen.Plus(abs_r, abs_i), self.gen.Real(eps)))
                 else:
                     self.gen.add_assertion(self.gen.Not(self.gen.Equals(e, self.complex_representation.zero())))
+            else:
+                if self.gen.mode == "gurobi":
+                    global_phase_norm = self.gen.declare_real(f"global_phase_norm", lb=0.0, ub=1.0)
+                    self.gen.add_norm(global_phase_norm, [e])
+                    self.gen.add_assertion(self.gen.Equals(global_phase_norm, self.gen.Real(1.0)))
             for i in range(2**self.q):
                 if self.gen.mode in ["milp", "gurobi"]:
                     self.gen.add_assertion(self.gen.Equals(vec1[i], self.gen.Times(e, vec2[i])))
@@ -736,6 +765,8 @@ class Synthesizer:
                 self.q = stats['q']
             if self.d is None:
                 self.d = stats['d']
+            if self.qubits_to_measure is None:
+                self.qubits_to_measure = stats['measured_qubits']
             self.v = len(vector_pairs)
             self.curr_depth = self.d
             self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
@@ -744,6 +775,7 @@ class Synthesizer:
             self.d = d
             self.max_k = 2*self.d
             self.gate_set = gate_set
+            self.qubits_to_measure = []
         max = 0
         for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
             tmp = input_vector.max_value()
@@ -892,12 +924,9 @@ class Synthesizer:
                 if self.encoding_method == "pareto-incremental":
                     for pair_idx in range(len(vector_pairs)):
                         target = vector_pairs[pair_idx][1]
-                        if self.vector_mode == "rus":
-                            inter = inter_vectors[pair_idx][self.curr_depth].measure(list(range(1, self.q)), 0)
-                            self.encode_equivalence_up_to_global_phase(inter, target, pair_idx, post_measurement=True)
-                        else:
-                            inter = inter_vectors[pair_idx][self.curr_depth]
-                            self.encode_equivalence_up_to_global_phase(inter, target, pair_idx, post_measurement=False)
+                        post_measurement = True if len(self.qubits_to_measure) > 0 else False
+                        inter = inter_vectors[pair_idx][self.curr_depth].measure(self.qubits_to_measure, 0)
+                        self.encode_equivalence_up_to_global_phase(inter, target, pair_idx, post_measurement=post_measurement)
 
                     formula_file = self.gen.write_formula(output_qasm)
 
@@ -925,7 +954,7 @@ class Synthesizer:
                                 # synthesize recovery operation
                                 measured_vectors = []
                                 for vector in vectors:
-                                    measured_vectors.append(vector.measure(list(range(1, self.q)), 1)) # measure ancilla to 1, indicating failure
+                                    measured_vectors.append(vector.measure(self.qubits_to_measure, 1)) # measure ancilla to 1, indicating failure
                                     
                                 vector_pairs_recovery = []
                                 for pair_idx in range(len(vector_pairs)):
@@ -973,13 +1002,15 @@ class Synthesizer:
                             
                 else:
                     for pair_idx in range(len(vector_pairs)):
+                        post_measurement = True if len(self.qubits_to_measure) > 0 else False
+                        inter = inter_vectors[pair_idx][self.curr_depth].measure(self.qubits_to_measure, 0)
+                        target = vector_pairs[pair_idx][1]
+                        
                         if self.up_to_global_phase:
-                            inter = inter_vectors[pair_idx][self.curr_depth]
-                            target = vector_pairs[pair_idx][1]
                             # synthesizing recovery operation
-                            self.encode_equivalence_up_to_global_phase(inter, target, pair_idx)
+                            self.encode_equivalence_up_to_global_phase(inter, target, pair_idx, post_measurement=post_measurement)
                         else:
-                            self.encode_equivalence(inter_vectors[pair_idx][self.curr_depth], target_vectors[pair_idx], pair_idx)
+                            self.encode_equivalence(inter, target_vectors[pair_idx], pair_idx)
                     
                     # without objective
                     formula_file = self.gen.write_formula(output_qasm)          
@@ -1077,7 +1108,7 @@ class Synthesizer:
         """
         result = None
         if self.gen.mode == "milp":
-            if solver is None:
+            if self.solver is None:
                 solver = "gurobi"
             solver_to_class = {
                 "gurobi": GUROBI,
@@ -1100,8 +1131,9 @@ class Synthesizer:
                 raise ValueError("gurobi model is not set")
             self.gen.lp_problem.optimize()
             if self.gen.lp_problem.status == GRB.OPTIMAL:
-                #for var in self.gen.lp_problem.getVars():
-                #    print(f"Variable: {var.VarName}, Value: {var.X}")
+                for var in self.gen.lp_problem.getVars():
+                    print(f"Variable: {var.VarName}, Value: {var.X}")
+                exit()
                 return self.parser.parse(self.gen.lp_problem.getVars(), self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
             elif self.gen.lp_problem.status == GRB.INFEASIBLE:
                 return False, None, None

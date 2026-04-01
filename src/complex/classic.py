@@ -223,3 +223,15 @@ class Complex:
             return Complex(a=a, b=b, generator=self.gen)
         else:
             raise ValueError("to_precision not supported for formulae generation")
+        
+    def __getitem__(self, key):
+        return self.real if key == 0 else self.imag
+    
+    def __setitem__(self, key, value):
+        if key == 0:
+            self.real = value
+        else:
+            self.imag = value
+
+    def __len__(self):
+        return 2

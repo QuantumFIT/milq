@@ -37,6 +37,7 @@ class Simulator:
         self.stats['qreg'] = ''
         self.stats['max_k'] = 0
         self.stats['input_circuit'] = []
+        self.stats['measured_qubits'] = []
         self.measurement_outcome = meas
 
     """
@@ -237,6 +238,7 @@ class Simulator:
                                 
                         elif op == 'measure' or op == 'meas':
                             new_vec = vector.measure(qubits, self.measurement_outcome)
+                            self.stats['measured_qubits'].extend(qubits)
                             break
                         else:
                             raise NotImplementedError(f"Gate {op} is not yet implemented")

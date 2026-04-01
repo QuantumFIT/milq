@@ -466,3 +466,19 @@ class FiveTuple:
                 d = self.gen.Times(self.gen.format_integer(self.d), self.gen.format_real(num)),
                 generator=self.gen
             )
+            
+    def __getitem__(self, key):
+        return self.a if key == 0 else self.b if key == 1 else self.c if key == 2 else self.d
+    
+    def __setitem__(self, key, value):
+        if key == 0:
+            self.a = value
+        elif key == 1:
+            self.b = value
+        elif key == 2:
+            self.c = value
+        else:
+            self.d = value
+            
+    def __len__(self):
+        return 4

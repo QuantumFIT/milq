@@ -29,7 +29,7 @@ class Generator:
         self.integer_variables = set()
         self.real_variables = set()
         self.saved_lp_problem = None
-        self.saved_push = None
+        self.saved_push = []
         self.objective_assertions = []
         self.stats['reals'] = 0
         self.stats['integers'] = 0
@@ -263,6 +263,12 @@ class Generator:
             return gp.abs_(x)
         else:
             raise NotImplementedError("Abs not supported in milp/pysmt/smtlib mode")
+        
+    def Exp(self, x):
+        if self.mode == "gurobi":
+            return 2 ** x
+        else:
+            raise NotImplementedError("Exp not supported in milp/pysmt/smtlib mode")
 
     def Not(self, x):
         if self.mode == "pysmt":
@@ -278,7 +284,20 @@ class Generator:
         elif self.mode == "milp":
             return lpSum(args)
         elif self.mode == "gurobi":
-            return quicksum(*args)
+            if len(args) == 1 and isinstance(args[0], (list, tuple)):
+                return quicksum(args[0])
+            return quicksum(args)
+        
+    def add_norm(self, norm_var, vec):
+        if self.mode == "gurobi":
+            self.stats['assertions'] += 1
+            vec_expanded = []
+            for i in range(len(vec)):
+                for j in range(len(vec[i])):
+                    vec_expanded.append(vec[i][j])
+            self.lp_problem.addGenConstrNorm(norm_var, vec_expanded, which=2.0, name=f"assertion_{self.stats['assertions']}")
+        else:
+            raise NotImplementedError("Norm not supported in milp/pysmt/smtlib mode")
 
     def AtLeastOne(self, *args):
         # OR between all 
@@ -618,39 +637,80 @@ class Generator:
     def add_milp_rescaling(self, r1, r2, v1, v2, pair_idx, d):
         # first encode k as the result of the operation floor(abs(k1 - k2)/2)
         complex_representation = v1.element_representation
-        k = self.declare_integer(f"k{pair_idx}", lb=0, ub=d)
-        q = self.declare_bool(f"q{pair_idx}")
+        if self.mode == "milp":
+            k = self.declare_integer(f"k{pair_idx}", lb=0, ub=d)
+            q = self.declare_bool(f"q{pair_idx}")
 
-        bigM = 2*d + 1
-        sleq = self.declare_bool(f"sleq{pair_idx}")
-        self.add_assertion((v1.k - v2.k) - (2*k + q) <= bigM * sleq)
-        self.add_assertion((2*k + q) - (v1.k - v2.k) <= bigM * sleq)
-        self.add_assertion((v2.k - v1.k) - (2*k + q) <= bigM * (1 - sleq))
-        self.add_assertion((2*k + q) - (v2.k - v1.k) <= bigM * (1 - sleq))
+            bigM = 2*d + 1
+            sleq = self.declare_bool(f"sleq{pair_idx}")
+            self.add_assertion((v1.k - v2.k) - (2*k + q) <= bigM * sleq)
+            self.add_assertion((2*k + q) - (v1.k - v2.k) <= bigM * sleq)
+            self.add_assertion((v2.k - v1.k) - (2*k + q) <= bigM * (1 - sleq))
+            self.add_assertion((2*k + q) - (v2.k - v1.k) <= bigM * (1 - sleq))
 
-        # now retreive the boolean variable that will express the 2^i constant
-        constants = [self.declare_bool(f"s{pair_idx}_{i}") for i in range(d+1)]
-        if self.mode == "milp" or self.mode == "gurobi":
-            self.add_assertion(self.Sum([s for s in constants]) == 1)
-            self.add_assertion(k == self.Sum([constants[i] * i for i in range(d+1)]))
-        # now constants[i] is True iff k = i
-        # next, determine if k is odd or even
-
-        # now sleq, si, even encode all case splits needed for the rescaling
-        # encode all combinations to assign to r1, r2
-        
-        bigM = (2**(d+1)) + 1
-        # for every si, I,M is multiplied by 2^i
-        for i in range(len(v1)):
-            for j, s in enumerate(constants):
-                for parity in [("even", (1 - q)), ("odd", q)]:
-                    for rel in [("<=", sleq), (">", (1 - sleq))]:
-                        and_var = self.declare_bool(f"and_var{i}_{j}_{parity[0]}_{'lower' if rel[0] == '<=' else 'upper'}")
-                        self.add_assertion(and_var <= rel[1])
-                        self.add_assertion(and_var <= s)
-                        self.add_assertion(and_var <= parity[1])
-                        self.add_assertion(and_var >= (rel[1] + s + parity[1] - 2))
-                        complex_representation.constrained_rescaling(bigM, and_var, r1[i], r2[i], v1[i], v2[i], 2**j, parity[0], rel[0])
+            # now retreive the boolean variable that will express the 2^i constant
+            constants = [self.declare_bool(f"s{pair_idx}_{i}") for i in range(d+1)]
+            if self.mode == "milp" or self.mode == "gurobi":
+                self.add_assertion(self.Sum([s for s in constants]) == 1)
+                self.add_assertion(k == self.Sum([constants[i] * i for i in range(d+1)]))
+            # now sleq, si, even encode all case splits needed for the rescaling
+            # encode all combinations to assign to r1, r2
+            bigM = (2**(d+1)) + 1
+            # for every si, I,M is multiplied by 2^i
+            for i in range(len(v1)):
+                for j, s in enumerate(constants):
+                    for parity in [("even", (1 - q)), ("odd", q)]:
+                        for rel in [("<=", sleq), (">", (1 - sleq))]:
+                            and_var = self.declare_bool(f"and_var{i}_{j}_{parity[0]}_{'lower' if rel[0] == '<=' else 'upper'}")
+                            self.add_assertion(and_var <= rel[1])
+                            self.add_assertion(and_var <= s)
+                            self.add_assertion(and_var <= parity[1])
+                            self.add_assertion(and_var >= (rel[1] + s + parity[1] - 2))
+                            complex_representation.constrained_rescaling(bigM, and_var, r1[i], r2[i], v1[i], v2[i], 2**j, parity[0], rel[0])
+        elif self.mode == "gurobi":
+            leq = self.declare_bool(f"leq{pair_idx}")
+            even1 = self.declare_bool(f"even1{pair_idx}")
+            even2 = self.declare_bool(f"even2{pair_idx}")
+            diff1 = self.declare_integer(f"diff1{pair_idx}")
+            diff2 = self.declare_integer(f"diff2{pair_idx}")
+            odd1 = self.declare_bool(f"odd1{pair_idx}")
+            odd2 = self.declare_bool(f"odd2{pair_idx}")
+            k = self.declare_integer(f"k{pair_idx}")
+            i1 = self.declare_integer(f"i1{pair_idx}")
+            i2 = self.declare_integer(f"i2{pair_idx}")
+            self.ExactlyOne(even1, odd1)
+            self.ExactlyOne(even2, odd2)
+            self.add_assertion(self.Indicator(leq, self.LE(v1.k, v2.k)))
+            self.add_assertion(self.Indicator(leq, self.Equals(even2, self.Int(1))))
+            self.add_assertion(self.Indicator(leq, self.Equals(odd2, self.Int(0))))
+            self.add_assertion(self.Indicator(leq, self.Equals(diff1, self.Minus(v2.k, v1.k))))
+            self.add_assertion(self.Indicator(leq, self.Equals(diff1, self.Plus(self.Times(self.Int(2), k), odd1))))
+            self.add_assertion(self.Indicator(leq, self.Equals(i1, k)))
+            self.add_assertion(self.Indicator(leq, self.Equals(i2, self.Int(0))))
+            self.add_assertion(self.NotIndicator(leq, self.GE(v1.k, self.Plus(v2.k, self.Int(1)))))
+            self.add_assertion(self.NotIndicator(leq, self.Equals(diff2, self.Minus(v1.k, v2.k))))
+            self.add_assertion(self.NotIndicator(leq, self.Equals(diff2, self.Plus(self.Times(self.Int(2), k), odd2))))
+            self.add_assertion(self.NotIndicator(leq, self.Equals(even1, self.Int(1))))
+            self.add_assertion(self.NotIndicator(leq, self.Equals(odd1, self.Int(0))))
+            self.add_assertion(self.NotIndicator(leq, self.Equals(i1, self.Int(0))))
+            self.add_assertion(self.NotIndicator(leq, self.Equals(i2, k)))
+            x = self.declare_integer(f"x{pair_idx}")
+            y = self.declare_integer(f"y{pair_idx}")
+            self.add_assertion(self.Equals(x, self.Exp(i1)))
+            self.add_assertion(self.Equals(y, self.Exp(i2)))
+            
+            for i in range(len(v1)):
+                self.add_assertion(self.Equals(r1[i][0], (v1[i][0] * even1 + (v1[i][1] - v1[i][3]) * odd1) * x))
+                self.add_assertion(self.Equals(r1[i][1], (v1[i][1] * even1 + (v1[i][0] + v1[i][2]) * odd1) * x))
+                self.add_assertion(self.Equals(r1[i][2], (v1[i][2] * even1 + (v1[i][1] + v1[i][3]) * odd1) * x))
+                self.add_assertion(self.Equals(r1[i][3], (v1[i][3] * even1 + (v1[i][2] - v1[i][0]) * odd1) * x))
+                self.add_assertion(self.Equals(r2[i][0], (v2[i][0] * even2 + (v2[i][1] - v2[i][3]) * odd2) * y))
+                self.add_assertion(self.Equals(r2[i][1], (v2[i][1] * even2 + (v2[i][0] + v2[i][2]) * odd2) * y))
+                self.add_assertion(self.Equals(r2[i][2], (v2[i][2] * even2 + (v2[i][1] + v2[i][3]) * odd2) * y))
+                self.add_assertion(self.Equals(r2[i][3], (v2[i][3] * even2 + (v2[i][2] - v2[i][0]) * odd2) * y))
+                self.add_assertion(self.Equals(r1[i], r2[i]))
+        else:
+            raise ValueError("rescaling with wrong mode")
 
     def add_constraints(self, gate_set, last_encoded_layer, qubits):
         if last_encoded_layer < 1:
@@ -703,8 +763,15 @@ class Generator:
         if self.mode == "milp":
             self.saved_lp_problem = self.lp_problem.deepcopy()
         elif self.mode == "gurobi":
-            self.lp_problem.update()
-            self.saved_push = [constraint.ConstrName for constraint in self.lp_problem.getConstrs()]
+                state = {
+                    'num_constrs': self.lp_problem.NumConstrs,
+                    'num_qconstrs': self.lp_problem.NumQConstrs,
+                    'num_genconstrs': self.lp_problem.NumGenConstrs,
+                    'num_sos': self.lp_problem.NumSOS,
+                }
+                
+                self.saved_push.append(state)
+                self.lp_problem.update()
         elif self.mode == "smtlib":
             assertions_to_push = self.assertions.copy()
             optimize_objectives = self.optimize_objectives.copy()
@@ -719,12 +786,21 @@ class Generator:
         if self.mode == "milp":
             self.lp_problem = self.saved_lp_problem
         elif self.mode == "gurobi":
+            if len(self.saved_push) > 0:
+                state = self.saved_push.pop()
+                current_num_constrs = self.lp_problem.NumConstrs
+                if current_num_constrs > state['num_constrs']:
+                    self.lp_problem.remove([self.lp_problem.getConstrs()[i] for i in range(state['num_constrs'], current_num_constrs)])
+                current_num_qconstrs = self.lp_problem.NumQConstrs
+                if current_num_qconstrs > state['num_qconstrs']:
+                    self.lp_problem.remove([self.lp_problem.getQConstrs()[i] for i in range(state['num_qconstrs'], current_num_qconstrs)])
+                current_num_genconstrs = self.lp_problem.NumGenConstrs
+                if current_num_genconstrs > state['num_genconstrs']:
+                    self.lp_problem.remove([self.lp_problem.getGenConstrs()[i] for i in range(state['num_genconstrs'], current_num_genconstrs)])
+                current_num_sos = self.lp_problem.NumSOS
+                if current_num_sos > state['num_sos']:
+                    self.lp_problem.remove([self.lp_problem.getSOSs()[i] for i in range(state['num_sos'], current_num_sos)])
             self.lp_problem.update()
-            to_remove = [constr for constr in self.lp_problem.getConstrs() if constr.ConstrName not in self.saved_push]
-            if to_remove:
-                self.lp_problem.remove(to_remove)
-            self.lp_problem.update()
-            self.saved_push = []
         elif self.mode == "smtlib":
             self.assertions = self.saved_push["assertions"]
             self.optimize_objectives = self.saved_push["optimize_objectives"]

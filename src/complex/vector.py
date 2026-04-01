@@ -177,6 +177,8 @@ class Vector:
     
     def measure(self, q : list[int], result : int) -> "Vector":
         # measure qubit q to result r in {0, 1}
+        if len(q) == 0:
+            return self
         new_vec = self.copy()
         if self.gen is not None:
             new_vec = Vector(q=len(self.vec), name=f"Measured_{self.name}", generator=self.gen, element_representation=self.element_representation, k=self.k)

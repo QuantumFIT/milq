@@ -6,6 +6,7 @@ class FiveTuple:
     def __init__(self, a = 0, b = 0, c = 0, d = 0, name = None, generator = None, bound=None):
         if generator is not None:
             self.gen = generator
+            generator.stats['complex_numbers'] += 1
         else:
             self.gen = None
             

@@ -37,6 +37,8 @@ class Generator:
         self.stats['assertions'] = 0
         self.stats['variables'] = 0
         self.stats['objectives'] = 0
+        self.stats['selection_variables'] = 0
+        self.stats['complex_numbers'] = 0
         if self.solver == "dreal":
             self.logic = "QF_NRA"
 
@@ -90,6 +92,38 @@ class Generator:
         elif self.mode == "gurobi":
             self.lp_problem.setObjective(objective, GRB.MINIMIZE)
         self.stats['objectives'] += 1
+        
+    def add_selection_variables(self, layer, gate_set, qubits) -> tuple[list, list]:
+        selection_variables = []
+        bool_variables = []
+        gate_set.add_gate(gate="id", weight=0, qubits=1)
+        gates = gate_set.get_gates(1)
+        variables = [(gate, q) for q in range(qubits) for gate in gates]
+        for var in variables:
+            v = self.declare_bool(f"L{layer}_{var[0]}_q{var[1]}")
+            selection_variable = (v, var)
+            selection_variables.append(selection_variable)
+            bool_variables.append(v)
+            self.stats['selection_variables'] += 1
+        
+        gates = gate_set.get_gates(2)
+        variables = [(gate, q1, q2) for q1 in range(qubits) for q2 in range(qubits) for gate in gates if q1 != q2]
+        for var in variables:
+            v = self.declare_bool(f"L{layer}_{var[0]}_q{var[1]}_q{var[2]}")
+            selection_variable = (v, var)
+            selection_variables.append(selection_variable)
+            bool_variables.append(v)
+            self.stats['selection_variables'] += 1
+
+        gates = gate_set.get_gates(3)
+        variables = [(gate, q1, q2, q3) for q1 in range(qubits) for q2 in range(qubits) for q3 in range(qubits) if q1 != q2 and q1 != q3 and q2 != q3 for gate in gates]
+        for var in variables:
+            v = self.declare_bool(f"L{layer}_{var[0]}_q{var[1]}_q{var[2]}_q{var[3]}")
+            selection_variable = (v, var)
+            selection_variables.append(selection_variable)
+            bool_variables.append(v)
+            self.stats['selection_variables'] += 1
+        return selection_variables, bool_variables
 
     def Plus(self, x, y):
         if self.mode == "pysmt":
@@ -222,8 +256,12 @@ class Generator:
             return Ite(condition, true_value, false_value)
         elif self.mode == "smtlib":
             return f"(ite {condition} {true_value} {false_value})"
-        elif self.mode == "milp" or self.mode == "gurobi":
-            raise NotImplementedError("explicit Ite not supported in milp/gurobi mode")
+        elif self.mode == "milp":
+            raise NotImplementedError("explicit Ite not supported in milp mode")
+        elif self.mode == "gurobi":
+            self.add_assertion(self.Indicator(condition, true_value))
+            self.add_assertion(self.NotIndicator(condition, false_value))
+            return true_value
     
     def And(self, *args):
         if self.mode == "pysmt":
@@ -233,6 +271,20 @@ class Generator:
         elif self.mode == "milp" or self.mode == "gurobi":
             for arg in args:
                 self.add_assertion(arg)
+        
+    def LAnd(self, *args):
+        if self.mode == "pysmt":
+            return And(*args)
+        elif self.mode == "smtlib":
+            return f"(and {' '.join(args)})"
+        elif self.mode == "gurobi":
+            return gp.and_(args)
+        else:
+            and_var = self.declare_bool(f"and_{self.stats['bools']}")
+            for arg in args:
+                self.add_assertion(self.LE(and_var, arg))
+            self.add_assertion(self.Sum(args) - len(args) + 1 <= and_var)
+            return and_var
     
     def Or(self, *args):
         if self.mode == "pysmt":
@@ -240,10 +292,10 @@ class Generator:
         elif self.mode == "smtlib":
             return f"(or {' '.join(args)})"
         elif self.mode == "milp" or self.mode == "gurobi":
-            helper_var = self.declare_bool(f"or_{self.stats['bools']}")
+            or_var = self.declare_bool(f"or_{self.stats['bools']}")
             for arg in args:
-                self.add_assertion(self.LE(arg, helper_var))
-            self.add_assertion(self.LE(helper_var, self.Sum(args)))
+                self.add_assertion(self.LE(arg, or_var))
+            self.add_assertion(self.LE(or_var, self.Sum(args)))
             
     def Indicator(self, sel, expr):
         # sel == 1 >> expr
@@ -275,8 +327,12 @@ class Generator:
             return Not(x)
         elif self.mode == "smtlib":
             return f"(not {x})"
-        elif self.mode == "milp" or self.mode == "gurobi":
+        elif self.mode == "milp":
             return 1 - x
+        elif self.mode == "gurobi":
+            not_var = self.declare_bool(f"not_{self.stats['bools']}")
+            self.add_assertion(self.Equals(not_var, 1 - x))
+            return not_var
         
     def Sum(self, *args):
         if self.mode == "pysmt" or self.mode == "smtlib":
@@ -328,8 +384,10 @@ class Generator:
             return Implies(condition, expr)
         elif self.mode == "smtlib":
             return f"(=> {condition} {expr})"
-        elif self.mode == "milp" or self.mode == "gurobi":
-            raise NotImplementedError("explicit Implies not supported in milp/gurobi mode")
+        elif self.mode == "gurobi":
+            return self.Indicator(condition, expr)
+        elif self.mode == "milp":
+            raise NotImplementedError("explicit Implies not supported in milp mode")
         
     def Mod(self, x, y):
         if self.mode == "pysmt":
@@ -758,6 +816,8 @@ class Generator:
         print(f"Integers: {self.stats['integers']}")
         print(f"Booleans: {self.stats['bools']}")
         print(f"Assertions: {self.stats['assertions']}")
+        print(f"Selection variables: {self.stats['selection_variables']}")
+        print(f"Complex numbers: {self.stats['complex_numbers']}")
 
     def push(self):
         if self.mode == "milp":

@@ -23,11 +23,6 @@ class nTuple:
         else:
             self.elements = [generator.format_integer(e) for e in elements]
     
-    def _use_pysmt(self):
-        if self.gen is not None and self.gen.name == 'PortfolioSolver':
-            return True
-        return False
-            
     def copy(self):
         return nTuple(elements=self.elements.copy(), n=self.n, generator=self.gen)
 

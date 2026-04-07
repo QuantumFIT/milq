@@ -33,9 +33,13 @@ class SMTSolver:
 class PortfolioSMTSolver:
     # class that substitutes pysmt portfolio solver
     def __init__(self, solvers: dict[str, SMTSolver], logic="QF_LIA"):
-        self.solvers = solvers
+        new_dict = {}
+        for name, solver in solvers.items():
+            if logic in solver.logics:
+                new_dict[name] = solver
+        self.solvers = new_dict
         self.logic = logic
-        self.num_workers = min(os.cpu_count(), len(solvers))
+        self.num_workers = min(os.cpu_count(), len(self.solvers))
     
     
     def solve(self, formula_file):

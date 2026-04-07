@@ -5,6 +5,8 @@ class Complex:
     def __init__(self, a=None, b=None, name=None, generator=None, bound=None):
         bound = 1.0 # always in -1, 1 range
         self.gen = generator
+        if generator is not None:
+            generator.stats['complex_numbers'] += 1
         if name is not None:
             safe_name = name.replace('[', '_').replace(']', '')
             self.real = generator.declare_real(safe_name + '_r', lb=-bound, ub=bound)

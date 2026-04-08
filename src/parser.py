@@ -88,9 +88,7 @@ class ModelParser:
         """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
         matches = pattern.findall(line)
         values = []
-        print(line)
         for match in matches:
-            print(match)
             var_name = match[0]
             var_value = match[1]
             if var_value.lower() == "true":

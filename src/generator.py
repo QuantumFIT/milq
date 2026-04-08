@@ -943,7 +943,6 @@ class Generator:
                     list_of_variables.extend([var for var in self.integer_variables if var == weight_name])
                     list_of_variables.extend([var for var in self.integer_variables if var.startswith(tuple(last_vector_starts))])
                     
-                print("Sending statement: (get-value (" + " ".join(list_of_variables) + "))")
                 #self.solver.write_incremental("(get-model)")
                 self.solver.write_incremental("(get-value (" + " ".join(list_of_variables) + "))")
                 return self.solver.get_model()

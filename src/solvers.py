@@ -36,7 +36,6 @@ class SMTSolver:
                 return "unsat"
         else:
             try:
-                print(self.args + self.smtlib_flags + [formula_file])
                 result = subprocess.Popen(
                     self.args + self.smtlib_flags + [formula_file],
                     stdout=subprocess.PIPE,
@@ -65,7 +64,6 @@ class SMTSolver:
         open_parentheses = 0
         start = False
         model = ""
-        print("Getting model")
         while True:
             result = self.process.stdout.readline()
             open_parentheses += result.count("(")

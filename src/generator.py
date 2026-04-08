@@ -7,6 +7,7 @@ from pulp import *
 from gates import self_adjoints, gate_to_qubits
 import gurobipy as gp
 from gurobipy import GRB, quicksum
+from solvers import SMTSolver
 
 class Generator:
     def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA") -> None:
@@ -39,6 +40,11 @@ class Generator:
         self.stats['objectives'] = 0
         self.stats['selection_variables'] = 0
         self.stats['complex_numbers'] = 0
+        self.incremental_mode = False
+        self.q = 0
+        self.d = 0
+        self.num_of_vectors = 0
+        self.model = None
         if self.solver == "dreal":
             self.logic = "QF_NRA"
 
@@ -54,7 +60,10 @@ class Generator:
                 raise ValueError("solver is not set")
             self.solver.add_assertion(assertion)
         elif self.mode == "smtlib":
-            self.assertions.append(assertion)
+            if self.incremental_mode:
+                self.write_incremental(f"(assert {assertion})")
+            else:
+                self.assertions.append(assertion)
         elif self.mode == "milp":
             if assertion is None:
                 return
@@ -71,6 +80,14 @@ class Generator:
             self.lp_problem.update()
             self.lp_problem.addConstr(assertion, name=f"assertion_{self.stats['assertions']}")
         self.stats['assertions'] += 1
+        
+    def set_incremental_mode(self, incremental_mode: bool = True):
+        self.incremental_mode = incremental_mode
+        # add prologue to the solver 
+        prologue = "(set-logic " + self.logic + ")\n"
+        self.write_incremental(prologue)
+        self.declare_helpers()
+    
     
     def add_quadratic_assertion(self, assertion):
         if self.mode == "gurobi":
@@ -206,10 +223,12 @@ class Generator:
             return eq_expr
         elif self.mode == "smtlib":
             eq_expr = (x == y)
-            if isinstance(eq_expr, bool):
+            if isinstance(eq_expr, bool) :
                 return f"(= {x} {y})"
             elif isinstance(eq_expr, str):
                 return eq_expr
+            else:
+                return f"(= {x} {y})"
         elif self.mode == "milp" or self.mode == "gurobi":
             return x == y
 
@@ -408,8 +427,11 @@ class Generator:
 
     def _smtlib_declaration(self, x, type):
         self.declarations.append(("declare-fun", x, f"() {type}"))
-        self.symbols[x] = x
-        self.declared_names.add(x)
+        if self.incremental_mode:
+            self.write_incremental(f"(declare-fun {x} () {type})")
+        else:
+            self.symbols[x] = x
+            self.declared_names.add(x)
         return x
 
     def _milp_declaration(self, x, type, lb=None, ub=None):
@@ -480,7 +502,7 @@ class Generator:
         res = None
         if x not in self.declared_names:
             # even though declaring integer, in QF_NRA, reals have to be used
-            if self.logic == "QF_NRA":
+            if self.logic == "QF_NRA" or self.logic == "QF_LRA":
                 return self.declare_real(x)
             if self.mode == "pysmt":
                 res = self._pysmt_declaration(x, self.INT)
@@ -580,6 +602,8 @@ class Generator:
             self.lp_problem.setObjective(expression, GRB.MINIMIZE)
     
     def write_formula(self, filename):
+        if self.incremental_mode:
+            return filename
         if self.mode == "pysmt":
             filename = filename.split(".")[0] + ".smt2"
             if not hasattr(self.solver, "assertions"):
@@ -634,7 +658,6 @@ class Generator:
             raise NotImplementedError("milp mode not yet supported")
     
     def add_rescaling(self, r1, r2, v1, v2, pair_idx, d):
-        print("Adding rescaling")
         n = self.declare_integer(f"n{pair_idx}")
         k = self.declare_integer(f"k{pair_idx}")
         # n = k1 - k2 or n = k2 - k1
@@ -833,12 +856,15 @@ class Generator:
                 self.saved_push.append(state)
                 self.lp_problem.update()
         elif self.mode == "smtlib":
-            assertions_to_push = self.assertions.copy()
-            optimize_objectives = self.optimize_objectives.copy()
-            self.saved_push = {
-                "assertions": assertions_to_push,
-                "optimize_objectives": optimize_objectives
-            }
+            if self.incremental_mode:
+                self.write_incremental("(push 1)")
+            else:
+                assertions_to_push = self.assertions.copy()
+                optimize_objectives = self.optimize_objectives.copy()
+                self.saved_push = {
+                    "assertions": assertions_to_push,
+                    "optimize_objectives": optimize_objectives
+                }
         elif self.mode == "pysmt":
             self.solver.push()
     
@@ -862,9 +888,12 @@ class Generator:
                     self.lp_problem.remove([self.lp_problem.getSOSs()[i] for i in range(state['num_sos'], current_num_sos)])
             self.lp_problem.update()
         elif self.mode == "smtlib":
-            self.assertions = self.saved_push["assertions"]
-            self.optimize_objectives = self.saved_push["optimize_objectives"]
-            self.saved_push = None
+            if self.incremental_mode:
+                self.write_incremental("(pop 1)") 
+            else:
+                self.assertions = self.saved_push["assertions"]
+                self.optimize_objectives = self.saved_push["optimize_objectives"]
+                self.saved_push = None
         elif self.mode == "pysmt":
             self.solver.pop()
     
@@ -876,3 +905,100 @@ class Generator:
             self.add_assertion(depth - 0.5 >= self.Sum([self.symbols[bool_var] for bool_var in model]))
         elif self.mode == "smtlib" or self.mode == "pysmt":
             self.add_assertion(self.Not(self.And(*[self.symbols[bool_var] for bool_var in model])))
+            
+    def write_incremental(self, statement : str):
+        if self.mode != 'smtlib':
+            raise NotImplementedError("write_incremental only supported in smtlib mode")
+        
+        if not self.incremental_mode:
+            raise ValueError("incremental mode not set")
+        
+        self.solver.write_incremental(statement)
+        
+    def get_model(self):
+        if self.mode == "milp":
+            return self
+        elif self.mode == "gurobi":
+            return self.lp_problem.getVars()
+        
+        elif self.mode == "smtlib":          
+            if self.incremental_mode:
+                # instead of get-model, do get-value with only neccessary variables
+                # Variables:
+                # L_... - bool variables encoding the circuit
+                # last W variable - circuit cost
+                # last I_ variables - output vectors
+                # do not parse any intermediate vectors, weights or helper variables
+                weight_name = "W" + str(self.d)
+                last_vector_starts = []
+                for i in range(self.num_of_vectors):
+                    last_vector_starts.append("I_" + str(i) + "_" + str(self.d))
+                list_of_variables = []
+                list_of_variables.extend([var for var in self.bool_variables if var.startswith("L")])
+                if self.logic in ["QF_NRA", "QF_LRA"]:
+                    list_of_variables.extend([var for var in self.real_variables if var == weight_name])
+                    list_of_variables.extend([var for var in self.real_variables if var.startswith(tuple(last_vector_starts))])
+                    
+                else:
+                    list_of_variables.extend([var for var in self.integer_variables if var == weight_name])
+                    list_of_variables.extend([var for var in self.integer_variables if var.startswith(tuple(last_vector_starts))])
+                    
+                print("Sending statement: (get-value (" + " ".join(list_of_variables) + "))")
+                #self.solver.write_incremental("(get-model)")
+                self.solver.write_incremental("(get-value (" + " ".join(list_of_variables) + "))")
+                return self.solver.get_model()
+            else:
+                return self.model
+        elif self.mode == "pysmt":
+            # the same with get-value
+            return self.solver.get_model()
+        
+        
+    def check_sat(self, formula_file: str = "formula.smt2"):
+        if self.mode == "milp":
+            self.solver = GUROBI(msg=False, FeasibilityTol=1e-9, MIPGap=1e-9)
+            self.solver.solve(self.lp_problem)
+            print(f"Solver status: {LpStatus[self.lp_problem.status]}")
+            if LpStatus[self.lp_problem.status].lower() == "optimal":
+                return True
+            elif LpStatus[self.lp_problem.status].lower() == "infeasible":
+                return False
+            else:
+                return True # suboptimal solution
+        elif self.mode == "gurobi":
+            self.lp_problem.optimize()
+            if self.lp_problem.status == GRB.OPTIMAL:
+                return True
+            elif self.lp_problem.status == GRB.INFEASIBLE:
+                return False
+            else:
+                return True # suboptimal solution
+        elif self.mode == "smtlib":
+            if self.incremental_mode:
+                # first has to add check-sat
+                # after check-sat, only one process remains in self.solver
+                # which then gets the model from self.solver.get_model()
+                self.solver.write_incremental("(check-sat)")
+                result = self.solver.solve(formula_file)
+                if result in ["unknown", "unsat"]:
+                    return False
+                else:
+                    return True
+            else:
+                # solving with non-incremental (not from stdin, but from file)
+                # also gets the model instantly
+                result = self.solver.solve(formula_file)
+                if result in ["unknown", "unsat"]:
+                    return False
+                else:
+                    self.model = result
+                    return True
+            if result in ["unknown", "unsat"]:
+                return False
+            else:
+                return True
+        elif self.mode == "pysmt":
+            try:
+                return self.solver.solve()
+            except Exception as e:
+                return False

@@ -3,7 +3,7 @@ import re
 from generator import Generator
 from gates import Circuit, Gate
 from complex.vector import Vector
-
+import time
 class ModelParser:
     """
     class that converts model from any solver to QASM file
@@ -44,24 +44,112 @@ class ModelParser:
         items = []
         i = 0
         line = ""
+        time_start = time.time()
         while i < len(lines):
             line += lines[i].strip()
+            get_value = False
             # match (<whitespaces>define-fun var_name () var_type var_value<whitespaces>)
-            match = re.search(r"(\.*)\(\s*define-fun\s*(\w+)\s*\(\s*\)\s*(\w+)\s*(-?\d+|true|false)\s*\)\s*", line, re.IGNORECASE)
-            if match:
-                line = ""
-                var_name = match.group(2)
-                var_type = match.group(3)
-                var_value = match.group(4)
-                if var_type.lower() == "bool":
-                    var_value = var_value.lower() == "true"
-                elif var_type.lower() == "int":
-                    var_value = int(var_value)
-                elif var_type.lower() == "real":
-                    var_value = float(var_value)
-                items.append((var_name, var_value))
+            # possibly starts with (( instead of (
+            # matches (get-model)
+            var_name, var_value = None, None
+            get_model, (var_name, var_value) = self.parse_get_model(line)
+            get_value = (get_model == False)
+            if get_value:
+                values = self.parse_get_value(line)
+                for value in values:
+                    items.append(value)
+                    line = ""
+            else:
+                if var_name is not None and var_value is not None:
+                    items.append((var_name, var_value))
+                    line = ""
             i += 1
+        time_end = time.time()
         return items
+    
+    def parse_get_value(self, line : str) -> list[tuple[str, any]]:
+        number = r"-?\d+(?:\.\d+)?"
+        minus_int = r"\(\s*-\s*\d+\s*\)"
+        rational_number = rf"\(\s*/\s*(?:{number}|{minus_int})\s+(?:{number}|{minus_int})\s*\)"
+        dreal_interval = rf"\(\s*interval\s*\(\s*(?:closed|open)\s*(?:{number}|{minus_int}|{rational_number})\s*\)\(\s*(?:closed|open)\s*(?:{number}|{minus_int}|{rational_number})\s*\)\)"
+
+        pattern = re.compile(rf"""
+        \(+\s*(\w+)\s*   # variable name
+        (
+            {number}                  # decimal/integer
+            | true
+            | false
+            | \(/\s*(?:{number})\s+(?:{number})\s*\)   # rational
+            | \[\s*(?:{number})\s*,\s*(?:{number})\s*\] # interval
+            | {minus_int}            # negative integer
+            | {dreal_interval}       # dreal-style interval
+        )
+        \)+\s*
+        """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
+        matches = pattern.findall(line)
+        values = []
+        print(line)
+        for match in matches:
+            print(match)
+            var_name = match[0]
+            var_value = match[1]
+            if var_value.lower() == "true":
+                var_value = True
+            elif var_value.lower() == "false":
+                var_value = False
+            elif '/' in var_value:
+                num = var_value.split('/')[1].strip().split(' ')[0].strip().split(')')[0]
+                den = var_value.split('/')[1].strip().split(' ')[1].strip().split(')')[0]
+                var_value = float(num) / float(den)
+            values.append((var_name, var_value))
+        return values
+
+    def parse_get_model(self, line : str) -> tuple[bool, tuple[any, any]]:
+        # decimal, true, false, rational, interval
+        number = r"-?\d+(?:\.\d+)?"
+        minus_int = r"\(\s*-\s*\d+\s*\)"
+        pattern = re.compile(rf"""
+            \(+\s*
+            define-fun\s+
+            (\w+)\s*\(\s*\)\s*(\w+)\s*
+            (
+                {number}
+                | true
+                | false
+                | \(/\s*{number}\s+{number}\s*\)
+                | \[\s*{number},\s*{number}\s*\]
+                | {minus_int}
+            )
+            \s*\)+\s*
+        """, re.IGNORECASE | re.VERBOSE)
+        match = pattern.search(line)
+        if match:
+            var_name = match.group(1)
+            var_type = match.group(2)
+            var_value = match.group(3)
+            if var_type.lower() == "bool":
+                var_value = var_value.lower() == "true"
+            elif var_type.lower() == "int":
+                if '(' in var_value:
+                    var_value = var_value.split('-')[1].split(')')[0].strip()
+                    var_value = -int(var_value)
+                else:
+                    var_value = int(var_value)
+            elif var_type.lower() == "real":
+                if '[' in var_value:
+                    # parsing interval (dreal)
+                    min_val = var_value.split('[')[1].strip().split(',')[0].strip().split(')')[0]
+                    var_value = float(min_val)
+                elif '/' in var_value:
+                    # parsing rational number
+                    num = var_value.split('/')[1].strip().split(' ')[0].strip().split(')')[0]
+                    den = var_value.split('/')[1].strip().split(' ')[1].strip().split(')')[0]
+                    var_value = float(num) / float(den)
+                var_value = float(var_value)
+            return True, (var_name, var_value)
+        else:
+            return False, (None, None)
+        
 
     def filter_items(self, model : any) -> tuple[Circuit, list[Vector]]:
         # get only the (gate, true) tuples
@@ -102,11 +190,12 @@ class ModelParser:
             
             if variable.startswith("I_") and self.v != 0:
                 # check that I_{pair_idx}_{d}_{indice}_part, d == depth
+                # only get the last vector (output)
                 parts = variable.split("_")
                 d = int(parts[2])
                 if d != self.d: continue
 
-                if isinstance(value_obj, float) or isinstance(value_obj, int):
+                if isinstance(value_obj, (float, int, str)):
                     # parse part of a vector -- check which vector by pair_idx, then index in the vector and which coefficient it is
                     pair_idx = int(parts[1])
                     if parts[3] == "k":
@@ -122,6 +211,7 @@ class ModelParser:
                         setattr(out_vectors[pair_idx][indice], coeff, value_obj)
             if variable.startswith("W"):
                 if value_obj is None: continue
+                # only get the last Weight variable
                 indice = int(variable.split("W")[1].strip())
                 if indice > self.d: continue
                 if indice > best_indice:
@@ -130,6 +220,8 @@ class ModelParser:
                     costs[indice] = value_obj
                 elif isinstance(value_obj, float):
                     costs[indice] = int(value_obj)
+                elif isinstance(value_obj, str):
+                    costs[indice] = float(value_obj)
                 else:
                     costs[indice] = int(value_obj.constant_value())
         self.stats['cost'] = costs[best_indice]

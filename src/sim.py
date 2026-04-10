@@ -20,7 +20,7 @@ class Simulator:
     simulate quantum circuit using the representation for synthesis - complex, fivetuples, ntuples
     can simulate either normal circuits (all cbs) or RUS circuits (0, 1, + states)
     """
-    def __init__(self, qasm_file: str = None, matrix: np.array = None, complex_representation: type[Vector] = FiveTuple, meas: int = 0):
+    def __init__(self, qasm_file: str = None, matrix: np.array = None, complex_representation: type[Vector] = FiveTuple, meas: int = 0, basis="cb"):
         if matrix is not None and qasm_file is not None:
             raise ValueError("matrix and qasm_file cannot be provided at the same time")
         if matrix is None and qasm_file is None:
@@ -39,7 +39,7 @@ class Simulator:
         self.stats['input_circuit'] = []
         self.stats['measured_qubits'] = []
         self.measurement_outcome = meas
-
+        self.basis = basis
     """
     parse the input qasm file into a sequence of gates with a respective list of qubits
     also collects information about the input circuits -- qubits, gate set ...
@@ -52,7 +52,11 @@ class Simulator:
             for i in range(2**self.stats['q']):
                 vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
                 vec[i] = self.complex_representation.one(None)
-                vectors.append(vec)  
+                if self.basis == "pauli":
+                    vec = Matrix.density_from_vector(vec)
+                vectors.append(vec)
+            
+            
                 
             return [], vectors
 
@@ -86,6 +90,8 @@ class Simulator:
                     for i in range(2**self.stats['q']):
                         vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
                         vec[i] = self.complex_representation.one(None)
+                        if self.basis == "pauli":
+                            vec = Matrix.density_from_vector(vec)
                         vectors.append(vec)
                 continue
             
@@ -277,6 +283,8 @@ class Simulator:
         gates, vectors = self.parse_file()
         vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
         vec[0] = self.complex_representation.one(None)
+        if self.basis == "pauli":
+            vec = Matrix.density_from_vector(vec)
         vectors = [vec]
         return self.simulate(vectors, gates)
     
@@ -312,12 +320,16 @@ class Simulator:
         for i in range(2**targets):
             vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
             vector[i] = self.complex_representation.one(None)
+            if self.basis == "pauli":
+                vector = Matrix.density_from_vector(vector)
             vectors.append(vector)
             
         # |+>^targets
         vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=targets)
         for i in range(2**targets):
             vector[i] = self.complex_representation.inv_sqrt2(None)
+        if self.basis == "pauli":
+            vector = Matrix.density_from_vector(vector)
         vectors.append(vector)
         return self.simulate(vectors, gates)
     
@@ -346,6 +358,8 @@ class Simulator:
         # create new input state
         vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
         vec[0] = self.complex_representation.one(None)
+        if self.basis == "pauli":
+            vec = Matrix.density_from_vector(vec)
         vectors = [vec]
         res = self.simulate(vectors, pre_gates)
         input_state = res[0][1] # get output of the simulation

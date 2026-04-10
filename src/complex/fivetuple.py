@@ -446,7 +446,7 @@ class FiveTuple:
             return FiveTuple(a=self.a, b=-self.d, c=-self.c, d=-self.b, generator=generator)
         else:
             return FiveTuple(
-                a = self.gen.Minus(self.gen.Int(0), self.gen.format_integer(self.a)),
+                a = self.gen.format_integer(self.a),
                 b = self.gen.Minus(self.gen.Int(0), self.gen.format_integer(self.d)),
                 c = self.gen.Minus(self.gen.Int(0), self.gen.format_integer(self.c)),
                 d = self.gen.Minus(self.gen.Int(0), self.gen.format_integer(self.b)),
@@ -483,3 +483,19 @@ class FiveTuple:
             
     def __len__(self):
         return 4
+    
+    def increase_k(self, generator):
+        if self.gen is None:
+            return FiveTuple(a = self.b - self.d,
+                             b = self.a + self.c,
+                             c = self.b + self.d,
+                             d = self.c - self.a,
+                             generator=generator)
+        else:
+            return FiveTuple(
+                a = self.gen.Minus(self.gen.format_integer(self.b), self.gen.format_integer(self.d)),
+                b = self.gen.Plus(self.gen.format_integer(self.a), self.gen.format_integer(self.c)),
+                c = self.gen.Plus(self.gen.format_integer(self.b), self.gen.format_integer(self.d)),
+                d = self.gen.Minus(self.gen.format_integer(self.c), self.gen.format_integer(self.a)),
+                generator=self.gen
+            )

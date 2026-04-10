@@ -364,6 +364,7 @@ class Generator:
             return quicksum(args)
         
     def add_norm(self, norm_var, vec):
+        self.add_assertion(self.GE(norm_var, self.Real(1e-8)))
         if self.mode == "gurobi":
             self.stats['assertions'] += 1
             vec_expanded = []
@@ -372,7 +373,21 @@ class Generator:
                     vec_expanded.append(vec[i][j])
             self.lp_problem.addGenConstrNorm(norm_var, vec_expanded, which=2.0, name=f"assertion_{self.stats['assertions']}")
         else:
-            raise NotImplementedError("Norm not supported in milp/pysmt/smtlib mode")
+            vec_expanded = []
+            for i in range(len(vec)):
+                for j in range(len(vec[i])):
+                    vec_expanded.append(vec[i][j])
+            raise NotImplementedError("add_norm not supported in milp/pysmt/smtlib mode")
+        
+    def add_global_phase(self, global_phase):
+        if self.mode == "gurobi":
+            global_phase_norm = self.declare_real(f"global_phase_norm", lb=0.0, ub=1.0)
+            self.add_norm(global_phase_norm, [global_phase])
+            self.add_assertion(self.Equals(global_phase_norm, self.Real(1.0)))
+        elif self.mode == "smtlib":
+            self.add_assertion(self.Equals(global_phase.abs2(), self.Real(1.0)))
+        else:
+            raise NotImplementedError("add_global_phase not supported in this mode")
 
     def AtLeastOne(self, *args):
         # OR between all 
@@ -398,7 +413,7 @@ class Generator:
             self.AtLeastOne(*args)
             self.AtMostOne(*args)
     
-    def Implies(self, condition, expr):
+    def Implies(self, condition, expr, bigM=None):
         if self.mode == "pysmt":
             return Implies(condition, expr)
         elif self.mode == "smtlib":

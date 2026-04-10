@@ -233,3 +233,19 @@ class Vector:
             return new_vec
         else:
             raise ValueError("to_precision not supported for formulae generation")
+        
+    def __iter__(self):
+        for elem in self.vec:
+            yield elem
+            
+    def multiply_by_real(self, real):
+        new_vec = Vector(q=len(self.vec), generator=self.gen, element_representation=self.element_representation, k=self.k, n=self.n, name=f"Multiplied_by_real_{self.name}", bound=1.0)
+        for i in range(len(self.vec)):
+            self.gen.add_assertion(new_vec[i] == self.vec[i].multiply_by_real(real))
+        return new_vec
+    
+    def multiply_by_complex(self, complex):
+        new_vec = Vector(q=len(self.vec), generator=self.gen, element_representation=self.element_representation, k=self.k, n=self.n, name=f"Multiplied_by_complex_{self.name}", bound=1.0)
+        for i in range(len(self.vec)):
+            self.gen.add_assertion(new_vec[i] == self.vec[i] * complex)
+        return new_vec

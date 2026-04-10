@@ -206,7 +206,7 @@ class Complex:
         if self.gen is None:
             return self.real**2 + self.imag**2
         else:
-            raise ValueError("abs2 not supported for formulae generation")
+            return self.gen.Plus(self.gen.Times(self.gen.format_real(self.real), self.gen.format_real(self.real)), self.gen.Times(self.gen.format_real(self.imag), self.gen.format_real(self.imag)))
 
     def multiply_by_real(self, num):
         if self.gen is None:

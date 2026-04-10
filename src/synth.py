@@ -607,7 +607,7 @@ class Synthesizer:
         # propagate identities for positions that were not modified by the chosen gate
         # (notG1 and notG2 and ...) -> (out[pos] == inp[pos])
         for pos in range(size):
-            if self.gen.mode == "milp": # TODO: milp does not support propagation
+            if cannot_propagate: # TODO: milp does not support propagation
                 break
             if len(propagate_identities[pos]) == 0: # no gates modified this position, propagate identity
                 expr = out[pos] == inp[pos]
@@ -622,18 +622,20 @@ class Synthesizer:
                 for coeff in range(len(out[pos])):
                     self.gen.add_assertion(self.gen.Implies(bool_indicator, self.gen.Equals(out[pos][coeff], inp[pos][coeff])))
                 
-        for pos in range(size):
-            if self.gen.mode == "gurobi":
-                if len(saved_operations[pos]) == 0:
-                    continue
-                for i in range(len(out[pos])):
-                    # linearize out[pos][i] = Sum (bool_var * operation[i])
-                    # take only those whose bool var is not in propagate_identities[pos]
-                    terms = [self.gen.Times(bool_var, operation[i]) for bool_var, operation in saved_operations[pos]]
-                    self.gen.add_assertion(out[pos][i] == self.gen.Sum(terms))
-            else:
-                for bool_var, operation in saved_operations[pos]:
-                    self.gen.ConstrainedEquals(bool_var, out[pos], operation, self.layer_bigM)
+        #for pos in range(size):
+        #    if self.gen.mode == "gurobi":
+        #        if len(saved_operations[pos]) == 0:
+        #            continue
+        #        for i in range(len(out[pos])):
+        #            # linearize out[pos][i] = Sum (bool_var * operation[i])
+        #            # take only those whose bool var is not in propagate_identities[pos]
+        #            terms = [self.gen.Times(bool_var, operation[i]) for bool_var, operation in saved_operations[pos]]
+        #            self.gen.add_assertion(out[pos][i] == self.gen.Sum(terms))
+        #    else:
+        #        for bool_var, operation in saved_operations[pos]:
+        #            self.gen.ConstrainedEquals(bool_var, out[pos], operation, self.layer_bigM)
+        for bool_var, operation in saved_operations[pos]:
+            self.gen.ConstrainedEquals(bool_var, out[pos], operation, self.layer_bigM)
         
         # propagate the k update
         if (self.gen.mode == "milp" or self.gen.mode == "gurobi") and self.complex_representation != Complex:

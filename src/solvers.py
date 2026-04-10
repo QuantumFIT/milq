@@ -99,9 +99,8 @@ class PortfolioSMTSolver:
     def solve(self, formula_file) -> str:
         processes = {}
         for name, solver in self.solvers.items():
-            cmd = solver.args + [formula_file]
             proc = subprocess.Popen(
-                cmd,
+                solver.args + solver.smtlib_flags + [formula_file],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
@@ -118,6 +117,7 @@ class PortfolioSMTSolver:
                     # just kill the current process and let the others continue
                     proc.kill()
                     continue
+
                 for other_name, other_proc in processes.items():
                     if other_name != name:
                         other_proc.kill()

@@ -18,17 +18,17 @@ class FiveTuple:
             return
 
         if name is not None:
-            safe = name.replace('[', '_').replace(']', '')
+            self.name = name.replace('[', '_').replace(']', '')
             if bound is not None:
-                self.a = generator.declare_integer(f"{safe}_a", lb=-bound, ub=bound)
-                self.b = generator.declare_integer(f"{safe}_b", lb=-bound, ub=bound)
-                self.c = generator.declare_integer(f"{safe}_c", lb=-bound, ub=bound)
-                self.d = generator.declare_integer(f"{safe}_d", lb=-bound, ub=bound)
+                self.a = generator.declare_integer(f"{self.name}_a", lb=-bound, ub=bound)
+                self.b = generator.declare_integer(f"{self.name}_b", lb=-bound, ub=bound)
+                self.c = generator.declare_integer(f"{self.name}_c", lb=-bound, ub=bound)
+                self.d = generator.declare_integer(f"{self.name}_d", lb=-bound, ub=bound)
             else:
-                self.a = generator.declare_integer(f"{safe}_a")
-                self.b = generator.declare_integer(f"{safe}_b")
-                self.c = generator.declare_integer(f"{safe}_c")
-                self.d = generator.declare_integer(f"{safe}_d")
+                self.a = generator.declare_integer(f"{self.name}_a")
+                self.b = generator.declare_integer(f"{self.name}_b")
+                self.c = generator.declare_integer(f"{self.name}_c")
+                self.d = generator.declare_integer(f"{self.name}_d")
         else:
             self.a = generator.format_integer(a)
             self.b = generator.format_integer(b)
@@ -384,34 +384,54 @@ class FiveTuple:
     def divide_by_two_i(self, generator):
         return self.multiply_by_i(generator)
             
-    def to_real(self, k): 
+    def to_real(self, k=None): 
         # omega = (1 + i) / sqrt(2)
         # real = (a + ((b - d)/sqrt(2))) / sqrt(2)^k
         # imag = (c + ((b + d)/sqrt(2))) / sqrt(2)^k
-        if self.gen is None:
-            real = (self.a + ((self.b - self.d)/np.sqrt(2))) / np.sqrt(2)**k
-            imag = (self.c + ((self.b + self.d)/np.sqrt(2))) / np.sqrt(2)**k
-            return Complex(a=real, b=imag, generator=self.gen)
-        else:
-            sqrt2 = self.gen.declare_real("sqrt2")
-        
-            if isinstance(k, int) and k == 0:
-                sqrt2_k = self.gen.format_real(1)
+        if k is not None:
+            if self.gen is None:
+                real = (self.a + ((self.b - self.d)/np.sqrt(2))) / np.sqrt(2)**k
+                imag = (self.c + ((self.b + self.d)/np.sqrt(2))) / np.sqrt(2)**k
+                return Complex(a=real, b=imag, generator=self.gen)
             else:
-                sqrt2_k = self.gen.Pow(sqrt2, k)
+                sqrt2 = self.gen.declare_real("sqrt2")
+                self.gen.add_assertion(self.gen.Equals(self.gen.Times(sqrt2, sqrt2), self.gen.Real(2)))
             
-            b_minus_d = self.gen.Minus(self.gen.format_integer(self.b), self.gen.format_integer(self.d))
-            b_minus_d_over_sqrt2 = self.gen.Div(b_minus_d, sqrt2)
-            real_numerator = self.gen.Plus(self.gen.format_integer(self.a), b_minus_d_over_sqrt2)
-            
-            b_plus_d = self.gen.Plus(self.gen.format_integer(self.b), self.gen.format_integer(self.d))
-            b_plus_d_over_sqrt2 = self.gen.Div(b_plus_d, sqrt2)
-            imag_numerator = self.gen.Plus(self.gen.format_integer(self.c), b_plus_d_over_sqrt2)
-            
-            real = self.gen.Div(real_numerator, sqrt2_k)
-            imag = self.gen.Div(imag_numerator, sqrt2_k)
-            
-            return Complex(a=real, b=imag, generator=self.gen)
+                if isinstance(k, int) and k == 0:
+                    sqrt2_k = self.gen.format_real(1)
+                else:
+                    sqrt2_k = self.gen.declare_real(f"sqrt2_k_{self.name}")
+                    sqrt2_k_expr = self.gen.Exp(self.gen.Div(self.gen.Real(k), self.gen.Real(2)))
+                    self.gen.add_assertion(self.gen.Equals(sqrt2_k, sqrt2_k_expr))
+                
+                b_minus_d = self.gen.Minus(self.gen.format_integer(self.b), self.gen.format_integer(self.d))
+                b_minus_d_over_sqrt2 = self.gen.Div(b_minus_d, sqrt2)
+                real_numerator = self.gen.Plus(self.gen.format_integer(self.a), b_minus_d_over_sqrt2)
+                
+                b_plus_d = self.gen.Plus(self.gen.format_integer(self.b), self.gen.format_integer(self.d))
+                b_plus_d_over_sqrt2 = self.gen.Div(b_plus_d, sqrt2)
+                imag_numerator = self.gen.Plus(self.gen.format_integer(self.c), b_plus_d_over_sqrt2)
+                
+                real = self.gen.Div(real_numerator, sqrt2_k)
+                imag = self.gen.Div(imag_numerator, sqrt2_k)
+                
+                return Complex(a=real, b=imag, generator=self.gen)
+        else:
+            # just do a + (b-d)/sqrt(2)
+            # (c + (b+d)/sqrt(2))i without any division
+            if self.gen is None:
+                return Complex(a=self.a + ((self.b - self.d)/np.sqrt(2)), b=self.c + ((self.b + self.d)/np.sqrt(2)), generator=self.gen)
+            else:
+                sqrt2 = self.gen.declare_real("sqrt2")
+                b_minus_d = self.gen.Minus(self.gen.format_integer(self.b), self.gen.format_integer(self.d))
+                b_minus_d_over_sqrt2 = self.gen.Div(b_minus_d, sqrt2)
+                real_numerator = self.gen.Plus(self.gen.format_integer(self.a), b_minus_d_over_sqrt2)
+                
+                b_plus_d = self.gen.Plus(self.gen.format_integer(self.b), self.gen.format_integer(self.d))
+                b_plus_d_over_sqrt2 = self.gen.Div(b_plus_d, sqrt2)
+                imag_numerator = self.gen.Plus(self.gen.format_integer(self.c), b_plus_d_over_sqrt2)
+                
+                return Complex(a=real_numerator, b=imag_numerator, generator=self.gen)
         
     def abs2(self, k):
         # a = a/2^(k/2)

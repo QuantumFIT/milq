@@ -3,14 +3,14 @@ from pysmt.shortcuts import Plus, Minus, Times, Equals, And, Real
 
 class Complex:
     def __init__(self, a=None, b=None, name=None, generator=None, bound=None):
-        bound = 1.0 # always in -1, 1 range
+        #bound = 1.0 # always in -1, 1 range
         self.gen = generator
         if generator is not None:
             generator.stats['complex_numbers'] += 1
         if name is not None:
-            safe_name = name.replace('[', '_').replace(']', '')
-            self.real = generator.declare_real(safe_name + '_r', lb=-bound, ub=bound)
-            self.imag = generator.declare_real(safe_name + '_i', lb=-bound, ub=bound)
+            self.name = name.replace('[', '_').replace(']', '')
+            self.real = generator.declare_real(self.name + '_r', lb=-bound, ub=bound)
+            self.imag = generator.declare_real(self.name + '_i', lb=-bound, ub=bound)
         else:
             if generator is not None:
                 if isinstance(a, str) and isinstance(b, str):
@@ -60,6 +60,8 @@ class Complex:
 
     def __mul__(self, other):
         # (a + bi) * (c + di) = (ac - bd) + (ad + bc)i
+        # r1 * r2 - i1 * i2
+        # r1 * i2 + i1 * r2
         if self.gen is None:
             return Complex(a=self.real * other.real - self.imag * other.imag, b=self.real * other.imag + self.imag * other.real, generator=self.gen)
         else:
@@ -154,10 +156,16 @@ class Complex:
     
     @classmethod
     def t_phase(cls, generator = None, bound=None):
+        if generator is not None:
+            if generator.mode == "smtlib":
+                return cls(a=generator.format_real("one_half"), b=generator.format_real("one_half"), generator=generator, bound=bound)
         return cls(a=np.sqrt(1/2), b=np.sqrt(1/2), generator=generator, bound=bound)
     
     @classmethod
     def inv_sqrt2(cls, generator = None, bound=None):
+        if generator is not None:
+            if generator.mode == "smtlib":
+                return cls(a=generator.format_real("inv_sqrt2"), b=0, generator=generator, bound=bound)
         return cls(a=np.sqrt(1/2), b=0, generator=generator, bound=bound)
     
     @classmethod

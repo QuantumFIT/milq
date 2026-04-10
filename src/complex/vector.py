@@ -31,6 +31,7 @@ class Vector:
         
         self.vec = []
         self.name = name
+        self.bound = bound
         for i in range(q):
             if name is not None:
                 if element_representation == nTuple:
@@ -93,26 +94,20 @@ class Vector:
     def __mul__(self, other) -> tuple[any, any]:
         if len(self.vec) == 0:
             raise ValueError("Vector is empty")
+        dot_product = self.vec[0] * other.vec[0].conjugate()
+        for i in range(1, len(self.vec)):
+            dot_product = dot_product + self.vec[i] * other.vec[i].conjugate()
+        
+        k = None
+        if self.k is not None and other.k is not None:
+            k = self.k + other.k
+            
         if self.gen is None:
-            sum = self.vec[0] * other.vec[0]
-            for i in range(1, len(self.vec)):
-                sum = sum + self.vec[i] * other.vec[i]
-            return sum, self.k + other.k
+            return dot_product, k
         else:
-            dot_vec = Vector(q=len(self.vec), generator=self.gen, element_representation=self.element_representation, k=self.k, n=self.n, name=f"Dot_Product")
-            for i in range(len(self.vec)):
-                self.gen.add_assertion(dot_vec[i] == self.vec[i] * other.vec[i])
-            sum_var = self.element_representation(name=f"Dot_Sum", generator=self.gen)
-            sum = dot_vec[0]
-            for i in range(1, len(dot_vec)):
-                sum = sum + dot_vec[i]
-            self.gen.add_assertion(sum_var == sum)
-            k_final = self.gen.Plus(self.k, other.k)
-            if self.element_representation == FiveTuple or self.element_representation == nTuple:
-                self.gen.add_assertion(self.gen.Equals(dot_vec.k, k_final))
-            # because multiplication does not need rescaling (it scales to k1 + k2), and k is shared by all elements of a vector
-            # the k of the result is the sum of k's of the vectors
-            return sum_var, k_final
+            sum_var = self.element_representation(name=f"Dot_Product_{self.name}_{other.name}", generator=self.gen, bound=len(self) * self.bound * other.bound)
+            self.gen.add_assertion(self.gen.Equals(sum_var, dot_product))
+            return sum_var, k
     
     def max_value(self) -> int:
         max = 0
@@ -181,7 +176,7 @@ class Vector:
             return self
         new_vec = self.copy()
         if self.gen is not None:
-            new_vec = Vector(q=len(self.vec), name=f"Measured_{self.name}", generator=self.gen, element_representation=self.element_representation, k=self.k)
+            new_vec = Vector(q=len(self.vec), name=f"Projected_{self.name}", generator=self.gen, element_representation=self.element_representation, k=self.k)
         else:
             new_vec = Vector(q=len(self.vec), element_representation=self.element_representation, k=0)
         # first make the projection, zero out elements
@@ -249,3 +244,7 @@ class Vector:
         for i in range(len(self.vec)):
             self.gen.add_assertion(new_vec[i] == self.vec[i] * complex)
         return new_vec
+    
+    @classmethod
+    def dot(cls, vec1 : "Vector", vec2 : "Vector") -> "Vector":
+        return vec1 * vec2

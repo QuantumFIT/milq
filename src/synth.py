@@ -53,6 +53,7 @@ class Synthesizer:
         self.post_measurement = False
         self.approx = False
         self.basis = "cb"
+        self.ref_dot = None
         
     def __exit__(self) -> None:
         if self.gen.mode == "pysmt":
@@ -99,14 +100,7 @@ class Synthesizer:
             self.solvers[name] = SMTSolver(name, args, logics, smtlib_flags, incremental_mode)
 
     def encode_layer(self, inp : Vector, out : Vector, layer : int, inp_weight : any = None, out_weight : any = None, selection_variables : list = None, bool_variables : list = None) -> None:
-        updates_k_value = []
-        if self.complex_representation == Complex:
-            if self.layer_bigM == 1:
-                self.layer_bigM = 4
-            self.layer_bigM = self.layer_bigM
-        else:
-            self.layer_bigM = self.layer_bigM * 2
-        
+        updates_k_value = []        
         def add_k_eq(sel, out_k, inp_k):
             if self.gen.mode == "milp" or self.gen.mode == "gurobi":
                 return
@@ -634,9 +628,10 @@ class Synthesizer:
         #    else:
         #        for bool_var, operation in saved_operations[pos]:
         #            self.gen.ConstrainedEquals(bool_var, out[pos], operation, self.layer_bigM)
-        for bool_var, operation in saved_operations[pos]:
-            self.gen.ConstrainedEquals(bool_var, out[pos], operation, self.layer_bigM)
-        
+        for pos in range(size):
+            for bool_var, operation in saved_operations[pos]:
+                self.gen.ConstrainedEquals(bool_var, out[pos], operation, self.layer_bigM)
+            
         # propagate the k update
         if (self.gen.mode == "milp" or self.gen.mode == "gurobi") and self.complex_representation != Complex:
             self.gen.add_assertion(self.gen.Equals(out.k, self.gen.Plus(inp.k, self.gen.Sum([v[1] * v[0] for v in updates_k_value]))))
@@ -739,56 +734,93 @@ class Synthesizer:
         if self.approx:
             # APPROXIMATE EQUIVALENCE
             if self.complex_representation == Complex:
-                norm = None
-                vec1 = vec1
+                if self.gen.mode == "milp":
+                    raise NotImplementedError("approximate equivalence not supported for milp mode (non-linear)")
                 if self.post_measurement:
-                    if not already_measured:
-                        vec1 = vec1.measure(self.qubits_to_measure, 0)
-                    norm = self.gen.declare_real(f"norm", lb=0.0, ub=1.0)
-                    self.gen.add_norm(norm, vec1)
-                    vec1 = vec1.multiply_by_real(norm)
+                    raise NotImplementedError("post-measurement is not supported for approximate equivalence")
                     
-                if self.up_to_global_phase:
-                    # fidelity |<vec1|vec2>|^2 >= 1 - eps
-                    raise NotImplementedError("fidelity is not supported for approximate equivalence")
-                else:
-                    # ||vec1 - vec2|| >= 1 - eps
-                    raise NotImplementedError("up-to-global-phase is not supported for approximate equivalence")
+                fidelity = self.gen.declare_real(f"fidelity_{pair_idx}", lb=0.0, ub=1.0)
+                dot_product, _ = Vector.dot(vec1, vec2)
+                if pair_idx == 0:
+                    self.ref_dot = dot_product
+                
+                prod = self.gen.Times(dot_product, self.ref_dot.conjugate())
+                self.gen.add_assertion(self.gen.Equals(prod[1], self.gen.Real(0)))
+                self.gen.add_assertion(self.gen.GE(prod[0], self.gen.Real(0)))
+                self.gen.add_assertion(self.gen.Equals(fidelity, self.gen.Plus(self.gen.Square(dot_product[0]), self.gen.Square(dot_product[1]))))
+                self.gen.add_assertion(self.gen.GE(fidelity, self.gen.Real(self.fidelity_threshold)))
+                self.gen.add_assertion(self.gen.GE(fidelity, self.gen.Real(0)))
+                self.gen.add_assertion(self.gen.LE(fidelity, self.gen.Real(1)))
                 
             else:
-                raise ValueError("approximate equivalence only supported for a+bj representation")
+                if self.gen.mode == "gurobi":
+                    fidelity_fivetuple = self.complex_representation(name=f"fidelity_fivetuple_{pair_idx}", generator=self.gen)
+                    fidelity = self.gen.declare_real(f"fidelity_{pair_idx}", lb=0.0, ub=1.0)
+                    dot_product, k = Vector.dot(vec1, vec2)
+                    to_real = Complex(name=f"to_real_{pair_idx}", generator=self.gen, bound=1.0)
+                    to_real_expr = dot_product.to_real(k)
+                    self.gen.add_assertion(self.gen.Equals(to_real, to_real_expr))
+                    if pair_idx == 0:
+                        self.ref_dot = to_real
+                    prod = self.gen.Times(to_real, self.ref_dot.conjugate())
+                    k = self.gen.Times(k, self.gen.Real(2))
+                    self.gen.add_assertion(self.gen.Equals(prod[1], self.gen.Real(0)))
+                    self.gen.add_assertion(self.gen.GE(prod[0], self.gen.Real(0)))
+                    self.gen.add_assertion(self.gen.Equals(fidelity_fivetuple, self.gen.Times(dot_product, dot_product.conjugate())))
+                    # Exp 2^(k)
+                    exp = self.gen.declare_integer(f"exp_{pair_idx}")
+                    self.gen.add_assertion(self.gen.Equals(exp, self.gen.Exp(k)))
+                    
+                    self.gen.add_assertion(self.gen.Equals(fidelity, self.gen.Div(self.gen.Times(fidelity_fivetuple, fidelity_fivetuple.conjugate()).to_real().real, exp)))
+                    self.gen.add_assertion(self.gen.GE(fidelity, self.gen.Real(self.fidelity_threshold)))
+                    self.gen.add_assertion(self.gen.GE(fidelity, self.gen.Real(0)))
+                    self.gen.add_assertion(self.gen.LE(fidelity, self.gen.Real(1)))
+                else:
+                    raise NotImplementedError("approximate equivalence not supported for this mode")
         else:
             # EXACT EQUIVALENCE
             if self.complex_representation == Complex:
                 norm = None
                 global_phase = None
-                vec1 = vec1
+                # post measurement (real non-zero norm)
                 if self.post_measurement:
                     if not already_measured:
                         vec1 = vec1.measure(self.qubits_to_measure, 0)
                     norm = self.gen.declare_real(f"norm", lb=0.0, ub=1.0)
                     self.gen.add_norm(norm, vec1)
-                    vec1 = vec1.multiply_by_real(norm)
+                    measured_vec = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Multiplied_by_norm_{vec2.name}", bound=2**self.max_k)
+                    for i in range(2**self.q):
+                        self.gen.add_assertion(self.gen.Equals(measured_vec[i], vec2[i].multiply_by_real(norm)))
+                    vec2 = measured_vec
+                # global phase
+                vec_target = vec2
                 if self.up_to_global_phase:
-                    global_phase = self.complex_representation(name=f"global_phase", generator=self.gen)
+                    if self.gen.mode == "milp":
+                        raise NotImplementedError("global phase encoding not supported for milp mode (non-linearity)")
+                    vec = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Multiplied_by_global_phase_{vec2.name}", bound=2**self.max_k)
+                    global_phase = self.complex_representation(name=f"global_phase", generator=self.gen, bound=1.0)
                     self.gen.add_global_phase(global_phase)
-                    vec1 = vec1.multiply_by_complex(global_phase)
+                    for i in range(2**self.q):
+                        self.gen.add_assertion(self.gen.Equals(vec[i], self.gen.Times(vec2[i], global_phase)))
+                    vec_target = vec
                     
                 if self.gen.mode == "milp" or self.gen.mode == "gurobi":
                     for i in range(2**self.q):
-                        self.gen.add_assertion(self.gen.Equals(vec1[i], vec2[i]))
+                        self.gen.add_assertion(self.gen.Equals(vec1[i], vec_target[i]))
                 else:
                     eps = self.gen.Real(1e-9)
                     for i in range(2**self.q):
                         for j in range(len(vec1[i])):
-                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i][j], vec2[i][j]), eps))
-                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i][j], vec1[i][j]), eps))
+                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i][j], vec_target[i][j]), eps))
+                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i][j], vec_target[i][j]), eps))
                 return vec1, vec2
             else:
+                # not allowed for integer arithmetics
                 if self.post_measurement:
                     raise ValueError("post-measurement only supported for classic a+bj representation")
                 
                 vec_target = vec2
+                # global phase encoding
                 if self.up_to_global_phase:
                     # change vec2 to vec2 * e, global phase is only omega^m, m in {0, ... 7} -- phase shift 
                     # only for Clifford+T circuits
@@ -813,7 +845,7 @@ class Synthesizer:
                     self.gen.add_assertion(self.gen.Equals(vec.k, vec_copy.k))
                     vec_target = vec
 
-
+                # fivetuple rescaling
                 rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}", bound=2**self.max_k)
                 rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}", bound=2**self.max_k)
                 if self.gen.mode == "milp" or self.gen.mode == "gurobi":
@@ -907,6 +939,8 @@ class Synthesizer:
         elif complex_representation == "Classic":
             self.gen.logic = "QF_NRA"
             self.complex_representation = Complex
+        if fidelity_threshold > 1.0 or fidelity_threshold < 0.0:
+            raise ValueError("fidelity_threshold must be in [0.0, 1.0]")
 
         self.vec_mode = vectors
         self.q = q
@@ -918,6 +952,7 @@ class Synthesizer:
         self.ancillas = ancillas
         self.basis = basis
         self.approx = approx
+        self.fidelity_threshold = fidelity_threshold
 
         if vectors in ["zero", "all", "rus", "jamiolkowski"]:
             # set circuit statistics to prepare synthesis
@@ -931,6 +966,7 @@ class Synthesizer:
                 # simulate based on number of ancilas and targets!
                 vector_pairs = self.simulator.simulate_rus(targets, ancillas)
             elif vectors == "jamiolkowski":
+                self.gen.jamiolkowski = True
                 vector_pairs = self.simulator.simulate_jamiolkowski()
             
             stats = self.simulator.circuit_stats()
@@ -949,7 +985,7 @@ class Synthesizer:
                 self.post_measurement = len(self.qubits_to_measure) > 0
             self.v = len(vector_pairs)
             self.curr_depth = self.d
-            self.max_k = self.d if self.d > stats['max_k'] else stats['max_k']
+            self.max_k = 2*self.d if self.d > stats['max_k'] else 2*stats['max_k']
         else:
             self.q = q
             self.d = d
@@ -971,11 +1007,10 @@ class Synthesizer:
             if solver not in ["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "portfolio"]:
                 raise ValueError(f"Invalid solver: {solver}")
             self.gen.mode = "smtlib"
-            incremental_mode = True if mode == "incremental" or mode == "pareto-incremental" else False
+            incremental_mode = True if (mode == "incremental" or mode == "pareto-incremental") and solver != "portfolio" else False
             self.add_solvers(incremental_mode=incremental_mode)
             if solver == "dreal":
                 self.gen.logic = "QF_NRA"
-                self.fidelity_threshold = fidelity_threshold
             
             new_dict = {}
             for name, s in self.solvers.items():
@@ -1017,9 +1052,7 @@ class Synthesizer:
             self.gen.mode = "gurobi"
             self.gen.solver = solver
         
-        if self.gen.logic == "QF_NRA" and not incremental_mode:
-            self.gen.declare_helpers()
-
+        self.gen.declare_helpers()
         self.gen.q = self.q
         self.gen.d = self.d
         self.gen.num_of_vectors = len(vector_pairs)
@@ -1049,6 +1082,12 @@ class Synthesizer:
         # encode vectors
         inter_states = []
         target_states = []
+        bounds = [1] * (self.d + 1)
+        if self.complex_representation != Complex:
+            for d in range(self.d + 1):
+                bounds[d] = bounds[d-1] * 2
+            self.bound = bounds[self.d]
+        
         for pair_idx, (input_state, output_state) in enumerate(vector_pairs):
             # input vector
             max_value_in_input = input_state.max_value()
@@ -1071,10 +1110,9 @@ class Synthesizer:
             for d in range(self.d + 1):
                 Inter = None
                 if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                    Inter = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_state.k if d == 0 else 0, n = input_state.n, bound = self.bound, k_bound = 2 * (d+1))
+                    Inter = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_state.k if d == 0 else 0, n = input_state.n, bound = bounds[d], k_bound = 2 * (d+1))
                 else:
-                    Inter = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (d+1))
-                self.bound = self.bound * 2
+                    Inter = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, bound = bounds[d], k_bound = 2 * (d+1))
                 
                 if d == 0:
                     if self.gen.mode == "milp" or self.gen.mode == "gurobi":
@@ -1110,8 +1148,14 @@ class Synthesizer:
         if self.encoding_method == "basic" or self.encoding_method in ["binary", "topdown", "bottomup"]:
             # encode whole circuit
             for d in range(self.d):
+                if self.complex_representation == Complex:
+                    if self.layer_bigM == 1:
+                        self.layer_bigM = 4
+                    self.layer_bigM = self.layer_bigM
+                else:
+                    self.layer_bigM = self.layer_bigM * 2
+                selection_variables, bool_variables = self.gen.add_selection_variables(d, self.gate_set, self.q)
                 for pair_idx in range(len(vector_pairs)):
-                    selection_variables, bool_variables = self.gen.add_selection_variables(d, self.gate_set, self.q)
                     self.encode_layer(inter_states[pair_idx][d], inter_states[pair_idx][d+1], d, weights[d], weights[d+1], selection_variables, bool_variables)
                 # add constraining rules - no H H, Tdg T, ...
                 self.gen.add_constraints(self.gate_set, d, self.q)
@@ -1141,6 +1185,12 @@ class Synthesizer:
                 self.gen.d = self.curr_depth
                 # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
                 selection_variables, bool_variables = self.gen.add_selection_variables(self.curr_depth-1, self.gate_set, self.q)
+                if self.complex_representation == Complex:
+                    if self.layer_bigM == 1:
+                        self.layer_bigM = 4
+                    self.layer_bigM = self.layer_bigM
+                else:
+                    self.layer_bigM = self.layer_bigM * 2
                 for pair_idx in range(len(vector_pairs)):
                     if self.curr_depth > self.d:
                         state = None
@@ -1150,13 +1200,14 @@ class Synthesizer:
                             state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
                         weight_bound = weight_bound + max_weight
                         weights.append(self.gen.declare_integer(f"W{self.curr_depth}", lb=0, ub=weight_bound))
-                        self.bound = self.bound * 2
                         inter_states[pair_idx].append(state)
-                    
+     
                     self.encode_layer(inter_states[pair_idx][self.curr_depth-1], inter_states[pair_idx][self.curr_depth], self.curr_depth-1, weights[self.curr_depth-1], weights[self.curr_depth], selection_variables, bool_variables)
                     
                     # constraints do not have any effect on incremental synthesis
                     #self.gen.add_constraints(self.gate_set, self.curr_depth-1, self.q)
+                if self.complex_representation != Complex:
+                    self.bound = self.bound * 2
                 self.gen.push()
                 
                 # encode equivalence

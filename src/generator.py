@@ -45,6 +45,7 @@ class Generator:
         self.d = 0
         self.num_of_vectors = 0
         self.model = None
+        self.jamiolkowski = False
         if self.solver == "dreal":
             self.logic = "QF_NRA"
 
@@ -86,7 +87,6 @@ class Generator:
         # add prologue to the solver 
         prologue = "(set-logic " + self.logic + ")\n"
         self.write_incremental(prologue)
-        self.declare_helpers()
     
     
     def add_quadratic_assertion(self, assertion):
@@ -115,6 +115,9 @@ class Generator:
         bool_variables = []
         gate_set.add_gate(gate="id", weight=0, qubits=1)
         gates = gate_set.get_gates(1)
+        if self.jamiolkowski:
+            # here qubits is 2*q, the actual zone of interest is q
+            qubits = qubits // 2
         variables = [(gate, q) for q in range(qubits) for gate in gates]
         for var in variables:
             v = self.declare_bool(f"L{layer}_{var[0]}_q{var[1]}")
@@ -202,7 +205,7 @@ class Generator:
             raise NotImplementedError("pow not yet supported")
     
     def Square(self, x):
-        if self.mode == "gurobi":
+        if self.mode == "gurobi" or self.mode == "smtlib":
             return self.Times(x, x)
         else:
             raise NotImplementedError("square not yet supported")
@@ -355,7 +358,7 @@ class Generator:
         
     def Sum(self, *args):
         if self.mode == "pysmt" or self.mode == "smtlib":
-            raise NotImplementedError("Sum not supported in milp/gurobi mode")
+            return (f"(+ {' '.join(args)})")
         elif self.mode == "milp":
             return lpSum(args)
         elif self.mode == "gurobi":
@@ -374,17 +377,17 @@ class Generator:
             self.lp_problem.addGenConstrNorm(norm_var, vec_expanded, which=2.0, name=f"assertion_{self.stats['assertions']}")
         else:
             vec_expanded = []
+            self.add_assertion(self.GT(norm_var, self.Real(1e-8)))
+            self.add_assertion(self.LE(norm_var, self.Real(1.0)))
             for i in range(len(vec)):
                 for j in range(len(vec[i])):
                     vec_expanded.append(vec[i][j])
-            raise NotImplementedError("add_norm not supported in milp/pysmt/smtlib mode")
+            lhs = self.Times(norm_var, norm_var)
+            rhs = self.Sum(*[self.Square(elem) for elem in vec_expanded])
+            self.add_assertion(self.Equals(lhs, rhs))
         
     def add_global_phase(self, global_phase):
-        if self.mode == "gurobi":
-            global_phase_norm = self.declare_real(f"global_phase_norm", lb=0.0, ub=1.0)
-            self.add_norm(global_phase_norm, [global_phase])
-            self.add_assertion(self.Equals(global_phase_norm, self.Real(1.0)))
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib" or self.mode == "gurobi":
             self.add_assertion(self.Equals(global_phase.abs2(), self.Real(1.0)))
         else:
             raise NotImplementedError("add_global_phase not supported in this mode")
@@ -595,6 +598,10 @@ class Generator:
         if self.logic == "QF_NRA" and (self.mode in ["pysmt", "smtlib"]):
             self.declare_real("sqrt2")
             self.add_assertion(self.Equals(self.Times(self.format_real("sqrt2"), self.format_real("sqrt2")), self.Real(2.0)))
+            self.declare_real("one_half")
+            self.add_assertion(self.Equals(self.format_real("one_half"), self.Div(self.format_real(1), self.format_real(2))))
+            self.declare_real("inv_sqrt2")
+            self.add_assertion(self.Equals(self.format_real("inv_sqrt2"), self.Div(self.format_real(1), self.format_real("sqrt2"))))
 
     def maximize(self, expression):
         if self.mode == "pysmt":
@@ -934,6 +941,9 @@ class Generator:
         if self.mode == "milp":
             return self
         elif self.mode == "gurobi":
+            #variables = self.lp_problem.getVars()
+            #for var in variables:
+            #    print(var.varName, var.X)
             return self.lp_problem.getVars()
         
         elif self.mode == "smtlib":          

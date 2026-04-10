@@ -338,7 +338,6 @@ class Simulator:
         # prepare maximally entangled state and simulate the circuit on it
         gates, vectors = self.parse_file()
         # add new gates creating the maximally entangled state
-        """
         pre_gates = []
         for i in range(self.stats['q']):
             pre_gates.append(('h', [i]))
@@ -346,12 +345,8 @@ class Simulator:
         for i in range(self.stats['q']):
             j = i + self.stats['q']
             pre_gates.append(('cx', [i, j]))
-        """
-        self.stats['q'] = 2 * self.stats['q']
-        pre_gates = [('h', [0])]
-        for i in range(self.stats['q'] - 1):
-            pre_gates.append(('cx', [i, i + 1]))
         
+        self.stats['q'] = 2 * self.stats['q']
         self.stats['gate_set'].add_gate('h', qubits=1, weight=1)
         self.stats['gate_set'].add_gate('cx', qubits=2, weight=1)
         
@@ -366,6 +361,26 @@ class Simulator:
         vectors = [input_state]
         
         return self.simulate(vectors, gates)
+    
+    """
+    simulate the given input circuit by creating the unitary matrix instead of vectors
+    """
+    def simulate_matrix(self) -> Matrix:
+        gates, _ = self.parse_file()
+        matrix = Matrix.i(element_representation=self.complex_representation, q=0, qubits=self.stats['q'])
+        for (op, qubits) in gates:
+            if len(qubits) == 1:
+                mat = getattr(Matrix, op)(element_representation=self.complex_representation, q=qubits[0], qubits=self.stats['q'])
+                matrix = mat * matrix
+            elif len(qubits) == 2:
+                mat = getattr(Matrix, op)(element_representation=self.complex_representation, q1=qubits[0], q2=qubits[1], qubits=self.stats['q'])
+                matrix = mat * matrix
+            elif len(qubits) == 3:
+                mat = getattr(Matrix, op)(element_representation=self.complex_representation, q1=qubits[0], q2=qubits[1], q3=qubits[2], qubits=self.stats['q'])
+                matrix = mat * matrix
+            else:
+                raise NotImplementedError(f"Gate {op} with {len(qubits)} qubits is not yet implemented")
+        return matrix
         
     """
     return the statistics about the input circuit

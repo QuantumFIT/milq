@@ -753,30 +753,37 @@ class Synthesizer:
                 self.gen.add_assertion(self.gen.LE(fidelity, self.gen.Real(1)))
                 
             else:
-                if self.gen.mode == "gurobi":
-                    fidelity_fivetuple = self.complex_representation(name=f"fidelity_fivetuple_{pair_idx}", generator=self.gen)
-                    fidelity = self.gen.declare_real(f"fidelity_{pair_idx}", lb=0.0, ub=1.0)
-                    dot_product, k = Vector.dot(vec1, vec2)
-                    to_real = Complex(name=f"to_real_{pair_idx}", generator=self.gen, bound=1.0)
-                    to_real_expr = dot_product.to_real(k)
-                    self.gen.add_assertion(self.gen.Equals(to_real, to_real_expr))
-                    if pair_idx == 0:
-                        self.ref_dot = to_real
-                    prod = self.gen.Times(to_real, self.ref_dot.conjugate())
-                    k = self.gen.Times(k, self.gen.Real(2))
-                    self.gen.add_assertion(self.gen.Equals(prod[1], self.gen.Real(0)))
-                    self.gen.add_assertion(self.gen.GE(prod[0], self.gen.Real(0)))
-                    self.gen.add_assertion(self.gen.Equals(fidelity_fivetuple, self.gen.Times(dot_product, dot_product.conjugate())))
-                    # Exp 2^(k)
-                    exp = self.gen.declare_integer(f"exp_{pair_idx}")
+                if self.gen.mode == "milp":
+                    raise NotImplementedError("approximate equivalence not supported for milp mode (non-linear)")
+           
+                fidelity_fivetuple = self.complex_representation(name=f"fidelity_fivetuple_{pair_idx}", generator=self.gen)
+                fidelity = self.gen.declare_real(f"fidelity_{pair_idx}", lb=0.0, ub=1.0)
+                dot_product, k = Vector.dot(vec1, vec2)
+                to_real = Complex(name=f"to_real_{pair_idx}", generator=self.gen, bound=1.0)
+                to_real_expr = dot_product.to_real(k, max_k=self.max_k)
+                self.gen.add_assertion(self.gen.Equals(to_real, to_real_expr))
+                if pair_idx == 0:
+                    self.ref_dot = to_real
+                prod = self.gen.Times(to_real, self.ref_dot.conjugate())
+                k = self.gen.Times(k, self.gen.Real(2))
+                self.gen.add_assertion(self.gen.Equals(prod[1], self.gen.Real(0)))
+                self.gen.add_assertion(self.gen.GE(prod[0], self.gen.Real(0)))
+                self.gen.add_assertion(self.gen.Equals(fidelity_fivetuple, self.gen.Times(dot_product, dot_product.conjugate(self.gen))))
+                # Exp 2^(k)
+                exp = self.gen.declare_integer(f"exp_{pair_idx}")
+                if self.gen.mode == "smtlib":
+                    # enumerate all possible values of k
+                    # k in {0, ..., 2 * (d + target.max_k)}
+                    for i in range(2*self.max_k):
+                        exponential = 2 ** i
+                        self.gen.add_assertion(self.gen.Implies(self.gen.Equals(k, i), self.gen.Equals(exp, exponential)))
+                elif self.gen.mode == "gurobi":
                     self.gen.add_assertion(self.gen.Equals(exp, self.gen.Exp(k)))
-                    
-                    self.gen.add_assertion(self.gen.Equals(fidelity, self.gen.Div(self.gen.Times(fidelity_fivetuple, fidelity_fivetuple.conjugate()).to_real().real, exp)))
-                    self.gen.add_assertion(self.gen.GE(fidelity, self.gen.Real(self.fidelity_threshold)))
-                    self.gen.add_assertion(self.gen.GE(fidelity, self.gen.Real(0)))
-                    self.gen.add_assertion(self.gen.LE(fidelity, self.gen.Real(1)))
-                else:
-                    raise NotImplementedError("approximate equivalence not supported for this mode")
+                
+                self.gen.add_assertion(self.gen.Equals(fidelity, self.gen.Div(self.gen.Times(fidelity_fivetuple, fidelity_fivetuple.conjugate(self.gen)).to_real(max_k=self.max_k).real, exp)))
+                self.gen.add_assertion(self.gen.GE(fidelity, self.gen.Real(self.fidelity_threshold)))
+                self.gen.add_assertion(self.gen.GE(fidelity, self.gen.Real(0)))
+                self.gen.add_assertion(self.gen.LE(fidelity, self.gen.Real(1)))
         else:
             # EXACT EQUIVALENCE
             if self.complex_representation == Complex:
@@ -939,6 +946,8 @@ class Synthesizer:
         elif complex_representation == "Classic":
             self.gen.logic = "QF_NRA"
             self.complex_representation = Complex
+        if complex_representation == "FiveTuple" and approx:
+            self.gen.logic = "QF_NRA"
         if fidelity_threshold > 1.0 or fidelity_threshold < 0.0:
             raise ValueError("fidelity_threshold must be in [0.0, 1.0]")
 

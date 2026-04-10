@@ -94,18 +94,30 @@ class Vector:
     def __mul__(self, other) -> tuple[any, any]:
         if len(self.vec) == 0:
             raise ValueError("Vector is empty")
-        dot_product = self.vec[0] * other.vec[0].conjugate()
+        if isinstance(other, tuple):
+            max_k = other[1]
+            other = other[0]
+        gen = None
+        if self.gen is not None:
+            gen = self.gen
+        if gen is None and other.gen is not None:
+            gen = other.gen
+        
+        dot_product = self.vec[0] * other.vec[0].conjugate(gen)
         for i in range(1, len(self.vec)):
-            dot_product = dot_product + self.vec[i] * other.vec[i].conjugate()
+            dot_product = dot_product + self.vec[i] * other.vec[i].conjugate(gen)
         
         k = None
         if self.k is not None and other.k is not None:
-            k = self.k + other.k
+            if self.gen is not None:
+                k = self.gen.Plus(self.k, other.k)
+            else:
+                k = self.k + other.k
             
-        if self.gen is None:
+        if gen is None:
             return dot_product, k
         else:
-            sum_var = self.element_representation(name=f"Dot_Product_{self.name}_{other.name}", generator=self.gen, bound=len(self) * self.bound * other.bound)
+            sum_var = self.element_representation(name=f"Dot_Product_{self.name}_{other.name}", generator=gen, bound=len(self) * self.bound * other.bound)
             self.gen.add_assertion(self.gen.Equals(sum_var, dot_product))
             return sum_var, k
     
@@ -246,5 +258,5 @@ class Vector:
         return new_vec
     
     @classmethod
-    def dot(cls, vec1 : "Vector", vec2 : "Vector") -> "Vector":
-        return vec1 * vec2
+    def dot(cls, vec1 : "Vector", vec2 : "Vector", max_k=None) -> "Vector":
+        return vec1 * (vec2, max_k)

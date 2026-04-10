@@ -384,7 +384,7 @@ class FiveTuple:
     def divide_by_two_i(self, generator):
         return self.multiply_by_i(generator)
             
-    def to_real(self, k=None): 
+    def to_real(self, k=None, max_k=None): 
         # omega = (1 + i) / sqrt(2)
         # real = (a + ((b - d)/sqrt(2))) / sqrt(2)^k
         # imag = (c + ((b + d)/sqrt(2))) / sqrt(2)^k
@@ -397,12 +397,17 @@ class FiveTuple:
                 sqrt2 = self.gen.declare_real("sqrt2")
                 self.gen.add_assertion(self.gen.Equals(self.gen.Times(sqrt2, sqrt2), self.gen.Real(2)))
             
+                inv_sqrt2_k = None
                 if isinstance(k, int) and k == 0:
                     sqrt2_k = self.gen.format_real(1)
                 else:
                     sqrt2_k = self.gen.declare_real(f"sqrt2_k_{self.name}")
-                    sqrt2_k_expr = self.gen.Exp(self.gen.Div(self.gen.Real(k), self.gen.Real(2)))
-                    self.gen.add_assertion(self.gen.Equals(sqrt2_k, sqrt2_k_expr))
+                    if self.gen.mode == "smtlib":
+                        for i in range(max_k):
+                            self.gen.add_assertion(self.gen.Implies(self.gen.Equals(k, i), self.gen.Equals(sqrt2_k, np.sqrt(2) ** i)))
+                    elif self.gen.mode == "gurobi":
+                        sqrt2_k_expr = self.gen.Exp(self.gen.Div(self.gen.Real(k), self.gen.Real(2)))
+                        self.gen.add_assertion(self.gen.Equals(sqrt2_k, sqrt2_k_expr))
                 
                 b_minus_d = self.gen.Minus(self.gen.format_integer(self.b), self.gen.format_integer(self.d))
                 b_minus_d_over_sqrt2 = self.gen.Div(b_minus_d, sqrt2)

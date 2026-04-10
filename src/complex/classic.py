@@ -122,7 +122,7 @@ class Complex:
     def copy(self):
         return Complex(a=self.real, b=self.imag, generator=self.gen)
 
-    def conjugate(self):
+    def conjugate(self, generator = None):
         if self.gen is None:
             return Complex(a=self.real, b=-self.imag, generator=self.gen)
         else:

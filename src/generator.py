@@ -367,17 +367,17 @@ class Generator:
             return quicksum(args)
         
     def add_norm(self, norm_var, vec):
-        self.add_assertion(self.GE(norm_var, self.Real(1e-8)))
+        self.add_assertion(self.GE(norm_var, self.Real(1e-5)))
         if self.mode == "gurobi":
-            self.stats['assertions'] += 1
             vec_expanded = []
             for i in range(len(vec)):
                 for j in range(len(vec[i])):
                     vec_expanded.append(vec[i][j])
             self.lp_problem.addGenConstrNorm(norm_var, vec_expanded, which=2.0, name=f"assertion_{self.stats['assertions']}")
+            self.stats['assertions'] += 1
         else:
             vec_expanded = []
-            self.add_assertion(self.GT(norm_var, self.Real(1e-8)))
+            self.add_assertion(self.GE(norm_var, self.Real(1e-5)))
             self.add_assertion(self.LE(norm_var, self.Real(1.0)))
             for i in range(len(vec)):
                 for j in range(len(vec[i])):

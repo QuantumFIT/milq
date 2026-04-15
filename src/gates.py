@@ -179,7 +179,7 @@ class Circuit:
         self.gates = gates
         self.bool_variables = []
         self.cost = 0
-        self.measured_qubits = []
+        self.measured_qubits = set()
         if len(gates) == 0:
             self.gates = [None] * d
             self.bool_variables = [None] * d
@@ -191,7 +191,7 @@ class Circuit:
                 self.bool_variables.append(gate_str)
     
     def __str__(self) -> str:
-        circuit_str = f"OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[{self.q}];\ncreg c[{self.q}];\n"
+        circuit_str = f"OPENQASM 2.0;\ninclude \"stdgates.inc\";\nqreg q[{self.q}];\ncreg c[{self.q}];\n"
         for d in range(self.d):
             gate = self.gates[d]
             if gate is None: continue
@@ -216,7 +216,7 @@ class Circuit:
         circuit.draw(output="mpl", filename=output_file, reverse_bits=True)
         
     def add_measurement(self, qubits: list[int]) -> None:
-        self.measured_qubits.extend(qubits)
+        self.measured_qubits.update(qubits)
             
     def append(self, gate: Gate) -> None:
         self.gates.append(gate)

@@ -4,7 +4,6 @@ from .ntuple import nTuple
 from .vector import Vector
 from gates import GateSet
 import numpy as np
-from generator import Generator
 class Matrix:
     # also implements density matrix interface for pauli basis synthesis
     def __init__(self, matrix: list = None, q=None, name=None, generator=None, element_representation=None, k=0, n=None, bound=None, k_bound=None):
@@ -336,7 +335,28 @@ class Matrix:
             row = col ^ (1 << q2) if ((col >> q1) & 1) else col
             matrix[row][col] = one
         return cls(matrix=matrix)
-    
+
+    @classmethod
+    def ccx(
+        cls,
+        element_representation=Complex,
+        q1: int = 0,
+        q2: int = 1,
+        q3: int = 2,
+        qubits: int = 3,
+    ) -> "Matrix":
+        # Toffoli: if both controls are 1, flip target.
+        n = 2 ** qubits
+        one = element_representation.one(None)
+        zero = element_representation.zero(None)
+
+        matrix = [[zero for _ in range(n)] for _ in range(n)]
+        for col in range(n):
+            ctrl = ((col >> q1) & 1) and ((col >> q2) & 1)
+            row = col ^ (1 << q3) if ctrl else col
+            matrix[row][col] = one
+        return cls(matrix=matrix)
+
     @classmethod
     def density_from_vector(cls, vector: Vector) -> "Matrix":
         # outer product of |psi><psi|

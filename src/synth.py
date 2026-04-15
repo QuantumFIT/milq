@@ -23,6 +23,8 @@ from gates import GateSet, supported_gates, check_supported, Circuit
 from pulp import *
 from gurobipy import GRB
 from solvers import PortfolioSMTSolver, SMTSolver
+import time
+from logger import Logger
 
 class Synthesizer:
     def __init__(self) -> None:
@@ -54,6 +56,12 @@ class Synthesizer:
         self.approx = False
         self.basis = "cb"
         self.ref_dot = None
+        self.stats = {}
+        self.logger = Logger(verbosity=1)
+        # times taken
+        self.stats['parsing'] = 0
+        self.stats['encoding'] = 0
+        self.stats['solving'] = 0
         
     def __exit__(self) -> None:
         if self.gen.mode == "pysmt":
@@ -651,85 +659,6 @@ class Synthesizer:
         if self.gen.mode == "milp" or self.gen.mode == "gurobi":
             self.gen.add_assertion(self.gen.Equals(out_weight, self.gen.Plus(inp_weight, self.gen.Sum([self.gate_set.get_weight(v[1][0]) * v[0] for v in selection_variables]))))
 
-    """
-    def encode_equivalence(self, vec1, vec2, pair_idx):
-        conj_rescaled1 = None
-        rescaled1 = None
-        rescaled2 = None
-        if self.gen.logic == "QF_NRA" or self.gen.logic == "QF_LRA": 
-            for i in range(2**self.q):
-                if self.gen.mode in ["milp", "gurobi"]:
-                    # implicit epsilon
-                    self.gen.add_assertion(self.gen.Equals(vec1[i], vec2[i]))
-                else:
-                    eps = self.gen.Real(1e-9)
-                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].real, vec2[i].real), eps))
-                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i].real, vec1[i].real), eps))
-                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].imag, vec2[i].imag), eps))
-                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i].imag, vec1[i].imag), eps))
-        elif self.gen.mode == "milp" or self.gen.mode == "gurobi":
-            if self.complex_representation == Complex:
-                # vector equivalence
-                for i in range(2**self.q):
-                    self.gen.add_assertion(self.gen.Equals(vec1[i], vec2[i]))
-            else:
-                # fivetuple rescaling
-                rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}", bound=2**self.max_k)
-                rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}", bound=2**self.max_k)
-                self.gen.add_milp_rescaling(rescaled1, rescaled2, vec1, vec2, pair_idx, self.max_k)
-                for i in range(2**self.q):
-                    self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
-        elif self.gen.logic == "QF_LIA" or self.gen.logic == "QF_NIA":
-            # QF_LIA and QF_NIA branch -- enumarates all possible outcomes for 2^(floor(n/2)), allowing rescaling by constant
-            # other approach enumerates all possible powers of 2, then calculates 2^(floor(abs(k1 - k2)/2)) * M * vector
-            rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}", bound=2**self.max_k)
-            rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}", bound=2**self.max_k)
-            self.gen.add_rescaling(rescaled1, rescaled2, vec1, vec2, pair_idx, self.max_k)
-            self.gen.add_assertion(rescaled1 == rescaled2)
-        
-        return rescaled1, rescaled2
-    """
-    
-    def encode_equivalence_up_to_global_phase(self, vec1, vec2, pair_idx, post_measurement : bool = False):
-        if self.complex_representation == Complex:
-            e = self.complex_representation(name=f"unknown_e", generator=self.gen)
-            if post_measurement:
-                # if post-measurement, e includes norm of v1, which means that it cant be equal to zero
-                if self.gen.mode == "gurobi":
-                    eps = self.gen.Real(1e-8)
-                    global_phase = self.complex_representation(name=f"global_phase_e", generator=self.gen)
-                    global_phase_norm = self.gen.declare_real(f"global_phase_norm", lb=0.0, ub=1.0)
-                    self.gen.add_norm(global_phase_norm, [global_phase])
-                    self.gen.add_assertion(self.gen.Equals(global_phase_norm, self.gen.Real(1.0)))
-                    norm = self.gen.declare_real(f"norm_e", lb=0.0, ub=1.0)
-                    self.gen.add_assertion(self.gen.GE(norm, eps))
-                    self.gen.add_norm(norm, vec1)
-                    self.gen.add_assertion(self.gen.Equals(e, global_phase.multiply_by_real(norm)))
-                elif self.gen.mode == "milp":
-                    eps = 1e-6
-                    abs_r = self.gen.declare_real(f"abs_r_e", lb=0.0, ub=1.0)
-                    abs_i = self.gen.declare_real(f"abs_i_e", lb=0.0, ub=1.0)
-                    self.gen.add_assertion(self.gen.Equals(abs_r, self.gen.Abs(e.real)))
-                    self.gen.add_assertion(self.gen.Equals(abs_i, self.gen.Abs(e.imag)))
-                    self.gen.add_assertion(self.gen.GE(self.gen.Plus(abs_r, abs_i), self.gen.Real(eps)))
-                else:
-                    self.gen.add_assertion(self.gen.Not(self.gen.Equals(e, self.complex_representation.zero())))
-            else:
-                if self.gen.mode == "gurobi":
-                    global_phase_norm = self.gen.declare_real(f"global_phase_norm", lb=0.0, ub=1.0)
-                    self.gen.add_norm(global_phase_norm, [e])
-                    self.gen.add_assertion(self.gen.Equals(global_phase_norm, self.gen.Real(1.0)))
-            for i in range(2**self.q):
-                if self.gen.mode in ["milp", "gurobi"]:
-                    self.gen.add_assertion(self.gen.Equals(vec1[i], self.gen.Times(e, vec2[i])))
-                else:
-                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].real, self.gen.Times(e.real, vec2[i].real)), self.gen.Real(1e-9)))
-                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i].imag, self.gen.Times(e.imag, vec2[i].imag)), self.gen.Real(1e-9)))
-                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i].real, self.gen.Times(e.real, vec1[i].real)), self.gen.Real(1e-9)))
-                    self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i].imag, self.gen.Times(e.imag, vec1[i].imag)), self.gen.Real(1e-9)))
-        else:
-            raise ValueError("up-to-global-phase equivalence only for classic a+bj representation")
-    
     def encode_equivalence(self, vec1, vec2, pair_idx, already_measured : bool = False):
         if self.approx:
             # APPROXIMATE EQUIVALENCE
@@ -793,22 +722,22 @@ class Synthesizer:
                 if self.post_measurement:
                     if not already_measured:
                         vec1 = vec1.measure(self.qubits_to_measure, 0)
-                    norm = self.gen.declare_real(f"norm", lb=0.0, ub=1.0)
+                    norm = self.gen.declare_real(f"norm_{pair_idx}", lb=0.0, ub=1.0)
                     self.gen.add_norm(norm, vec1)
-                    measured_vec = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Multiplied_by_norm_{vec2.name}", bound=2**self.max_k)
+                    measured_vec = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Divided_by_norm_{vec1.name}", bound=1.0)
                     for i in range(2**self.q):
-                        self.gen.add_assertion(self.gen.Equals(measured_vec[i], vec2[i].multiply_by_real(norm)))
-                    vec2 = measured_vec
+                        self.gen.add_assertion(self.gen.Equals(measured_vec[i], vec1[i].divide_by_real(norm)))
+                    vec1 = measured_vec
                 # global phase
                 vec_target = vec2
                 if self.up_to_global_phase:
                     if self.gen.mode == "milp":
                         raise NotImplementedError("global phase encoding not supported for milp mode (non-linearity)")
-                    vec = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Multiplied_by_global_phase_{vec2.name}", bound=2**self.max_k)
+                    vec = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Multiplied_by_global_phase_{vec2.name}", bound=1.0)
                     global_phase = self.complex_representation(name=f"global_phase", generator=self.gen, bound=1.0)
                     self.gen.add_global_phase(global_phase)
                     for i in range(2**self.q):
-                        self.gen.add_assertion(self.gen.Equals(vec[i], self.gen.Times(vec2[i], global_phase)))
+                        self.gen.add_assertion(self.gen.Equals(vec[i], self.gen.Times(vec_target[i], global_phase)))
                     vec_target = vec
                     
                 if self.gen.mode == "milp" or self.gen.mode == "gurobi":
@@ -819,7 +748,7 @@ class Synthesizer:
                     for i in range(2**self.q):
                         for j in range(len(vec1[i])):
                             self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i][j], vec_target[i][j]), eps))
-                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec2[i][j], vec_target[i][j]), eps))
+                            self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec_target[i][j], vec1[i][j]), eps))
                 return vec1, vec2
             else:
                 # not allowed for integer arithmetics
@@ -900,7 +829,8 @@ class Synthesizer:
             bool_var.setInitialValue(1)
     
     def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="gurobi", solver=None, mode="incremental", output_qasm="circuit.qasm", 
-                complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1, up_to_global_phase=False, basis="cb", approx=False) -> tuple[bool, Circuit, list[Vector]]:
+                complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1, 
+                up_to_global_phase=False, basis="cb", approx=False, no_measurement=False) -> tuple[bool, Circuit, list[Vector]]:
         """
             qasm_file -> file to synthesize
             vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas, custom -> has to specify vector_pairs, q, d, gate_set)
@@ -919,6 +849,7 @@ class Synthesizer:
             up_to_global_phase -> if True, the synthesis will be done up to global phase (if the mode supports it)
             basis -> basis to use for the synthesis ["pauli", "cb"] - pauli basis (density matrices) or computational basis (vectors)
             approx -> if True, the synthesis will be done approximately (if the mode supports it)
+            no_measurement -> if True, the output qubits will not be measured (ignores end-of-circuit measurement in the input circuit)
         """
         if vectors is None:
             raise ValueError("provide vectors to select vector-mode")
@@ -965,7 +896,7 @@ class Synthesizer:
 
         if vectors in ["zero", "all", "rus", "jamiolkowski"]:
             # set circuit statistics to prepare synthesis
-            self.simulator = Simulator(qasm_file, matrix, complex_representation=self.complex_representation, basis=basis)
+            self.simulator = Simulator(qasm_file, matrix, complex_representation=self.complex_representation, basis=basis, no_measurement=no_measurement)
             self.gate_set = gate_set
             if vectors == "zero":
                 vector_pairs = self.simulator.simulate_zero()
@@ -1043,7 +974,7 @@ class Synthesizer:
                 if self.gen.logic != "QF_NRA":
                     solvers = ["z3", "cvc5", "yices2", "opensmt", "smtinterpol"]
                 else:
-                    print("WARNING: pySMT parser does not support some outputs from solvers that support NRA even though LIA works just fine.")
+                    self.logger.log("WARNING", "pySMT parser does not support some outputs from solvers that support NRA even though LIA works just fine.")
                     solvers = ["z3", "cvc5","yices2", "smtinterpol"]
                 self.gen.solver = Portfolio(solvers, logic=self.gen.logic, incremental=incremental_mode, generate_models=True)
             else:
@@ -1079,6 +1010,7 @@ class Synthesizer:
     
     def _synth(self, vector_pairs, output_qasm="circuit.qasm") -> bool:
         # encode weights
+        encoding_start = time.time()
         weights = []
         weight_bound = 0
         max_weight = self.gate_set.max_weight()
@@ -1186,11 +1118,14 @@ class Synthesizer:
         
         elif self.encoding_method == "incremental" or self.encoding_method == "pareto-incremental":
             # incrementally generate circuit and equivalence
+            encoding_end = time.time()
+            self.stats['encoding'] += encoding_end - encoding_start
+            encoding_start = time.time()
             if self.encoding_method == "pareto-incremental":
                 self.pareto_front = Pareto(max_x=self.d, max_y=1.0)
             self.curr_depth = 1
             while not res:
-                print(f"Trying depth: {self.curr_depth}")
+                self.logger.log("INFO", f"Trying depth: {self.curr_depth}")
                 self.gen.d = self.curr_depth
                 # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
                 selection_variables, bool_variables = self.gen.add_selection_variables(self.curr_depth-1, self.gate_set, self.q)
@@ -1305,7 +1240,8 @@ class Synthesizer:
                         self.encode_equivalence(inter, target_states[pair_idx], pair_idx)
                     
                     # without objective
-                    formula_file = self.gen.write_formula(output_qasm)          
+                    formula_file = self.gen.write_formula(output_qasm)
+                    encoding_end = time.time()
                     result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)
                     if result:
                         res = True
@@ -1317,6 +1253,8 @@ class Synthesizer:
                 self.pareto_front.cleanup()
         else:
             raise ValueError(f"Invalid encoding method: {self.encoding_method}")
+
+        circuit.add_measurement(self.qubits_to_measure)
         return res, circuit, vectors
 
     def binary_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
@@ -1361,7 +1299,8 @@ class Synthesizer:
         while i < self.d+2:
             self.gen.push()
             self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(i)))
-            formula_file = self.gen.write_formula(output_qasm)          
+            formula_file = self.gen.write_formula(output_qasm)
+                 
             result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)                
             if result:
                 return result, circuit, vectors
@@ -1398,9 +1337,16 @@ class Synthesizer:
             output_qasm: Output filename for QASM circuit
             solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2, dreal (experimental)
         """
+        solving_start = time.time()
         result = self.gen.check_sat(formula_file)
+        solving_end = time.time()
+        self.stats['solving'] += solving_end - solving_start
         if result:
+            parsing_start = time.time()
             model = self.gen.get_model()
-            return self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
+            res = self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
+            parsing_end = time.time()
+            self.stats['parsing'] += parsing_end - parsing_start
+            return res
         else:
             return False, None, None

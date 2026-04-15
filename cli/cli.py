@@ -20,10 +20,11 @@ parser.add_argument('-T', '--targets', type=int, help='number of target qubits',
 parser.add_argument('-A', '--ancillas', type=int, help='number of ancilla qubits', required=False, default=1)
 parser.add_argument('-u', '--up_to_global_phase', action='store_true', help='up to global phase', default=False)
 parser.add_argument('-b', '--basis', type=str, help='basis to use', required=False, choices=["pauli", "cb"], default="cb")
+parser.add_argument('-nm', '--no_measurement', action='store_true', help='do not measure the output qubits', default=False)
 args = parser.parse_args()
 synthesizer = Synthesizer()
 start_time = time.time()
-res, _, _ = synthesizer.synthesis(qasm_file=args.qasm_file, 
+res, circuit, _ = synthesizer.synthesis(qasm_file=args.qasm_file, 
                                   vectors=args.vectors, 
                                   solving=args.solving, 
                                   mode=args.mode, 
@@ -34,7 +35,8 @@ res, _, _ = synthesizer.synthesis(qasm_file=args.qasm_file,
                                   targets=args.targets, ancillas=args.ancillas, 
                                   up_to_global_phase=args.up_to_global_phase, 
                                   basis=args.basis,
-                                  approx=args.approx)
+                                  approx=args.approx,
+                                  no_measurement=args.no_measurement)
 if res:
     print("synthesis successful")
 else:
@@ -42,3 +44,7 @@ else:
     
 end_time = time.time()
 print(f"Time taken: {end_time - start_time} seconds")
+print(f"Parsing time: {synthesizer.stats['parsing']} seconds")
+print(f"Encoding time: {synthesizer.stats['encoding']} seconds")
+print(f"Solving time: {synthesizer.stats['solving']} seconds")
+print(circuit)

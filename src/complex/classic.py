@@ -4,6 +4,8 @@ from pysmt.shortcuts import Plus, Minus, Times, Equals, And, Real
 class Complex:
     def __init__(self, a=None, b=None, name=None, generator=None, bound=None):
         #bound = 1.0 # always in -1, 1 range
+        if bound is None:
+            bound = 1.0
         self.gen = generator
         if generator is not None:
             generator.stats['complex_numbers'] += 1
@@ -223,6 +225,16 @@ class Complex:
             return Complex(
                 a = self.gen.Times(self.gen.format_real(self.real), self.gen.format_real(num)),
                 b = self.gen.Times(self.gen.format_real(self.imag), self.gen.format_real(num)),
+                generator = self.gen
+            )
+            
+    def divide_by_real(self, num):
+        if self.gen is None:
+            return Complex(a=self.real / num, b=self.imag / num, generator=self.gen)
+        else:
+            return Complex(
+                a = self.gen.Div(self.gen.format_real(self.real), self.gen.format_real(num)),
+                b = self.gen.Div(self.gen.format_real(self.imag), self.gen.format_real(num)),
                 generator = self.gen
             )
             

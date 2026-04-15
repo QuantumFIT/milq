@@ -20,7 +20,7 @@ class Simulator:
     simulate quantum circuit using the representation for synthesis - complex, fivetuples, ntuples
     can simulate either normal circuits (all cbs) or RUS circuits (0, 1, + states)
     """
-    def __init__(self, qasm_file: str = None, matrix: np.array = None, complex_representation: type[Vector] = FiveTuple, meas: int = 0, basis="cb"):
+    def __init__(self, qasm_file: str = None, matrix: np.array = None, complex_representation: type[Vector] = FiveTuple, meas: int = 0, basis="cb", no_measurement=False):
         if matrix is not None and qasm_file is not None:
             raise ValueError("matrix and qasm_file cannot be provided at the same time")
         if matrix is None and qasm_file is None:
@@ -40,6 +40,8 @@ class Simulator:
         self.stats['measured_qubits'] = []
         self.measurement_outcome = meas
         self.basis = basis
+        self.no_measurement = no_measurement
+        
     """
     parse the input qasm file into a sequence of gates with a respective list of qubits
     also collects information about the input circuits -- qubits, gate set ...
@@ -55,8 +57,6 @@ class Simulator:
                 if self.basis == "pauli":
                     vec = Matrix.density_from_vector(vec)
                 vectors.append(vec)
-            
-            
                 
             return [], vectors
 
@@ -243,6 +243,9 @@ class Simulator:
                                 new_vec[other] = vector[pos]
                                 
                         elif op == 'measure' or op == 'meas':
+                            if self.no_measurement:
+                                new_vec = vector.copy()
+                                continue
                             new_vec = vector.measure(qubits, self.measurement_outcome)
                             self.stats['measured_qubits'].extend(qubits)
                             break

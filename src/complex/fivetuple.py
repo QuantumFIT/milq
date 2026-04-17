@@ -403,7 +403,7 @@ class FiveTuple:
                 else:
                     sqrt2_k = self.gen.declare_real(f"sqrt2_k_{self.name}")
                     if self.gen.mode == "smtlib":
-                        for i in range(max_k):
+                        for i in range(max_k + 1):
                             self.gen.add_assertion(self.gen.Implies(self.gen.Equals(k, i), self.gen.Equals(sqrt2_k, np.sqrt(2) ** i)))
                     elif self.gen.mode == "gurobi":
                         sqrt2_k_expr = self.gen.Exp(self.gen.Div(self.gen.Real(k), self.gen.Real(2)))

@@ -8,10 +8,12 @@ from gates import self_adjoints, gate_to_qubits
 import gurobipy as gp
 from gurobipy import GRB, quicksum
 from solvers import SMTSolver
+from logger import Logger
 
 class Generator:
-    def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA") -> None:
+    def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA", logger : Logger = None) -> None:
         # modes - ["pysmt", "smtlib", "milp", "gurobi"]
+        self.logger = logger
         self.mode = mode
         self.declarations = []
         self.declared_names = set()
@@ -984,16 +986,20 @@ class Generator:
             self.solver.solve(self.lp_problem)
             print(f"Solver status: {LpStatus[self.lp_problem.status]}")
             if LpStatus[self.lp_problem.status].lower() == "optimal":
+                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
                 return True
             elif LpStatus[self.lp_problem.status].lower() == "infeasible":
+                self.logger.log(tag="Satisfiability", message="Solver returned UNSAT")
                 return False
             else:
                 return True # suboptimal solution
         elif self.mode == "gurobi":
             self.lp_problem.optimize()
             if self.lp_problem.status == GRB.OPTIMAL:
+                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
                 return True
             elif self.lp_problem.status == GRB.INFEASIBLE:
+                self.logger.log(tag="Satisfiability", message="Solver returned UNSAT")
                 return False
             else:
                 return True # suboptimal solution
@@ -1005,24 +1011,34 @@ class Generator:
                 self.solver.write_incremental("(check-sat)")
                 result = self.solver.solve(formula_file)
                 if result in ["unknown", "unsat"]:
+                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
                     return False
                 else:
+                    self.logger.log(tag="Satisfiability", message="Solver returned SAT")
                     return True
             else:
                 # solving with non-incremental (not from stdin, but from file)
                 # also gets the model instantly
                 result = self.solver.solve(formula_file)
                 if result in ["unknown", "unsat"]:
+                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
                     return False
                 else:
                     self.model = result
+                    self.logger.log(tag="Satisfiability", message="Solver returned SAT")
                     return True
             if result in ["unknown", "unsat"]:
+                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
                 return False
             else:
+                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
                 return True
         elif self.mode == "pysmt":
             try:
                 return self.solver.solve()
             except Exception as e:
+                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
                 return False
+            else:
+                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
+                return True

@@ -4,11 +4,14 @@ from generator import Generator
 from gates import Circuit, Gate
 from complex.vector import Vector
 import time
+from logger import Logger
+
 class ModelParser:
     """
     class that converts model from any solver to QASM file
     """
-    def __init__(self) -> None:
+    def __init__(self, logger : Logger) -> None:
+        self.logger = logger
         self.stats = {}
         self.stats['gate_counts'] = {} # gate name -> count
         self.stats['cost'] = 0 # total cost of the circuit
@@ -142,7 +145,10 @@ class ModelParser:
                     # parsing rational number
                     num = var_value.split('/')[1].strip().split(' ')[0].strip().split(')')[0]
                     den = var_value.split('/')[1].strip().split(' ')[1].strip().split(')')[0]
-                    var_value = float(num) / float(den)
+                    if float(den) == 0:
+                        var_value = float(num)
+                    else:
+                        var_value = float(num) / float(den)
                 var_value = float(var_value)
             return True, (var_name, var_value)
         else:

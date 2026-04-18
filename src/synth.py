@@ -740,7 +740,6 @@ class Synthesizer:
                             for j in range(len(vec1[i])):
                                 self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec1[i][j], vec_target[i][j]), eps))
                                 self.gen.add_assertion(self.gen.LE(self.gen.Minus(vec_target[i][j], vec1[i][j]), eps))
-                    return vec1, vec2
                 else:
                     # not allowed for integer arithmetics
                     if self.post_measurement:
@@ -781,10 +780,7 @@ class Synthesizer:
                         self.gen.add_rescaling(rescaled1, rescaled2, vec1, vec_target, pair_idx, self.max_k)
                     for i in range(2**self.q):
                         self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
-                
-                    return rescaled1, rescaled2
-            
-    
+                    
     def rus_cost(self, circuit, recovery_circuit, vectors) -> tuple[int, float]:
         # Cost(circuit) / P[success]
         try:

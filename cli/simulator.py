@@ -1,3 +1,10 @@
+"""
+@file: simulator.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@brief: separate CLI for the custom simulator module, which can output the state vectors in the custom representations, allows the choice of vector modes
+"""
+
 import argparse
 import sys
 import os
@@ -13,7 +20,7 @@ from gates import GateSet
 parser = argparse.ArgumentParser(description='CLI for the synthesis tool')
 parser.add_argument('qasm_file', type=str, help='qasm file to synthesize')
 parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for the synthesis', choices=["zero", "all", "rus", "jamiolkowski", "matrix"], default="all")
-parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "nTuple", "Classic"], default="FiveTuple")
+parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "Classic"], default="FiveTuple")
 parser.add_argument('-T', '--targets', type=int, help='number of target qubits', required=False, default=1)
 parser.add_argument('-A', '--ancillas', type=int, help='number of ancilla qubits', required=False, default=1)
 parser.add_argument('-m', '--meas', type=int, help='determine measurement outcome - if not set, default is 0 (|0>)', required=False, default=0)

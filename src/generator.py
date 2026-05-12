@@ -1,3 +1,10 @@
+"""
+@file: generator.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@brief: Generator class, responsible for generating the SMT/MILP/Gurobi formulae for synthesis
+"""
+
 from ast import Return
 from pysmt.smtlib.parser import SmtLibParser
 from pysmt.shortcuts import Real, Int, Bool, Symbol, And, Div, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Times, Minus, Plus
@@ -12,7 +19,7 @@ from logger import Logger
 
 class Generator:
     def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA", logger : Logger = None) -> None:
-        # modes - ["pysmt", "smtlib", "milp", "gurobi"]
+        # modes - ["pysmt", "smtlib", "milp", "gurobi"] -- however, pysmt is inaccessible from the CLI program
         self.logger = logger
         self.mode = mode
         self.declarations = []
@@ -28,12 +35,14 @@ class Generator:
         self.symbols = {}
         self.stats = {}
         self.lp_problem = None
+        # saved variables for push/pop
         self.bool_variables = set()
         self.integer_variables = set()
         self.real_variables = set()
         self.saved_lp_problem = None
         self.saved_push = []
         self.objective_assertions = []
+        # statistics for number of variables, numbers ...
         self.stats['reals'] = 0
         self.stats['integers'] = 0
         self.stats['bools'] = 0
@@ -52,6 +61,7 @@ class Generator:
             self.logic = "QF_NRA"
 
     def _gp_params(self):
+        # set Gurobi parameters for the LP problem (increase precision)
         self.lp_problem.Params.IntFeasTol = 1e-9
         self.lp_problem.Params.FeasibilityTol = 1e-9
         self.lp_problem.Params.MIPGap = 1e-9
@@ -79,7 +89,7 @@ class Generator:
             if self.lp_problem is None:
                 self.lp_problem = gp.Model("Circuit_Synthesis")
                 self._gp_params()
-                self.lp_problem.setObjective(0, GRB.MINIMIZE)
+                self.lp_problem.setObjective(0, GRB.MINIMIZE) # set dummy objective
             self.lp_problem.update()
             self.lp_problem.addConstr(assertion, name=f"assertion_{self.stats['assertions']}")
         self.stats['assertions'] += 1
@@ -99,12 +109,12 @@ class Generator:
             raise NotImplementedError("quadratic assertions only in gurobipy api")
 
     def add_objective(self, objective):
+        # add objective to the LP problem
         if self.mode == "pysmt":
             return
         elif self.mode == "smtlib":
             return
         elif self.mode == "milp":
-            # implementation "hack" for push/pop
             self.lp_problem += objective, f"assertion_{self.stats['assertions']}"
             self.objective_assertions.append(self.stats['assertions'])
             self.stats['assertions'] += 1
@@ -113,6 +123,7 @@ class Generator:
         self.stats['objectives'] += 1
         
     def add_selection_variables(self, layer, gate_set, qubits) -> tuple[list, list]:
+        # add all selection variables for the given layer
         selection_variables = []
         bool_variables = []
         gate_set.add_gate(gate="id", weight=0, qubits=1)
@@ -378,6 +389,8 @@ class Generator:
             self.lp_problem.addGenConstrNorm(norm_var, vec_expanded, which=2.0, name=f"assertion_{self.stats['assertions']}")
             self.stats['assertions'] += 1
         else:
+            # sum of a**2 + b**2 + ... = norm**2
+            # used only in a+bj representation
             vec_expanded = []
             self.add_assertion(self.GE(norm_var, self.Real(1e-5)))
             self.add_assertion(self.LE(norm_var, self.Real(1.0)))
@@ -475,6 +488,7 @@ class Generator:
         return var
     
     def declare_real(self, x, lb=None, ub=None):
+        # create a new continuous variable
         res = None
         if x not in self.declared_names:
             self.stats['reals'] += 1
@@ -519,6 +533,7 @@ class Generator:
         return self.format_real(x)
         
     def declare_integer(self, x, lb=None, ub=None):
+        # create a new integer variable
         res = None
         if x not in self.declared_names:
             # even though declaring integer, in QF_NRA, reals have to be used
@@ -566,6 +581,7 @@ class Generator:
         return self.format_integer(x)
         
     def declare_bool(self, x):
+        # create a new boolean variable
         res = None
         if x not in self.declared_names:
             self.stats['bools'] += 1
@@ -596,7 +612,7 @@ class Generator:
 
     def declare_helpers(self):
         # possible helper methods
-        #sqrt2 for dreal
+        # sqrt2, onehalf, inv_sqrt2 for exact representations in smt
         if self.logic == "QF_NRA" and (self.mode in ["pysmt", "smtlib"]):
             self.declare_real("sqrt2")
             self.add_assertion(self.Equals(self.Times(self.format_real("sqrt2"), self.format_real("sqrt2")), self.Real(2.0)))
@@ -606,6 +622,7 @@ class Generator:
             self.add_assertion(self.Equals(self.format_real("inv_sqrt2"), self.Div(self.format_real(1), self.format_real("sqrt2"))))
 
     def maximize(self, expression):
+        # maximize objective
         if self.mode == "pysmt":
             pass
         elif self.mode == "smtlib":
@@ -616,6 +633,7 @@ class Generator:
             self.lp_problem.setObjective(expression, GRB.MAXIMIZE)
     
     def minimize(self, expression):
+        # minimize objective
         if self.mode == "pysmt":
             pass
         elif self.mode == "smtlib":
@@ -626,6 +644,7 @@ class Generator:
             self.lp_problem.setObjective(expression, GRB.MINIMIZE)
     
     def write_formula(self, filename):
+        # write the full formula in given format to a file, either .smt2 or .lp
         if self.incremental_mode:
             return filename
         if self.mode == "pysmt":
@@ -662,6 +681,7 @@ class Generator:
         return filename
         
     def enumerate_k_values(self, n, pair_idx):
+        # enumerate all possible k values up to n for the given pair
         if self.mode == "pysmt" or self.mode == "smtlib":
             self.declare_integer(f"k{pair_idx}")
             eqs = []
@@ -672,6 +692,7 @@ class Generator:
             raise NotImplementedError("milp mode not yet supported")
 
     def enumerate_powers_of_2(self, n, pair_idx):
+        # enumerate all possible powers of 2^k up to n for the given pair
         if self.mode == "pysmt" or self.mode == "smtlib":
             self.declare_integer(f"pow2{pair_idx}")
             self.declare_integer(f"k{pair_idx}")
@@ -818,6 +839,8 @@ class Generator:
             raise ValueError("rescaling with wrong mode")
 
     def add_constraints(self, gate_set, last_encoded_layer, qubits):
+        # constraints that restrict the layer to include sequences that reduce to identitities, 
+        # such as T Tdg ... not needed in incremental mode
         if last_encoded_layer < 1:
             return
 
@@ -894,8 +917,10 @@ class Generator:
     
     def pop(self):
         if self.mode == "milp":
+            # restore the saved instance of the LP problem
             self.lp_problem = self.saved_lp_problem
         elif self.mode == "gurobi":
+            # remove constraints, variables, obvjectives ... defined after push()
             if len(self.saved_push) > 0:
                 state = self.saved_push.pop()
                 current_num_constrs = self.lp_problem.NumConstrs
@@ -943,10 +968,10 @@ class Generator:
         if self.mode == "milp":
             return self
         elif self.mode == "gurobi":
-            #variables = self.lp_problem.getVars()
-            #for var in variables:
-            #    print(var.varName, var.X)
-            return self.lp_problem.getVars()
+            variables = self.lp_problem.getVars()
+            for var in variables:
+                self.logger.log(tag="MODEL_DEBUG", message=f"{var.varName} {var.X}")
+            return variables
         
         elif self.mode == "smtlib":          
             if self.incremental_mode:
@@ -1011,7 +1036,7 @@ class Generator:
                 self.solver.write_incremental("(check-sat)")
                 result = self.solver.solve(formula_file)
                 if result in ["unknown", "unsat"]:
-                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
+                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
                     return False
                 else:
                     self.logger.log(tag="Satisfiability", message="Solver returned SAT")
@@ -1021,14 +1046,14 @@ class Generator:
                 # also gets the model instantly
                 result = self.solver.solve(formula_file)
                 if result in ["unknown", "unsat"]:
-                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
+                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
                     return False
                 else:
                     self.model = result
                     self.logger.log(tag="Satisfiability", message="Solver returned SAT")
                     return True
             if result in ["unknown", "unsat"]:
-                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
+                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
                 return False
             else:
                 self.logger.log(tag="Satisfiability", message="Solver returned SAT")
@@ -1037,7 +1062,7 @@ class Generator:
             try:
                 return self.solver.solve()
             except Exception as e:
-                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
+                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
                 return False
             else:
                 self.logger.log(tag="Satisfiability", message="Solver returned SAT")

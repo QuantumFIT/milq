@@ -1,3 +1,10 @@
+"""
+@file: pareto.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@brief: Pareto front class to store circuits in a pareto front with a cost metric
+"""
+
 from multiprocessing import Process, Queue
 import time
 import os
@@ -24,6 +31,7 @@ class Pareto:
         
     
     def start(self, func: callable) -> any:
+        # start another process, this function handles the overall timeout
         time_now = time.time()
         if time_now >= self.end_time:
             self.tmout_met = True
@@ -63,7 +71,7 @@ class Pareto:
 
     def cleanup(self):
         import matplotlib.pyplot as plt
-
+        # after timeout, create a plot using matplotlib
         if not self.front:
             return
 
@@ -92,6 +100,7 @@ class Pareto:
     def add_point(self, cost_x: int, cost_y: float, depth: int, circuit: Circuit, recovery_circuit: Circuit):
         if cost_x > self.max_x or cost_y > self.max_y:
             return
+        # add a new point to the pareto front
         self.models += 1
         self.front.append((cost_x, cost_y, depth, circuit, recovery_circuit))
         os.makedirs(f"pareto_front", exist_ok=True)

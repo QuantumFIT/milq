@@ -1,8 +1,8 @@
 """
 @file: sim.py
 @author: Jakub Havlík
-@date: 24.02.2026
-@brief: simulation of quantum circuits in representation used in synthesis
+@date: 11.05.2026
+@brief: simulation of quantum circuits in desired representation used in synthesis
 """
 
 import re
@@ -280,7 +280,7 @@ class Simulator:
 
 
     """
-    simulate the input circuit on state |0>
+    simulate the input circuit on state |0>^n
     """
     def simulate_zero(self) -> list[tuple[Vector, Vector]]:
         gates, vectors = self.parse_file()
@@ -299,7 +299,7 @@ class Simulator:
         return self.simulate(vectors, gates)
 
     """
-    simulate the unitary part of RUS circuit (without the measurement) on states |0>, |1>, |+>
+    simulate the unitary part of RUS circuit (without the measurement) on states |0>, |1>, |+> for the target qubit
     """
     def simulate_rus(self, targets: int = 1, ancillas: int = 1) -> list[tuple[Vector, Vector]]:
         gates, vectors = self.parse_file()

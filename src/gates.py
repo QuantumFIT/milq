@@ -1,8 +1,8 @@
 """
 @file: gates.py
 @author: Jakub Havlík
-@date: 19.02.2026
-@brief: gate-set class implementation
+@date: 11.05.2026
+@brief: Gate-set class implementation, abstraction over Circuits and Gates
 """
 
 
@@ -22,6 +22,7 @@ def gate_to_qubits(gate : str) -> int:
             return i + 1
     raise ValueError(f"Gate {gate} is not supported")
 
+# check if all gates from the gate set are supported by Synthesizer (synth.py)
 def check_supported(gate_set : 'GateSet') -> bool:
     for gate in gate_set:
         if gate not in supported_gates[0] and gate not in supported_gates[1] and gate not in supported_gates[2]:
@@ -48,6 +49,8 @@ class GateSet:
         elif preset is not None:
             if preset == 'Clifford+T':
                 self.set_gate(gate='id', qubits=1, weight=0)
+                self.set_gate(gate='x', qubits=1, weight=1)
+                self.set_gate(gate='z', qubits=1, weight=1)
                 self.set_gate(gate='h', qubits=1, weight=1)
                 self.set_gate(gate='s', qubits=1, weight=1)
                 self.set_gate(gate='sdg', qubits=1, weight=1)
@@ -123,6 +126,7 @@ class GateSet:
     
     @classmethod
     def union(cls, set1, set2) -> 'GateSet':
+        # union of two gate sets
         new_set = GateSet()
         for gate in set1:
             new_set.add_gate(gate, set1.gates[gate], set1.qubits[gate])
@@ -154,6 +158,7 @@ class GateSet:
         return max_weight
     
 class Gate:
+    # abstraction to represent OPENQASM gate
     def __init__(self, name: str, qubits: list[int]) -> None:
         self.name = name
         self.qubits = qubits
@@ -173,6 +178,7 @@ class Gate:
         return self.name == other.name and self.qubits == other.qubits
 
 class Circuit:
+    # abstraction to represent quantum circuit for OPENQASM representation
     def __init__(self, gates: list[Gate], q: int, d: int) -> None:
         self.q = q
         self.d = d

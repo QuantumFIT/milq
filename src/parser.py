@@ -1,3 +1,9 @@
+"""
+@file: parser.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@brief: module for parsing the output of each supported solver
+"""
 
 import re
 from generator import Generator
@@ -22,6 +28,7 @@ class ModelParser:
 
 
     def expand_milp_model(self, gen : Generator) -> list:
+        # parse the MILP model to a list of items (variable name, value)
         items = []
         for var in gen.bool_variables:
             if var.name.startswith("L"):
@@ -43,6 +50,7 @@ class ModelParser:
 
 
     def parse_model_to_items(self, model : str) -> list:
+        # SMT parsing (either get-model or get-value, which both have different formats)
         lines = model.split('\n')
         items = []
         i = 0
@@ -55,10 +63,10 @@ class ModelParser:
             # possibly starts with (( instead of (
             # matches (get-model)
             var_name, var_value = None, None
-            get_model, (var_name, var_value) = self.parse_get_model(line)
+            get_model, (var_name, var_value) = self.parse_get_model(line) # get-model parsing
             get_value = (get_model == False)
             if get_value:
-                values = self.parse_get_value(line)
+                values = self.parse_get_value(line) # get-value parsing
                 for value in values:
                     items.append(value)
                     line = ""
@@ -156,7 +164,8 @@ class ModelParser:
         
 
     def filter_items(self, model : any) -> tuple[Circuit, list[Vector]]:
-        # get only the (gate, true) tuples
+        # get only the (gate, true) tuples, get the cost of the circuits
+        # and the output vectors from the last layer (before equivalence, measurement...)
         new_items = []
         costs = [None] * (self.d + 1)
         best_indice = 0
@@ -174,6 +183,7 @@ class ModelParser:
                 value_obj = item.X
                 variable = item.varName
             if variable.startswith("L"):
+                # boolean variable parsing (layer selection variable)
                 parse = False
                 if isinstance(value_obj, bool):
                     if value_obj:
@@ -184,7 +194,7 @@ class ModelParser:
                 else:
                     if value_obj.is_true():
                         parse = True
-                if parse:
+                if parse: # parse only if the selection variable is True
                     parts = variable.split("_")
                     d = int(parts[0][1:])
                     gate = parts[1]
@@ -193,6 +203,7 @@ class ModelParser:
                     circ[d] = gate
             
             if variable.startswith("I_") and self.v != 0:
+                # vector parsing
                 # check that I_{pair_idx}_{d}_{indice}_part, d == depth
                 # only get the last vector (output)
                 parts = variable.split("_")
@@ -202,7 +213,7 @@ class ModelParser:
                 if isinstance(value_obj, (float, int, str)):
                     # parse part of a vector -- check which vector by pair_idx, then index in the vector and which coefficient it is
                     pair_idx = int(parts[1])
-                    if parts[3] == "k":
+                    if parts[3] == "k": 
                         out_vectors[pair_idx].k = int(value_obj)
                         setattr(out_vectors[pair_idx], "k", value_obj)
                     else:
@@ -214,6 +225,7 @@ class ModelParser:
                             coeff = "imag"
                         setattr(out_vectors[pair_idx][indice], coeff, value_obj)
             if variable.startswith("W"):
+                # weight variable parsing
                 if value_obj is None: continue
                 # only get the last Weight variable
                 indice = int(variable.split("W")[1].strip())
@@ -239,15 +251,16 @@ class ModelParser:
         self.q = qubits
         self.d = depth
         items = model
-        if isinstance(model, Generator):
+        if isinstance(model, Generator): # parsing milp model
             try:
                 items = self.expand_milp_model(model)
             except Exception as e:
                 print(f"Error expanding MILP model: {e}")
                 return False
-        elif isinstance(model, str):
+        elif isinstance(model, str): # pasrsing smt model
             items = self.parse_model_to_items(model)
 
+        # retrieve the vectors and the circuit from the model
         circ, vectors = self.filter_items(items)
 
         if write_to_file:

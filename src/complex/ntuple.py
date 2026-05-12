@@ -1,5 +1,13 @@
+"""
+@file: ntuple.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@todo: not supported, refactor the whole module
+@brief: implementation of algebraic n-tuple representation of complex numbers. Currently not supported and unusable in the synthesis itself
+"""
+
 class nTuple:
-    # TODO: refactor
+    # TODO: this version does not natively support n-tuples, use either Classic or FiveTuple
     def __init__(self, elements=None, name=None, n=0, generator=None, bound=None):
         
         # n has to be a power of 2

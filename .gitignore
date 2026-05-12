@@ -6,3 +6,5 @@ src/__pycache__/
 *.qasm
 *.lp
 benchmarks/qsharp_comp/
+server/
+excel/

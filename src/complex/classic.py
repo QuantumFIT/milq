@@ -1,9 +1,18 @@
+"""
+@file: classic.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@brief: implementation of the classical complex number representation a+bj
+"""
+
 import numpy as np
 from pysmt.shortcuts import Plus, Minus, Times, Equals, And, Real
 
 class Complex:
     def __init__(self, a=None, b=None, name=None, generator=None, bound=None):
-        #bound = 1.0 # always in -1, 1 range
+        # bound = 1.0 # always in -1, 1 range
+        # a is the real part, b is imaginary
+        # if the name is provided, create a variables in the generator
         if bound is None:
             bound = 1.0
         self.gen = generator
@@ -28,6 +37,7 @@ class Complex:
     @classmethod
     def constrained_equals(cls, sel, bigM, expr1, expr2):
         gen = expr1.gen
+        # equivalence of two numbers constrained by sel using the big M method for MILP
         if gen.mode == "milp":
             gen.add_assertion(gen.And(
                 (expr1.real - expr2.real <= bigM * (1 - sel)),
@@ -37,6 +47,7 @@ class Complex:
                 
             ))
         elif gen.mode == "gurobi":
+            # in Gurobi, rather use indicator sel -> expr than big M constraints
             gen.add_assertion(gen.Indicator(sel, gen.Equals(expr1.real, expr2.real)))
             gen.add_assertion(gen.Indicator(sel, gen.Equals(expr1.imag, expr2.imag)))
         
@@ -76,7 +87,7 @@ class Complex:
     def __div__(self, other):
         if self.gen is None:
             if isinstance(other, Complex):
-                pass
+                pass # never used
             elif isinstance(other, float) or isinstance(other, int):
                 return Complex(a=self.real / other, b=self.imag / other, generator=self.gen)
             else:
@@ -125,6 +136,7 @@ class Complex:
         return Complex(a=self.real, b=self.imag, generator=self.gen)
 
     def conjugate(self, generator = None):
+        # flip the sign of the imaginary part
         if self.gen is None:
             return Complex(a=self.real, b=-self.imag, generator=self.gen)
         else:
@@ -135,6 +147,7 @@ class Complex:
             )
     
     def to_real(self):
+        # no conversion needed
         return self
 
     @classmethod
@@ -154,13 +167,15 @@ class Complex:
     
     @classmethod
     def i_phase(cls, generator = None, bound=None):
+        # i = 0 + 1j
         return cls(a=0,b=1, generator=generator, bound=bound)
     
     @classmethod
     def t_phase(cls, generator = None, bound=None):
+        # omega = (1 + i) / sqrt(2)
         if generator is not None:
             if generator.mode == "smtlib":
-                return cls(a=generator.format_real("one_half"), b=generator.format_real("one_half"), generator=generator, bound=bound)
+                return cls(a=generator.format_real("inv_sqrt2"), b=generator.format_real("inv_sqrt2"), generator=generator, bound=bound)
         return cls(a=np.sqrt(1/2), b=np.sqrt(1/2), generator=generator, bound=bound)
     
     @classmethod
@@ -213,6 +228,7 @@ class Complex:
         return max(abs(self.real), abs(self.imag))
 
     def abs2(self) -> float:
+        # a**2 + b**2
         if self.gen is None:
             return self.real**2 + self.imag**2
         else:

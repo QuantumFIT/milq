@@ -1,3 +1,10 @@
+"""
+@file: vector.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@brief: implementation of vector abstraction over the custom complex number representations
+"""
+
 import numpy as np
 from .classic import Complex
 from .ntuple import nTuple
@@ -5,6 +12,7 @@ from .fivetuple import FiveTuple
 
 class Vector:
     def __init__(self, q, name=None, generator=None, element_representation=None, k=None, n=None, bound=None, k_bound=None):
+        # q is number of elements
         if element_representation is None:
             raise ValueError("complex representation must be provided")
         
@@ -76,7 +84,8 @@ class Vector:
         name = None
         if self.name is not None:
             name = f"Rescaled_{self.name}"
-                    
+        
+        # convert all elements to the a+bj representation
         new_vec = Vector(q=len(self.vec), generator=self.gen, name=name, element_representation=Complex, k=self.k)
         for i in range(len(self.vec)):
             new_vec[i] = self.vec[i].to_real(self.k)
@@ -103,6 +112,7 @@ class Vector:
         if gen is None and other.gen is not None:
             gen = other.gen
         
+        # inner product v1 * v2.conj()
         dot_product = self.vec[0] * other.vec[0].conjugate(gen)
         for i in range(1, len(self.vec)):
             dot_product = dot_product + self.vec[i] * other.vec[i].conjugate(gen)
@@ -122,6 +132,7 @@ class Vector:
             return sum_var, k
     
     def max_value(self) -> int:
+        # maximum coefficient in the vector
         max = 0
         for i in range(len(self.vec)):
             tmp = self.vec[i].max_coefficient()
@@ -171,6 +182,7 @@ class Vector:
             return self, other
     
     def norm(self) -> float:
+        # compute the L2 norm of the vector
         if self.gen is None:
             norm = 0
             for i in range(len(self.vec)):
@@ -214,6 +226,7 @@ class Vector:
         return new_vec
 
     def expand_to(self, q : int) -> "Vector":
+        # expand the vector to a certain number of qubits
         if 2**q < len(self.vec):
             raise ValueError("vector already longer than desired length")
         
@@ -223,6 +236,7 @@ class Vector:
         return self
 
     def normalize(self) -> "Vector":
+        # normalize to unit length
         if self.gen is None:
             norm = self.norm()
             if norm != 0:
@@ -246,12 +260,14 @@ class Vector:
             yield elem
             
     def multiply_by_real(self, real):
+        # scalar multiplication
         new_vec = Vector(q=len(self.vec), generator=self.gen, element_representation=self.element_representation, k=self.k, n=self.n, name=f"Multiplied_by_real_{self.name}", bound=1.0)
         for i in range(len(self.vec)):
             self.gen.add_assertion(new_vec[i] == self.vec[i].multiply_by_real(real))
         return new_vec
     
     def multiply_by_complex(self, complex):
+        # complex number multiplication
         new_vec = Vector(q=len(self.vec), generator=self.gen, element_representation=self.element_representation, k=self.k, n=self.n, name=f"Multiplied_by_complex_{self.name}", bound=1.0)
         for i in range(len(self.vec)):
             self.gen.add_assertion(new_vec[i] == self.vec[i] * complex)

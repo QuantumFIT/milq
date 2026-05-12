@@ -1,12 +1,25 @@
+"""
+@file: matrix.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@brief: small module for representing unitary matrices with some built-in gates and operations on the matrices
+"""
+
 from .classic import Complex
 from .fivetuple import FiveTuple
 from .ntuple import nTuple
 from .vector import Vector
 from gates import GateSet
 import numpy as np
+
 class Matrix:
     # also implements density matrix interface for pauli basis synthesis
     def __init__(self, matrix: list = None, q=None, name=None, generator=None, element_representation=None, k=0, n=None, bound=None, k_bound=None):
+        # can specify the matrix object itself, if not provided, creates either an identity, or a matrix of variables (if name is provided)
+        # bound is the numerical bound for each matrix element
+        # k_bound is the bound for the shared k value by all elements
+        # n is n-tuple size
+        # element_representation is the complex number representation to use for the matrix elements
         self.matrix = None
         self.gen = None
         self.k = 0
@@ -19,6 +32,7 @@ class Matrix:
             self.k = k
             return
         else:
+            # not provided, generate identity which may be filled later based on the generator
             self.size = q
             if generator is None:
                 self.element_representation = element_representation
@@ -39,6 +53,7 @@ class Matrix:
             if element_representation == FiveTuple and k is None:
                 raise ValueError("k must be provided for five-tuples")
             self.matrix = [[None for _ in range(q)] for _ in range(q)]
+            # generator -- create variables for each indice
             if name is not None:
                 for i in range(q):
                     for j in range(q):
@@ -173,6 +188,8 @@ class Matrix:
     
     @classmethod
     def expand_to(cls, matrix: "Matrix", qubits: int = 1, target: int = 0) -> "Matrix":
+        # expand the matrix to a certain number of qubits using tensor products
+        # used for gate application on a target qubit in system with qubits number of qubits
         full_mat = None
         if target > qubits:
             raise ValueError("target is greater than qubits")
@@ -335,6 +352,19 @@ class Matrix:
             row = col ^ (1 << q2) if ((col >> q1) & 1) else col
             matrix[row][col] = one
         return cls(matrix=matrix)
+    
+    @classmethod
+    def cz(cls, element_representation=Complex, q1: int = 0, q2: int = 1, qubits: int = 2) -> "Matrix":
+        n = 2 ** qubits
+        one = element_representation.one(None)
+        zero = element_representation.zero(None)
+        minus_one = one.multiply_by_minus_one(None)
+
+        matrix = [[zero for _ in range(n)] for _ in range(n)]
+        for col in range(n):
+            phase = minus_one if (((col >> q1) & 1) and ((col >> q2) & 1)) else one
+            matrix[col][col] = phase
+        return cls(matrix=matrix)
 
     @classmethod
     def ccx(
@@ -345,7 +375,6 @@ class Matrix:
         q3: int = 2,
         qubits: int = 3,
     ) -> "Matrix":
-        # Toffoli: if both controls are 1, flip target.
         n = 2 ** qubits
         one = element_representation.one(None)
         zero = element_representation.zero(None)
@@ -423,6 +452,7 @@ class Matrix:
         return self
     
     def increase_k(self) -> "Matrix":
+        # increment k by 1
         for i in range(len(self.matrix)):
             for j in range(len(self.matrix[i])):
                 self.matrix[i][j] = self.matrix[i][j].increase_k(None)

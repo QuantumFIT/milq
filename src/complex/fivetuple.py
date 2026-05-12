@@ -1,9 +1,18 @@
+"""
+@file: fivetuple.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@brief: implementation of the algebraic five-tuple representation of complex numbers (without k, k is handled in vector.py)
+"""
+
 import numpy as np
 from pysmt.shortcuts import Plus, Minus, Times, Equals, And, Real
 from .classic import Complex
 
 class FiveTuple:
     def __init__(self, a = 0, b = 0, c = 0, d = 0, name = None, generator = None, bound=None):
+        # if the name is provided, create a variables in the generator
+        # bounds are generally 2^i where i is the number of the current layer
         if generator is not None:
             self.gen = generator
             generator.stats['complex_numbers'] += 1
@@ -57,7 +66,6 @@ class FiveTuple:
         if self.gen is None:
             return FiveTuple(a=self.a - other.a, b=self.b - other.b, c=self.c - other.c, d=self.d - other.d)
         else:
-            # Convert to pysmt expressions if they're strings
             return FiveTuple(
                 a = self.gen.Minus(self.gen.format_integer(self.a), self.gen.format_integer(other.a)),
                 b = self.gen.Minus(self.gen.format_integer(self.b), self.gen.format_integer(other.b)),
@@ -151,6 +159,8 @@ class FiveTuple:
 
     @classmethod
     def constrained_rescaling(cls, bigM, sel, r1, r2, fivetuple1, fivetuple2, exponent, parity, rel):
+        # the problem of rescaled equivalence checking between two fivetuples in pure MILP
+        # case splits - parity of k1-k2, which k is higher, rescaling exponent
         gen = fivetuple1.gen
         a1 = exponent if rel == "<=" else 1
         a2 = exponent if rel == ">" else 1
@@ -301,9 +311,11 @@ class FiveTuple:
     
     @classmethod
     def inv_sqrt2(cls, generator, bound=None):
+        # a = 1, k = 1, k is in the vector
         return cls(a=1, b=0, c=0, d=0, generator=generator, bound=bound)
     
     def multiply_by_omega(self, generator):
+        # rotation on the unit circle by * e^(i*pi/4)
         if self.gen is None:
             return FiveTuple(a=-self.d, b=self.a, c=self.b, d=self.c)
         else:
@@ -316,6 +328,7 @@ class FiveTuple:
             )
         
     def multiply_by_omega_counter(self, generator):
+        # rotation on the unit circle by * e^(-i*pi/4)
         if self.gen is None:
             return FiveTuple(a=self.b, b=self.c, c=self.d, d=-self.a)
         else:
@@ -376,12 +389,15 @@ class FiveTuple:
             )
         
     def divide_by_sqrt2(self, generator):
+        # handled by k increment in the vector
         return self
 
     def divide_by_two(self, generator):
+        # handled by k increment in the vector
         return self
     
     def divide_by_two_i(self, generator):
+        # handled by k increment in the vector
         return self.multiply_by_i(generator)
             
     def to_real(self, k=None, max_k=None): 
@@ -397,6 +413,7 @@ class FiveTuple:
                 sqrt2 = self.gen.declare_real("sqrt2")
                 self.gen.add_assertion(self.gen.Equals(self.gen.Times(sqrt2, sqrt2), self.gen.Real(2)))
             
+                # enumerate the powers sqrt(2)^k
                 inv_sqrt2_k = None
                 if isinstance(k, int) and k == 0:
                     sqrt2_k = self.gen.format_real(1)
@@ -510,6 +527,8 @@ class FiveTuple:
         return 4
     
     def increase_k(self, generator):
+        # k itself is incremented in the Vector
+        # numerical equivalence is the same after the increment
         if self.gen is None:
             return FiveTuple(a = self.b - self.d,
                              b = self.a + self.c,

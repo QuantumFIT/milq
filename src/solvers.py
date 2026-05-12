@@ -1,3 +1,10 @@
+"""
+@file: solvers.py
+@author: Jakub Havlík
+@date: 11.05.2026
+@brief: abstraction over SMT solvers and portfolio solving, supports incrementality with single-solver
+"""
+
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import subprocess
@@ -34,8 +41,8 @@ class SMTSolver:
                 return "unknown"
             else:
                 return "unsat"
-        else:
-            try:
+        else: # not fully incremental mode (when used in Portfolio), just solve .smt2 file and get the model
+            try: 
                 result = subprocess.Popen(
                     self.args + self.smtlib_flags + [formula_file],
                     stdout=subprocess.PIPE,
@@ -77,6 +84,7 @@ class SMTSolver:
         return model
             
     def write_incremental(self, statement : str):
+        # incrementally send a command to the solver's input
         if self.incremental_mode:
             self.process.stdin.write(statement + "\n")
             self.process.stdin.flush()
@@ -86,7 +94,6 @@ class PortfolioSMTSolver:
     def __init__(self, solvers: dict[str, SMTSolver], logic="QF_LIA"):
         self.solvers = solvers
         self.logic = logic
-        self.num_workers = min(os.cpu_count(), len(self.solvers))
     
     def create_process(self):
         for solver in self.solvers.values():
@@ -112,7 +119,7 @@ class PortfolioSMTSolver:
                 ret = proc.poll()
                 if ret is None:
                     continue
-                stdout, stderr = proc.communicate()
+                stdout, stderr = proc.communicate() # wait for one of the outputs
                 if "unknown" in stdout.lower():
                     # just kill the current process and let the others continue
                     proc.kill()

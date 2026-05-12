@@ -1,0 +1,9 @@
+numpy==2.3.5
+PySMT==0.9.6
+PuLP==3.3.0
+gurobipy==13.0.0
+matplotlib==3.10.7
+matplotlib-inline==0.2.1
+z3-solver==4.15.4.0
+qiskit==2.2.3
+pylatexenc==2.10

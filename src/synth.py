@@ -1,7 +1,7 @@
 """
 @file: synth.py
 @author: Jakub Havlík
-@date: 24.02.2026
+@date: 11.05.2026
 @brief: quantum circuit synthesis using SMT and MILP solving
 """
 
@@ -29,7 +29,7 @@ import numpy as np
 
 class Synthesizer:
     def __init__(self) -> None:
-        self.logger = Logger(verbosity=1)
+        self.logger = Logger(verbosity=1, filename="synth.log")
         self.gen = Generator(logger=self.logger)
         self.parser = ModelParser(logger=self.logger)
         self.gate_set = GateSet()
@@ -610,7 +610,7 @@ class Synthesizer:
         # propagate identities for positions that were not modified by the chosen gate
         # (notG1 and notG2 and ...) -> (out[pos] == inp[pos])
         for pos in range(size):
-            if cannot_propagate: # TODO: milp does not support propagation
+            if cannot_propagate: # pure milp does not support propagation
                 break
             if len(propagate_identities[pos]) == 0: # no gates modified this position, propagate identity
                 expr = out[pos] == inp[pos]
@@ -981,6 +981,8 @@ class Synthesizer:
         
         self.gen.declare_helpers()
         self.gen.q = self.q
+        if d is not None:
+            self.d = d
         self.gen.d = self.d
         self.gen.num_of_vectors = len(vector_pairs)
         # start synthesis
@@ -991,6 +993,10 @@ class Synthesizer:
         
         if solving == "pysmt":
             self.gen.solver.exit()
+        self.logger.log("INFO", f"Circuit: {circuit}")
+        for pair_idx, (vector) in enumerate(vectors):
+            self.logger.log("INFO", f"Vector {pair_idx}: {vector}")
+        self.logger.log("INFO", f"Result: {res}")
         return res, circuit, vectors
     
     
@@ -1007,7 +1013,7 @@ class Synthesizer:
         # initial cost of the circuit is 0
         self.gen.add_assertion(self.gen.Equals(weights[0], self.gen.Int(0)))
         
-        # encode vectors
+        # encode vector bounds
         inter_states = []
         target_states = []
         bounds = [1] * (self.d + 1)
@@ -1112,6 +1118,7 @@ class Synthesizer:
             self.curr_depth = 1
             while not res:
                 self.logger.log("INFO", f"Trying depth: {self.curr_depth}")
+                self.logger.log("INFO", f"Encoding new layer")
                 self.gen.d = self.curr_depth
                 # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
                 selection_variables, bool_variables = self.gen.add_selection_variables(self.curr_depth-1, self.gate_set, self.q)
@@ -1122,7 +1129,7 @@ class Synthesizer:
                 else:
                     self.layer_bigM = self.layer_bigM * 2
                 for pair_idx in range(len(vector_pairs)):
-                    if self.curr_depth > self.d:
+                    if self.curr_depth > self.d: # new vector needs to be added
                         state = None
                         if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                             state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = input_state.n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
@@ -1132,22 +1139,31 @@ class Synthesizer:
                         weights.append(self.gen.declare_integer(f"W{self.curr_depth}", lb=0, ub=weight_bound))
                         inter_states[pair_idx].append(state)
      
+                    # encode the layer
                     self.encode_layer(inter_states[pair_idx][self.curr_depth-1], inter_states[pair_idx][self.curr_depth], self.curr_depth-1, weights[self.curr_depth-1], weights[self.curr_depth], selection_variables, bool_variables)
-                    
+                
+                self.logger.log("INFO", f"Encoded layer {self.curr_depth-1}")
+
                     # constraints do not have any effect on incremental synthesis
                     #self.gen.add_constraints(self.gate_set, self.curr_depth-1, self.q)
                 if self.complex_representation != Complex:
                     self.bound = self.bound * 2
+                    
+                self.logger.log("INFO", f"Pushing depth {self.curr_depth}")
                 self.gen.push()
+                self.logger.log("INFO", f"Pushed depth {self.curr_depth}")
                 
-                # encode equivalence
                 if self.encoding_method == "pareto-incremental":
+                    self.logger.log("INFO", f"Encoding equivalence for depth {self.curr_depth}")
                     self.encode_equivalence(inter_states, target_states, self.curr_depth)
-
+                    self.logger.log("INFO", f"Encoded equivalence for depth {self.curr_depth}")
+                    self.logger.log("INFO", f"Writing formula for depth {self.curr_depth}")
                     formula_file = self.gen.write_formula(output_qasm)
+                    self.logger.log("INFO", f"Formula written for depth {self.curr_depth}")
 
                     # enumerate models for this depth
                     sat = True
+                    self.logger.log("INFO", f"Enumerating models for depth {self.curr_depth}")
                     while sat:
                         result, circuit, vectors = self.pareto_front.start(
                             lambda: self.solve_and_extract_circuit(
@@ -1160,11 +1176,10 @@ class Synthesizer:
                         if self.pareto_front.timeout_met():
                             self.pareto_front.cleanup()
                             return True, None, None
-                        print(f"Found RUS circuit:")
-                        print(circuit)
                         if not result:
-                            sat = False
+                            sat = False # last model found
                         else:
+                            # compute the cost, if RUS, also synthesize the recovery operation
                             cost_x, cost_y = 0.0, 0.0
                             if self.vector_mode == "rus":
                                 # synthesize recovery operation
@@ -1211,30 +1226,38 @@ class Synthesizer:
                                 cost_x, cost_y = self.rus_cost(circuit, recovery_circuit, vectors)
                             else:
                                 cost_x, cost_y = self.circuit_cost(circuit)
+                            # add the point to the pareto front and filter the model
                             self.pareto_front.add_point(cost_x, cost_y, self.curr_depth, circuit, recovery_circuit)
                             self.gen.filter_model(circuit.bool_variables, self.curr_depth)
                     self.gen.pop()
                     self.curr_depth += 1
                             
                 else:
+                    self.logger.log("INFO", f"Encoding equivalence for depth {self.curr_depth}")
                     self.encode_equivalence(inter_states, target_states, self.curr_depth)
-                    
+                    self.logger.log("INFO", f"Encoded equivalence for depth {self.curr_depth}")
+
                     # without objective
+                    self.logger.log("INFO", f"Writing formula for depth {self.curr_depth}")
                     formula_file = self.gen.write_formula(output_qasm)
+                    self.logger.log("INFO", f"Formula written for depth {self.curr_depth}")
                     encoding_end = time.time()
                     result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)
                     if result:
                         res = True
                     else:
                         # remove rescaled_... variables from the problem
+                        self.logger.log("INFO", f"Popping depth {self.curr_depth}")
                         self.gen.pop()
+                        self.logger.log("INFO", f"Popped depth {self.curr_depth}")
                         self.curr_depth += 1
             if self.encoding_method == "pareto-incremental":
                 self.pareto_front.cleanup()
         else:
             raise ValueError(f"Invalid encoding method: {self.encoding_method}")
 
-        circuit.add_measurement(self.qubits_to_measure)
+        if circuit is not None:
+            circuit.add_measurement(self.qubits_to_measure)
         return res, circuit, vectors
 
     def binary_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
@@ -1318,15 +1341,19 @@ class Synthesizer:
             solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2, dreal (experimental)
         """
         solving_start = time.time()
+        self.logger.log("INFO", f"Solving formula")
         result = self.gen.check_sat(formula_file)
+        self.logger.log("INFO", f"Solving finished")
         solving_end = time.time()
         self.stats['solving'] += solving_end - solving_start
         if result:
             parsing_start = time.time()
+            self.logger.log("INFO", f"Parsing model")
             model = self.gen.get_model()
             res = self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
             parsing_end = time.time()
             self.stats['parsing'] += parsing_end - parsing_start
+            self.logger.log("INFO", f"Parsing finished")
             return res
         else:
             return False, None, None

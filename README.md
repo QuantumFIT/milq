@@ -1,5 +1,5 @@
-# SMT&MILP-based Quantum Circuit Synthesis
-Tool for gate-count optimal quantum circuit synthesis for `OPENQASM` circuits using SMT and MILP encodings.
+#MILQ: A tool for gate-count optimal Quantum circuit synthesis
+**MILQ** (**M**ixed **I**nteger & first order **L**ogic **Q**uantum circuit synthesis) is a tool for gate-count optimal quantum circuit synthesis for `OPENQASM` circuits using SMT and MILP encodings.
 
 Supported solvers:
 dReal, z3, cvc5, opensmt, yices2, smtinterpol, Gurobi

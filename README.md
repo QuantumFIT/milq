@@ -1,10 +1,7 @@
-# SMT&MILP-based Quantum Circuit Synthesis
-Tool for gate-count optimal quantum circuit synthesis for `OPENQASM` circuits using SMT and MILP encodings written in `Python3`.
-
-Author: Jakub Havlík (xhavlij00)
+# MILQ: A tool for gate-count optimal Quantum circuit synthesis
+**MILQ** (**M**ixed **I**nteger linear programming & first order **L**ogic **Q**uantum circuit synthesis) is a tool for gate-count optimal quantum circuit synthesis for `OPENQASM` circuits using SMT and MILP encodings.
 
 Supported solvers:
-
 dReal, z3, cvc5, opensmt, yices2, smtinterpol, Gurobi
 
 ## Installation Guide
@@ -18,7 +15,6 @@ pip install -r requirements.txt
 ```
 - Gurobi License for 13.0.1 version (Get free academic license on [Gurobi site](https://www.gurobi.com/)), refer to their installation manuals and create `gurobi.lic` file. (The license is not re-distributable without explicit agreement with Gurobi)
 
-**IMPORTANT**: If the Thesis has been downloaded from NextCloud, the executables for the SMT solvers provided do not have right permissions, fix by:
 ```
 chmod +x solvers/smtinterpol/smtinterpol
 chmod +x solvers/cvc5/cvc5

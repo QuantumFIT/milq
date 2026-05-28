@@ -18,7 +18,6 @@ pip install -r requirements.txt
 ```
 - Gurobi License for 13.0.1 version (Get free academic license on [Gurobi site](https://www.gurobi.com/)), refer to their installation manuals and create `gurobi.lic` file. (The license is not re-distributable without explicit agreement with Gurobi)
 
-**IMPORTANT**: If the Thesis has been downloaded from NextCloud, the executables for the SMT solvers provided do not have right permissions, fix by:
 ```
 chmod +x solvers/smtinterpol/smtinterpol
 chmod +x solvers/cvc5/cvc5

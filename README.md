@@ -1,10 +1,7 @@
 # SMT&MILP-based Quantum Circuit Synthesis
-Tool for gate-count optimal quantum circuit synthesis for `OPENQASM` circuits using SMT and MILP encodings written in `Python3`.
-
-Author: Jakub Havlík (xhavlij00)
+Tool for gate-count optimal quantum circuit synthesis for `OPENQASM` circuits using SMT and MILP encodings.
 
 Supported solvers:
-
 dReal, z3, cvc5, opensmt, yices2, smtinterpol, Gurobi
 
 ## Installation Guide

@@ -838,6 +838,7 @@ class Synthesizer:
             approx -> if True, the synthesis will be done approximately (if the mode supports it)
             no_measurement -> if True, the output qubits will not be measured (ignores end-of-circuit measurement in the input circuit)
         """
+        start_time = time.time()
         if vectors is None:
             raise ValueError("provide vectors to select vector-mode")
         if vectors in ["zero", "all", "rus", "jamiolkowski"] and vector_pairs is not None:
@@ -997,6 +998,7 @@ class Synthesizer:
         for pair_idx, (vector) in enumerate(vectors):
             self.logger.log("INFO", f"Vector {pair_idx}: {vector}")
         self.logger.log("INFO", f"Result: {res}")
+        self.logger.update_time("full", time.time() - start_time)
         return res, circuit, vectors
     
     
@@ -1112,6 +1114,7 @@ class Synthesizer:
             # incrementally generate circuit and equivalence
             encoding_end = time.time()
             self.stats['encoding'] += encoding_end - encoding_start
+            self.logger.update_time("encoding", encoding_end - encoding_start)
             encoding_start = time.time()
             if self.encoding_method == "pareto-incremental":
                 self.pareto_front = Pareto(max_x=self.d, max_y=1.0)
@@ -1242,6 +1245,7 @@ class Synthesizer:
                     formula_file = self.gen.write_formula(output_qasm)
                     self.logger.log("INFO", f"Formula written for depth {self.curr_depth}")
                     encoding_end = time.time()
+                    self.logger.update_time("encoding", encoding_end - encoding_start)
                     result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)
                     if result:
                         res = True
@@ -1345,14 +1349,14 @@ class Synthesizer:
         result = self.gen.check_sat(formula_file)
         self.logger.log("INFO", f"Solving finished")
         solving_end = time.time()
-        self.stats['solving'] += solving_end - solving_start
+        self.logger.update_time("solving", solving_end - solving_start)
         if result:
             parsing_start = time.time()
             self.logger.log("INFO", f"Parsing model")
             model = self.gen.get_model()
             res = self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
             parsing_end = time.time()
-            self.stats['parsing'] += parsing_end - parsing_start
+            self.logger.update_time("parsing", parsing_end - parsing_start)
             self.logger.log("INFO", f"Parsing finished")
             return res
         else:

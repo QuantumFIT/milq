@@ -16,6 +16,7 @@ import gurobipy as gp
 from gurobipy import GRB, quicksum
 from solvers import SMTSolver
 from logger import Logger
+import time
 
 class Generator:
     def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA", logger : Logger = None) -> None:
@@ -35,10 +36,10 @@ class Generator:
         self.symbols = {}
         self.stats = {}
         self.lp_problem = None
-        # saved variables for push/pop
-        self.bool_variables = set()
-        self.integer_variables = set()
-        self.real_variables = set()
+        # saved variables for push/pop (name -> variable object per backend)
+        self.bool_variables: dict[str, object] = {}
+        self.integer_variables: dict[str, object] = {}
+        self.real_variables: dict[str, object] = {}
         self.saved_lp_problem = None
         self.saved_push = []
         self.objective_assertions = []
@@ -90,7 +91,6 @@ class Generator:
                 self.lp_problem = gp.Model("Circuit_Synthesis")
                 self._gp_params()
                 self.lp_problem.setObjective(0, GRB.MINIMIZE) # set dummy objective
-            self.lp_problem.update()
             self.lp_problem.addConstr(assertion, name=f"assertion_{self.stats['assertions']}")
         self.stats['assertions'] += 1
         
@@ -482,7 +482,6 @@ class Generator:
             self.lp_problem = gp.Model("Circuit_Synthesis")
             self._gp_params()
         var = self.lp_problem.addVar(name=x, lb=lb, ub=ub, vtype=type)
-        self.lp_problem.update()
         self.symbols[x] = var
         self.declared_names.add(x)
         return var
@@ -504,7 +503,7 @@ class Generator:
             res = self.format_real(x)
         
         if res is not None:
-            self.real_variables.add(res)
+            self.real_variables[x] = res
         return res
          
     def format_real(self, x):
@@ -552,7 +551,7 @@ class Generator:
             res = self.format_integer(x)
 
         if res is not None:
-            self.integer_variables.add(res)
+            self.integer_variables[x] = res
         return res
             
     def format_integer(self, x):
@@ -607,7 +606,7 @@ class Generator:
                 else:
                     res = x
         if res is not None:
-            self.bool_variables.add(res)
+            self.bool_variables[x] = res
         return res
 
     def declare_helpers(self):
@@ -889,19 +888,49 @@ class Generator:
         print(f"Selection variables: {self.stats['selection_variables']}")
         print(f"Complex numbers: {self.stats['complex_numbers']}")
 
+    def _assertion_index(self, name: str) -> int | None:
+        prefix = "assertion_"
+        if not name.startswith(prefix):
+            return None
+        try:
+            return int(name[len(prefix):])
+        except ValueError:
+            return None
+
+    def _gurobi_remove_assertions_since(self, cutoff: int) -> None:
+        """Drop named constraints added at or after ``assertion_{cutoff}``."""
+        if self.lp_problem is None:
+            self.stats['assertions'] = cutoff
+            return
+        self.lp_problem.update()
+        to_remove = []
+        for constr in self.lp_problem.getConstrs():
+            idx = self._assertion_index(constr.ConstrName)
+            if idx is not None and idx >= cutoff:
+                to_remove.append(constr)
+        for qconstr in self.lp_problem.getQConstrs():
+            idx = self._assertion_index(qconstr.QCName)
+            if idx is not None and idx >= cutoff:
+                to_remove.append(qconstr)
+        for genconstr in self.lp_problem.getGenConstrs():
+            idx = self._assertion_index(genconstr.GenConstrName)
+            if idx is not None and idx >= cutoff:
+                to_remove.append(genconstr)
+        if to_remove:
+            self.lp_problem.remove(to_remove)
+        self.stats['assertions'] = cutoff
+
     def push(self):
         if self.mode == "milp":
             self.saved_lp_problem = self.lp_problem.deepcopy()
         elif self.mode == "gurobi":
+                if self.lp_problem is not None:
+                    self.lp_problem.update()
                 state = {
-                    'num_constrs': self.lp_problem.NumConstrs,
-                    'num_qconstrs': self.lp_problem.NumQConstrs,
-                    'num_genconstrs': self.lp_problem.NumGenConstrs,
-                    'num_sos': self.lp_problem.NumSOS,
+                    'assertion_idx': self.stats['assertions'],
+                    'num_sos': self.lp_problem.NumSOS if self.lp_problem is not None else 0,
                 }
-                
                 self.saved_push.append(state)
-                self.lp_problem.update()
         elif self.mode == "smtlib":
             if self.incremental_mode:
                 self.write_incremental("(push 1)")
@@ -920,22 +949,17 @@ class Generator:
             # restore the saved instance of the LP problem
             self.lp_problem = self.saved_lp_problem
         elif self.mode == "gurobi":
-            # remove constraints, variables, obvjectives ... defined after push()
             if len(self.saved_push) > 0:
                 state = self.saved_push.pop()
-                current_num_constrs = self.lp_problem.NumConstrs
-                if current_num_constrs > state['num_constrs']:
-                    self.lp_problem.remove([self.lp_problem.getConstrs()[i] for i in range(state['num_constrs'], current_num_constrs)])
-                current_num_qconstrs = self.lp_problem.NumQConstrs
-                if current_num_qconstrs > state['num_qconstrs']:
-                    self.lp_problem.remove([self.lp_problem.getQConstrs()[i] for i in range(state['num_qconstrs'], current_num_qconstrs)])
-                current_num_genconstrs = self.lp_problem.NumGenConstrs
-                if current_num_genconstrs > state['num_genconstrs']:
-                    self.lp_problem.remove([self.lp_problem.getGenConstrs()[i] for i in range(state['num_genconstrs'], current_num_genconstrs)])
-                current_num_sos = self.lp_problem.NumSOS
-                if current_num_sos > state['num_sos']:
-                    self.lp_problem.remove([self.lp_problem.getSOSs()[i] for i in range(state['num_sos'], current_num_sos)])
-            self.lp_problem.update()
+                start_time = time.time()
+                self._gurobi_remove_assertions_since(state['assertion_idx'])
+                if self.lp_problem is not None:
+                    self.lp_problem.update()
+                    current_num_sos = self.lp_problem.NumSOS
+                    if current_num_sos > state['num_sos']:
+                        self.lp_problem.remove([self.lp_problem.getSOSs()[i] for i in range(state['num_sos'], current_num_sos)])
+                    self.lp_problem.update()
+                self.logger.update_time("updating", time.time() - start_time)
         elif self.mode == "smtlib":
             if self.incremental_mode:
                 self.write_incremental("(pop 1)") 
@@ -986,15 +1010,13 @@ class Generator:
                 for i in range(self.num_of_vectors):
                     last_vector_starts.append("I_" + str(i) + "_" + str(self.d))
                 list_of_variables = []
-                list_of_variables.extend([var for var in self.bool_variables if var.startswith("L")])
+                list_of_variables.extend([name for name in self.bool_variables if name.startswith("L")])
                 if self.logic in ["QF_NRA", "QF_LRA"]:
-                    list_of_variables.extend([var for var in self.real_variables if var == weight_name])
-                    list_of_variables.extend([var for var in self.real_variables if var.startswith(tuple(last_vector_starts))])
-                    
+                    list_of_variables.extend([name for name in self.real_variables if name == weight_name])
+                    list_of_variables.extend([name for name in self.real_variables if name.startswith(tuple(last_vector_starts))])
                 else:
-                    list_of_variables.extend([var for var in self.integer_variables if var == weight_name])
-                    list_of_variables.extend([var for var in self.integer_variables if var.startswith(tuple(last_vector_starts))])
-                    
+                    list_of_variables.extend([name for name in self.integer_variables if name == weight_name])
+                    list_of_variables.extend([name for name in self.integer_variables if name.startswith(tuple(last_vector_starts))])
                 #self.solver.write_incremental("(get-model)")
                 self.solver.write_incremental("(get-value (" + " ".join(list_of_variables) + "))")
                 return self.solver.get_model()

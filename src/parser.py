@@ -30,21 +30,21 @@ class ModelParser:
     def expand_milp_model(self, gen : Generator) -> list:
         # parse the MILP model to a list of items (variable name, value)
         items = []
-        for var in gen.bool_variables:
-            if var.name.startswith("L"):
+        for name, var in gen.bool_variables.items():
+            if name.startswith("L"):
                 if abs(var.value() - 1) < 1e-6:
-                    items.append((var.name, True))
+                    items.append((name, True))
                 else:
-                    items.append((var.name, False))
-        for var in gen.integer_variables:
-            if var.name.startswith("W"):
-                items.append((var.name, var.value()))
-            if var.name.startswith("I_"):
-                items.append((var.name, var.value()))
-        for var in gen.real_variables:
-            if var.name.startswith("I_"):
+                    items.append((name, False))
+        for name, var in gen.integer_variables.items():
+            if name.startswith("W"):
+                items.append((name, var.value()))
+            if name.startswith("I_"):
+                items.append((name, var.value()))
+        for name, var in gen.real_variables.items():
+            if name.startswith("I_"):
                 if var.value() is not None:
-                    items.append((var.name, float(var.value())))
+                    items.append((name, float(var.value())))
         return items
 
 

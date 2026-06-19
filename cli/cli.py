@@ -31,7 +31,6 @@ parser.add_argument('-d', '--depth', type=int, help='number of allowed gates', r
 parser.add_argument('-nm', '--no_measurement', action='store_true', help='do not measure the output qubits', default=False)
 args = parser.parse_args()
 synthesizer = Synthesizer()
-start_time = time.time()
 res, circuit, _ = synthesizer.synthesis(qasm_file=args.qasm_file, 
                                   vectors=args.vectors, 
                                   solving=args.solving, 
@@ -51,9 +50,9 @@ if res:
 else:
     print("synthesis failed")
     
-end_time = time.time()
-print(f"Time taken: {end_time - start_time} seconds")
-print(f"Parsing time: {synthesizer.stats['parsing']} seconds")
-print(f"Encoding time: {synthesizer.stats['encoding']} seconds")
-print(f"Solving time: {synthesizer.stats['solving']} seconds")
+print(f"Full time: {synthesizer.logger.get_times()['full']} seconds")
+print(f"Parsing time: {synthesizer.logger.get_times()['parsing']} seconds")
+print(f"Encoding time: {synthesizer.logger.get_times()['encoding']} seconds")
+print(f"Solving time: {synthesizer.logger.get_times()['solving']} seconds")
+print(f"Updating time: {synthesizer.logger.get_times()['updating']} seconds")
 print(circuit)

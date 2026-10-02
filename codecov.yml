@@ -1,0 +1,35 @@
+# Codecov configuration for MILQ.
+# Reference: https://docs.codecov.com/docs/codecov-yaml
+
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 1
+  round: nearest
+  # Red at 30%, green at 80%. The suite currently sits around 40%.
+  range: "30...80"
+
+  status:
+    # Informational only: CI's tests are the merge gate, coverage is the trend line.
+    project:
+      default:
+        target: auto
+        threshold: 2%
+        informational: true
+    patch:
+      default:
+        target: auto
+        threshold: 2%
+        informational: true
+
+# measure the tool, not the harness around it
+ignore:
+  - "tests/**"
+  - "benchmarks/**"
+  - "solvers/**"
+
+comment:
+  layout: "condensed_header, diff, files"
+  behavior: default
+  require_changes: true

@@ -8,3 +8,6 @@ src/__pycache__/
 benchmarks/qsharp_comp/
 server/
 excel/
+
+coverage.xml
+.coverage

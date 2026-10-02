@@ -98,12 +98,20 @@ class Simulator:
             if line.startswith('creg') or line.startswith('bit'):
                 continue
 
+            # one-line definitions of non-standard gates (gates are simulated natively)
+            if line.startswith('gate '):
+                continue
+
             
             qreg_name = self.stats['qreg']
             # find gates using the register name
             qreg_pattern = re.compile(rf'{re.escape(f"{qreg_name}")}\s*\[')
             if qreg_pattern.search(line):
                 gate_line = line.rstrip(';').strip()
+                # OpenQASM 3 measurement (c[i] = measure q[i]) -> measure q[i]
+                assignment = re.match(r'^\S+\s*=\s*(measure\s+.*)$', gate_line)
+                if assignment:
+                    gate_line = assignment.group(1)
                 # parse the gate and its qubits as (gate, q1, q2, ...)
                 parts = gate_line.split(' ')
                 gate = parts[0].lower()

@@ -15,6 +15,19 @@ supported_gates = [
 
 self_adjoints = ['h', 'x', 'y', 'z', 'cx', 'cz', 'cy', 'ch', 'swap', 'dcx', 'ccx', 'ccz']
 
+# OpenQASM 3 definitions of supported gates that are not part of stdgates.inc
+nonstandard_gate_definitions = {
+    'sxdg': "gate sxdg a { inv @ sx a; }",
+    'cs': "gate cs a, b { ctrl @ s a, b; }",
+    'csdg': "gate csdg a, b { ctrl @ sdg a, b; }",
+    'csx': "gate csx a, b { ctrl @ sx a, b; }",
+    'xcx': "gate xcx a, b { negctrl @ x a, b; }",
+    'dcx': "gate dcx a, b { cx a, b; cx b, a; }",
+    'iswap': "gate iswap a, b { s a; s b; h a; cx a, b; cx b, a; h b; }",
+    'sqrtswap': "gate sqrtswap a, b { pow(0.5) @ swap a, b; }",
+    'ccz': "gate ccz a, b, c { ctrl(2) @ z a, b, c; }",
+}
+
 # convert gate name to number of qubits
 def gate_to_qubits(gate : str) -> int:
     for i, gates in enumerate(supported_gates):
@@ -197,13 +210,19 @@ class Circuit:
                 self.bool_variables.append(gate_str)
     
     def __str__(self) -> str:
-        circuit_str = f"OPENQASM 2.0;\ninclude \"stdgates.inc\";\nqreg q[{self.q}];\ncreg c[{self.q}];\n"
-        for d in range(self.d):
-            gate = self.gates[d]
-            if gate is None: continue
+        # identity layers are not emitted
+        gates = [gate for gate in self.gates[:self.d] if gate is not None and gate.name != 'id']
+        circuit_str = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\n"
+        defined = set()
+        for gate in gates:
+            if gate.name in nonstandard_gate_definitions and gate.name not in defined:
+                circuit_str += f"{nonstandard_gate_definitions[gate.name]}\n"
+                defined.add(gate.name)
+        circuit_str += f"qubit[{self.q}] q;\nbit[{self.q}] c;\n"
+        for gate in gates:
             circuit_str += f"{gate}\n"
-        for qubit in self.measured_qubits:
-            circuit_str += f"measure q[{qubit}] -> c[{qubit}];\n"
+        for qubit in sorted(self.measured_qubits):
+            circuit_str += f"c[{qubit}] = measure q[{qubit}];\n"
         return circuit_str
     
     def __repr__(self) -> str:

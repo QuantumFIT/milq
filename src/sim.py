@@ -62,7 +62,11 @@ class Simulator:
 
         with open(self.qasm_file, 'r') as f:
             qasm_content = f.read()
-        
+        # drop comments, definitions of non-standard gates (they are simulated natively);
+        # a definition can span lines and be followed by more statements on the line of its '}'
+        qasm_content = re.sub(r'//[^\n]*', '', qasm_content)
+        qasm_content = re.sub(r'\bgate\s[^{]*\{[^}]*\}', '', qasm_content)
+
         lines = qasm_content.split('\n')
         gates = []
         for line in lines:
@@ -98,11 +102,10 @@ class Simulator:
             if line.startswith('creg') or line.startswith('bit'):
                 continue
 
-            # one-line definitions of non-standard gates (gates are simulated natively)
+            # every complete definition was removed above, so this one has no closing brace
             if line.startswith('gate '):
-                continue
+                raise Exception("gate definition not closed, not a valid qasm file")
 
-            
             qreg_name = self.stats['qreg']
             # find gates using the register name
             qreg_pattern = re.compile(rf'{re.escape(f"{qreg_name}")}\s*\[')

@@ -1,4 +1,8 @@
 # MILQ: A tool for gate-count optimal Quantum circuit synthesis
+
+[![CI](https://github.com/QuantumFIT/milq/actions/workflows/ci.yml/badge.svg)](https://github.com/QuantumFIT/milq/actions/workflows/ci.yml)
+[![codecov](https://img.shields.io/codecov/c/github/QuantumFIT/milq/master?logo=codecov)](https://codecov.io/gh/QuantumFIT/milq)
+
 **MILQ** (**M**ixed **I**nteger linear programming & first order **L**ogic **Q**uantum circuit synthesis) is a tool for gate-count optimal quantum circuit synthesis for `OPENQASM` circuits using SMT and MILP encodings.
 
 Supported solvers:

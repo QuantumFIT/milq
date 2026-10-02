@@ -1032,10 +1032,7 @@ class Synthesizer:
             for i, val in enumerate(input_state):
                 if self.gen.mode == "smtlib":
                     for j in range(len(input_state[i])):
-                        if val[j] <= 0:
-                            self.gen.add_assertion(self.gen.Equals(In[i][j], self.gen.Minus(self.gen.Real(0), abs(val[j]))))
-                        else:
-                            self.gen.add_assertion(self.gen.Equals(In[i][j], val[j]))
+                        self.gen.add_assertion(self.gen.Equals(In[i][j], self.gen.Real(val[j])))
                 else:
                     self.gen.add_assertion(self.gen.Equals(In[i], val))
             if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
@@ -1067,10 +1064,7 @@ class Synthesizer:
             for i, val in enumerate(output_state):
                 if self.gen.mode == "smtlib":
                     for j in range(len(output_state[i])):
-                        if val[j] <= 0:
-                            self.gen.add_assertion(self.gen.Equals(Target[i][j], self.gen.Minus(self.gen.Real(0), abs(val[j]))))
-                        else:
-                            self.gen.add_assertion(self.gen.Equals(Target[i][j], val[j]))
+                        self.gen.add_assertion(self.gen.Equals(Target[i][j], self.gen.Real(val[j])))
                 else:
                     self.gen.add_assertion(Target[i] == val)
             

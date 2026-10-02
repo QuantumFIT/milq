@@ -57,6 +57,13 @@ python3 cli.py -v all -c FiveTuple -s gurobi -m incremental ../benchmarks/ghzzer
 ```
 
 
+## Running tests
+```
+pip install pytest
+pytest
+```
+The tests use the bundled yices2/cvc5 binaries and the size-limited license shipped with `gurobipy`. They run in CI on every push and pull request. Known bugs are marked `xfail` with their issue number. Strict mode is on, so a fix must remove its marker from `KNOWN_BUGS` in `tests/test_simulator.py`.
+
 ## Project Structure
 
 ```

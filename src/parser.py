@@ -6,6 +6,7 @@
 """
 
 import re
+import os
 from generator import Generator
 from gates import Circuit, Gate
 from complex.vector import Vector
@@ -266,7 +267,7 @@ class ModelParser:
         if write_to_file:
             circ.write_to_file(output_qasm)
         if draw_circuit:
-            png_filename = output_qasm.split(".")[0] + ".png"
+            png_filename = os.path.splitext(output_qasm)[0] + ".png"
             circ.draw(output_file=png_filename)
         return True, circ, vectors
 

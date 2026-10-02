@@ -1324,23 +1324,22 @@ class Synthesizer:
     def incremental_top_down_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         i = self.d+1
         best_circuit = None
-        while i > 0:
+        best_vectors = None
+        while i >= 0:
             self.gen.push()
             self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(i)))
-            formula_file = self.gen.write_formula(output_qasm)          
-            result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)                
-            if result:
-                best_circuit = circuit
-                best_vectors = vectors
-            else:
-                # first unsolvable, return best model
-                if best_circuit is not None:
-                    return True, best_circuit, best_vectors
-                else:
-                    return False, None, None
+            formula_file = self.gen.write_formula(output_qasm)
+            result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)
             self.gen.pop()
+            if not result:
+                # first unsolvable, the previous model is the best
+                break
+            best_circuit = circuit
+            best_vectors = vectors
             i -= 1
 
+        if best_circuit is not None:
+            return True, best_circuit, best_vectors
         return False, None, None
 
     def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", write_to_file = True, draw_circuit = False) -> bool:

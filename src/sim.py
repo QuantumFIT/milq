@@ -224,19 +224,11 @@ class Simulator:
                                 new_vec[pos] = vector[other]
                                 new_vec[other] = vector[pos]
                         elif op == 'dcx':
+                            # dcx = cx(q1, q2) cx(q2, q1) permutes |a, b> -> |b, a xor b> (a 3-cycle)
                             control_flag = (pos >> qubits[0]) & 1
                             target_flag = (pos >> qubits[1]) & 1
-                            other = None
-                            if not control_flag and target_flag:
-                                other = pos ^ ((1 << qubits[0]) | (1 << qubits[1]))
-                            elif control_flag and not target_flag:
-                                other = pos ^ (1 << qubits[1])
-                            else:
-                                other = pos ^ (1 << qubits[0])
-                            
-                            if other is not None:
-                                modified_positions.append(other)
-                                new_vec[other] = vector[pos]
+                            image = (pos & ~((1 << qubits[0]) | (1 << qubits[1]))) | (target_flag << qubits[0]) | ((control_flag ^ target_flag) << qubits[1])
+                            new_vec[image] = vector[pos]
                         elif op == 'ch':
                             control_flag = (pos >> qubits[0]) & 1
                             if control_flag:

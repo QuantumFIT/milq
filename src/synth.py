@@ -347,26 +347,15 @@ class Synthesizer:
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for XCX gate")
                 elif gate == 'dcx':
-                    modified_positions = []
                     if self.basis == "cb":
                         for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
+                            # dcx = cx(q1, q2) cx(q2, q1) permutes |a, b> -> |b, a xor b> (a 3-cycle)
                             control_flag = (pos >> q1) & 1
                             target_flag = (pos >> q2) & 1
-                            other = None
-                            if (not control_flag and not target_flag) and (cannot_propagate):
-                                other = pos
-                            elif not control_flag and target_flag:
-                                other = pos ^ ((1 << q1) | (1 << q2))
-                            elif control_flag and not target_flag:
-                                other = pos ^ (1 << q2)
-                            elif control_flag and target_flag:
-                                other = pos ^ (1 << q1)
-                            if other is None: continue
-                            modified_positions.append(other)
-                            saved_operations[other].append((bool_var, inp[pos]))
-                            propagate_identities[other].append(bool_var)
+                            image = (pos & ~((1 << q1) | (1 << q2))) | (target_flag << q1) | ((control_flag ^ target_flag) << q2)
+                            if image == pos and not cannot_propagate: continue
+                            saved_operations[image].append((bool_var, inp[pos]))
+                            propagate_identities[image].append(bool_var)
                         if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":

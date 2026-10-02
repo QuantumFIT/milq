@@ -18,6 +18,7 @@ from solvers import SMTSolver
 from logger import Logger
 import time
 import os
+import numbers
 
 class Generator:
     def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA", logger : Logger = None) -> None:
@@ -516,10 +517,8 @@ class Generator:
                     return self.symbols[x]
             return x
         elif self.mode == "smtlib":
-            if isinstance(x, (int, float)):
-                if isinstance(x, float) and not x.is_integer():
-                    return f"{x:.15f}".rstrip('0').rstrip('.') # 2.00 -> 2, 2.100 -> 2.1 ...
-                return str(x)
+            if isinstance(x, numbers.Real):
+                return self._smtlib_numeral(x)
             return x
         elif self.mode == "milp" or self.mode == "gurobi":
             if isinstance(x, (float, int)):
@@ -528,6 +527,18 @@ class Generator:
                 if x in self.symbols:
                     return self.symbols[x]
             return x
+
+    def _smtlib_numeral(self, x):
+        # SMT-LIB numerals have no sign or exponent: -x is written as (- x),
+        # floats as plain decimals (round-off below 1e-15 is dropped)
+        if isinstance(x, numbers.Integral):
+            return f"(- {-int(x)})" if x < 0 else str(int(x))
+        x = round(float(x), 15)
+        if x < 0:
+            return f"(- {self._smtlib_numeral(-x)})"
+        if x.is_integer():
+            return f"{int(x)}.0"
+        return f"{x:.15f}".rstrip('0') # 2.100 -> 2.1
 
     def Real(self, x):
         return self.format_real(x)
@@ -566,8 +577,8 @@ class Generator:
                     return self.symbols[x]
             return x
         elif self.mode == "smtlib":
-            if isinstance(x, int):
-                return str(x)
+            if isinstance(x, numbers.Integral):
+                return self._smtlib_numeral(x)
             return x
         elif self.mode == "milp" or self.mode == "gurobi":
             if isinstance(x, int):

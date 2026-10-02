@@ -17,7 +17,6 @@ ARGUMENTS = {1: [(2,)], 2: [(2, 0), (0, 1)], 3: [(2, 0, 1)]}
 
 # (gate, representation or None for all) -> tracking issue
 KNOWN_BUGS = {
-    ("ch", "FiveTuple"): "#1",
     ("dcx", None): "#2",
     **{(gate, None): "#18" for gate in ["swap", "iswap", "cy", "cs", "csdg", "csx", "sqrtswap", "cswap", "ccz"]},
 }

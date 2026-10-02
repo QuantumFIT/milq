@@ -385,6 +385,10 @@ class Synthesizer:
                                 saved_operations[other].append((bool_var, (inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen)))
                                 propagate_identities[pos].append(bool_var)
                                 propagate_identities[other].append(bool_var)
+                            elif self.complex_representation == FiveTuple:
+                                # k increases by 1 for the whole vector, compensate the untouched amplitudes
+                                saved_operations[pos].append((bool_var, inp[pos].increase_k(self.gen)))
+                                propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
                         if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
@@ -405,6 +409,10 @@ class Synthesizer:
                                 saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
                                 propagate_identities[pos].append(bool_var)
                                 propagate_identities[other].append(bool_var)
+                            elif self.complex_representation == FiveTuple:
+                                # k increases by 2 for the whole vector, compensate the untouched amplitudes
+                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_two(self.gen)))
+                                propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
                         if self.complex_representation == FiveTuple or self.complex_representation == nTuple:

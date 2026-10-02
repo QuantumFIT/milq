@@ -390,7 +390,10 @@ class Simulator:
         # |+>^targets
         vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=targets)
         for i in range(2**targets):
-            vector[i] = self.complex_representation.inv_sqrt2(None)
+            amplitude = self.complex_representation.one(None)
+            for _ in range(targets):
+                amplitude = amplitude.divide_by_sqrt2(None)
+            vector[i] = amplitude
         if self.basis == "pauli":
             vector = Matrix.density_from_vector(vector)
         vectors.append(vector)

@@ -255,7 +255,61 @@ class Simulator:
                                 modified_positions.append(other)
                                 new_vec[pos] = vector[other]
                                 new_vec[other] = vector[pos]
-                                
+                        elif op == 'cy':
+                            control_flag = (pos >> qubits[0]) & 1
+                            if control_flag:
+                                other = pos ^ (1 << qubits[1])
+                                modified_positions.append(other)
+                                target_flag = (pos >> qubits[1]) & 1
+                                new_vec[pos] = vector[other].multiply_by_i(None) if target_flag else vector[other].multiply_by_minus_i(None)
+                                new_vec[other] = vector[pos].multiply_by_minus_i(None) if target_flag else vector[pos].multiply_by_i(None)
+                        elif op == 'cs' or op == 'csdg':
+                            control_flag = (pos >> qubits[0]) & 1
+                            target_flag = (pos >> qubits[1]) & 1
+                            if control_flag and target_flag:
+                                new_vec[pos] = vector[pos].multiply_by_i(None) if op == 'cs' else vector[pos].multiply_by_minus_i(None)
+                        elif op == 'csx':
+                            control_flag = (pos >> qubits[0]) & 1
+                            if control_flag:
+                                other = pos ^ (1 << qubits[1])
+                                modified_positions.append(other)
+                                new_vec[pos] = ((vector[pos] + vector[other]).divide_by_two(None)  + (vector[pos] - vector[other]).divide_by_two_i(None))
+                                new_vec[other] = ((vector[pos] + vector[other]).divide_by_two(None)  + (vector[other] - vector[pos]).divide_by_two_i(None))
+                            elif self.complex_representation == FiveTuple:
+                                # k increases by 2 for the whole vector, compensate the untouched amplitudes
+                                new_vec[pos] = vector[pos].multiply_by_two(None)
+                        elif op == 'swap' or op == 'iswap':
+                            q1_flag = (pos >> qubits[0]) & 1
+                            q2_flag = (pos >> qubits[1]) & 1
+                            if q1_flag != q2_flag:
+                                other = pos ^ ((1 << qubits[0]) | (1 << qubits[1]))
+                                modified_positions.append(other)
+                                new_vec[pos] = vector[other] if op == 'swap' else vector[other].multiply_by_i(None)
+                                new_vec[other] = vector[pos] if op == 'swap' else vector[pos].multiply_by_i(None)
+                        elif op == 'sqrtswap':
+                            q1_flag = (pos >> qubits[0]) & 1
+                            q2_flag = (pos >> qubits[1]) & 1
+                            if q1_flag != q2_flag:
+                                other = pos ^ ((1 << qubits[0]) | (1 << qubits[1]))
+                                modified_positions.append(other)
+                                new_vec[pos] = ((vector[pos] + vector[other]).divide_by_two(None)  + (vector[pos] - vector[other]).divide_by_two_i(None))
+                                new_vec[other] = ((vector[pos] + vector[other]).divide_by_two(None)  + (vector[other] - vector[pos]).divide_by_two_i(None))
+                            elif self.complex_representation == FiveTuple:
+                                # k increases by 2 for the whole vector, compensate the untouched amplitudes
+                                new_vec[pos] = vector[pos].multiply_by_two(None)
+                        elif op == 'cswap':
+                            control_flag = (pos >> qubits[0]) & 1
+                            q2_flag = (pos >> qubits[1]) & 1
+                            q3_flag = (pos >> qubits[2]) & 1
+                            if control_flag and q2_flag != q3_flag:
+                                other = pos ^ ((1 << qubits[1]) | (1 << qubits[2]))
+                                modified_positions.append(other)
+                                new_vec[pos] = vector[other]
+                                new_vec[other] = vector[pos]
+                        elif op == 'ccz':
+                            if all((pos >> qubit) & 1 for qubit in qubits):
+                                new_vec[pos] = vector[pos].multiply_by_minus_one(None)
+
                         elif op == 'measure' or op == 'meas':
                             if self.no_measurement:
                                 new_vec = vector.copy()
@@ -270,7 +324,7 @@ class Simulator:
                 if self.complex_representation == FiveTuple:
                     if op in ['h', 'ch']:
                         new_vec.k += 1
-                    elif op in ['sx', 'sxdg']:
+                    elif op in ['sx', 'sxdg', 'csx', 'sqrtswap']:
                         new_vec.k += 2
                 vectors[i] = new_vec
 

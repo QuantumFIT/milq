@@ -17,6 +17,7 @@ from gurobipy import GRB, quicksum
 from solvers import SMTSolver
 from logger import Logger
 import time
+import os
 
 class Generator:
     def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA", logger : Logger = None) -> None:
@@ -647,14 +648,14 @@ class Generator:
         if self.incremental_mode:
             return filename
         if self.mode == "pysmt":
-            filename = filename.split(".")[0] + ".smt2"
+            filename = os.path.splitext(filename)[0] + ".smt2"
             if not hasattr(self.solver, "assertions"):
                 return filename
             from pysmt.shortcuts import write_smtlib
             formula = self.solver.environment.formula_manager.And(self.solver.assertions)
             write_smtlib(formula, filename)
         elif self.mode == "smtlib":
-            filename = filename.split(".")[0] + ".smt2"
+            filename = os.path.splitext(filename)[0] + ".smt2"
             with open(filename, 'w') as f:
                 f.write(f"(set-logic {self.logic})\n")
                 
@@ -672,10 +673,10 @@ class Generator:
                 f.write("(get-model)\n")                
                 f.write("\n")
         elif self.mode == "milp":
-            filename = filename.split(".")[0] + ".lp"
+            filename = os.path.splitext(filename)[0] + ".lp"
             self.lp_problem.writeLP(filename)
         elif self.mode == "gurobi":
-            filename = filename.split(".")[0] + ".lp"
+            filename = os.path.splitext(filename)[0] + ".lp"
             self.lp_problem.write(filename)
         return filename
         

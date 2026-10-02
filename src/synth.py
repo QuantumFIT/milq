@@ -1206,7 +1206,7 @@ class Synthesizer:
                                             q=self.q,
                                             d=self.d,
                                             gate_set=gate_set,
-                                            output_qasm=output_qasm.split(".")[0] + "_recovery.qasm",
+                                            output_qasm=os.path.splitext(output_qasm)[0] + "_recovery.qasm",
                                             solving="gurobi",
                                             solver="gurobi",
                                             mode="incremental",

@@ -233,6 +233,9 @@ class Simulator:
                                 modified_positions.append(other)
                                 new_vec[pos] = (vector[pos] + vector[other]).divide_by_sqrt2(None)
                                 new_vec[other] = (vector[pos] + (vector[other].multiply_by_minus_one(None))).divide_by_sqrt2(None)
+                            elif self.complex_representation == FiveTuple:
+                                # k increases by 1 for the whole vector, compensate the untouched amplitudes
+                                new_vec[pos] = vector[pos].increase_k(None)
                         elif op == 'ccx':
                             control1_flag = (pos >> qubits[0]) & 1
                             control2_flag = (pos >> qubits[1]) & 1

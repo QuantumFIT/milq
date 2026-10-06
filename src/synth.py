@@ -841,21 +841,23 @@ class Synthesizer:
         start_time = time.time()
         if vectors is None:
             raise ValueError("provide vectors to select vector-mode")
+        if vectors not in ["zero", "all", "rus", "jamiolkowski", "custom"]:
+            raise ValueError("vectors can be only zero, all, rus, jamiolkowski, or custom")
         if vectors in ["zero", "all", "rus", "jamiolkowski"] and vector_pairs is not None:
             raise ValueError("vector_pairs cannot be provided when vectors are specified")
         if vectors == "custom" and (vector_pairs is None or q is None or d is None or gate_set is None):
             raise ValueError("vector_pairs, q, d, and gate_set are required when vectors are custom")
         if qasm_file is None and matrix is None and vector_pairs is None:
-            raise ValueError("input qasm_file or matrix is required")
-        if qasm_file is not None and matrix is not None and vector_pairs is not None:
+            raise ValueError("input qasm_file, matrix, or vector_pairs is required")
+        if qasm_file is not None and matrix is not None:
             raise ValueError("qasm_file and matrix cannot be provided at the same time")
         
         if matrix is not None and vectors != "rus":
             raise ValueError("matrix can be provided only for rus mode")
         if solving in ["smt", "milp", "pysmt"] and solver is None:
             raise ValueError("a solver is required for basic smt and milp solving")
-        if mode not in ["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental", 'divide-and-conquer']:
-            raise ValueError("mode can be only basic, incremental, binary, topdown, or bottomup")
+        if mode not in ["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"]:
+            raise ValueError("mode can be only basic, incremental, binary, topdown, bottomup, or pareto-incremental")
         if complex_representation not in ["FiveTuple", "nTuple", "Classic"]:
             raise ValueError("complex_representation can be only FiveTuple, nTuple, or Classic")
         if complex_representation == "FiveTuple":
@@ -987,10 +989,7 @@ class Synthesizer:
         self.gen.d = self.d
         self.gen.num_of_vectors = len(vector_pairs)
         # start synthesis
-        if self.encoding_method == "divide-and-conquer":
-            res, circuit, vectors = self.divide_and_conquer(vector_pairs, output_qasm)
-        else:
-            res, circuit, vectors = self._synth(vector_pairs, output_qasm)
+        res, circuit, vectors = self._synth(vector_pairs, output_qasm)
         
         if solving == "pysmt":
             self.gen.solver.exit()

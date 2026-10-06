@@ -209,9 +209,12 @@ class Circuit:
                     gate_str += f"_q{qubit}"
                 self.bool_variables.append(gate_str)
     
+    def operations(self) -> list[Gate]:
+        # the gates of the circuit, without empty and identity layers
+        return [gate for gate in self.gates[:self.d] if gate is not None and gate.name != 'id']
+
     def __str__(self) -> str:
-        # identity layers are not emitted
-        gates = [gate for gate in self.gates[:self.d] if gate is not None and gate.name != 'id']
+        gates = self.operations()
         circuit_str = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\n"
         defined = set()
         for gate in gates:
@@ -235,7 +238,7 @@ class Circuit:
     def draw(self, output_file : str) -> None:
         from qiskit import QuantumCircuit
         circuit = QuantumCircuit(self.q)
-        for gate in self.gates:
+        for gate in self.operations():
             attribute = getattr(circuit, gate.name)
             attribute(*gate.qubits)
         circuit.draw(output="mpl", filename=output_file, reverse_bits=True)
@@ -258,13 +261,13 @@ class Circuit:
         
     def t_count(self) -> int:
         count = 0
-        for gate in self.gates:
+        for gate in self.operations():
             if gate.name == 't' or gate.name == 'tdg':
                 count += 1
         return count
     
     def gate_count(self) -> int:
-        return len(self.gates)
+        return len(self.operations())
     
     def get_cost(self) -> int:
         return self.cost

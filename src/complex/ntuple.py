@@ -9,6 +9,7 @@
 class nTuple:
     # TODO: this version does not natively support n-tuples, use either Classic or FiveTuple
     def __init__(self, elements=None, name=None, n=0, generator=None, bound=None):
+        raise NotImplementedError("nTuple representation is not implemented, use FiveTuple or Classic")
         
         # n has to be a power of 2
         if n != 0:

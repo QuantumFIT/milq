@@ -7,10 +7,10 @@
 
 import re
 import os
+from fractions import Fraction
 from generator import Generator
 from gates import Circuit, Gate
 from complex.vector import Vector
-import time
 from logger import Logger
 
 class ModelParser:
@@ -51,118 +51,32 @@ class ModelParser:
 
 
     def parse_model_to_items(self, model : str) -> list:
-        # SMT parsing (either get-model or get-value, which both have different formats)
-        lines = model.split('\n')
+        # SMT parsing of solver output: get-model responses (define-fun entries, possibly
+        # inside (model ...)) and get-value responses ((name value) ...)
         items = []
-        i = 0
-        line = ""
-        time_start = time.time()
-        while i < len(lines):
-            line += lines[i].strip()
-            get_value = False
-            # match (<whitespaces>define-fun var_name () var_type var_value<whitespaces>)
-            # possibly starts with (( instead of (
-            # matches (get-model)
-            var_name, var_value = None, None
-            get_model, (var_name, var_value) = self.parse_get_model(line) # get-model parsing
-            get_value = (get_model == False)
-            if get_value:
-                values = self.parse_get_value(line) # get-value parsing
-                for value in values:
-                    items.append(value)
-                    line = ""
-            else:
-                if var_name is not None and var_value is not None:
-                    items.append((var_name, var_value))
-                    line = ""
-            i += 1
-        time_end = time.time()
+
+        def visit(expr):
+            if not isinstance(expr, list) or not expr:
+                return
+            if expr[0] == "define-fun" and len(expr) == 5:
+                # (define-fun name () sort value)
+                value = _term_value(expr[4], expr[3])
+                if value is not None:
+                    items.append((expr[1], value))
+                return
+            if all(isinstance(e, list) and len(e) == 2 and isinstance(e[0], str) and _numeral(e[0]) is None for e in expr):
+                # get-value response: ((name value) ...)
+                for name, term in expr:
+                    value = _term_value(term)
+                    if value is not None:
+                        items.append((name, value))
+                return
+            for e in expr:
+                visit(e)
+
+        for expr in _read_sexprs(model):
+            visit(expr)
         return items
-    
-    def parse_get_value(self, line : str) -> list[tuple[str, any]]:
-        number = r"-?\d+(?:\.\d+)?"
-        minus_int = r"\(\s*-\s*\d+\s*\)"
-        rational_number = rf"\(\s*/\s*(?:{number}|{minus_int})\s+(?:{number}|{minus_int})\s*\)"
-        dreal_interval = rf"\(\s*interval\s*\(\s*(?:closed|open)\s*(?:{number}|{minus_int}|{rational_number})\s*\)\(\s*(?:closed|open)\s*(?:{number}|{minus_int}|{rational_number})\s*\)\)"
-
-        pattern = re.compile(rf"""
-        \(+\s*(\w+)\s*   # variable name
-        (
-            {number}                  # decimal/integer
-            | true
-            | false
-            | \(/\s*(?:{number})\s+(?:{number})\s*\)   # rational
-            | \[\s*(?:{number})\s*,\s*(?:{number})\s*\] # interval
-            | {minus_int}            # negative integer
-            | {dreal_interval}       # dreal-style interval
-        )
-        \)+\s*
-        """, re.IGNORECASE | re.VERBOSE | re.DOTALL)
-        matches = pattern.findall(line)
-        values = []
-        for match in matches:
-            var_name = match[0]
-            var_value = match[1]
-            if var_value.lower() == "true":
-                var_value = True
-            elif var_value.lower() == "false":
-                var_value = False
-            elif '/' in var_value:
-                num = var_value.split('/')[1].strip().split(' ')[0].strip().split(')')[0]
-                den = var_value.split('/')[1].strip().split(' ')[1].strip().split(')')[0]
-                var_value = float(num) / float(den)
-            values.append((var_name, var_value))
-        return values
-
-    def parse_get_model(self, line : str) -> tuple[bool, tuple[any, any]]:
-        # decimal, true, false, rational, interval
-        number = r"-?\d+(?:\.\d+)?"
-        minus_int = r"\(\s*-\s*\d+\s*\)"
-        pattern = re.compile(rf"""
-            \(+\s*
-            define-fun\s+
-            (\w+)\s*\(\s*\)\s*(\w+)\s*
-            (
-                {number}
-                | true
-                | false
-                | \(/\s*{number}\s+{number}\s*\)
-                | \[\s*{number},\s*{number}\s*\]
-                | {minus_int}
-            )
-            \s*\)+\s*
-        """, re.IGNORECASE | re.VERBOSE)
-        match = pattern.search(line)
-        if match:
-            var_name = match.group(1)
-            var_type = match.group(2)
-            var_value = match.group(3)
-            if var_type.lower() == "bool":
-                var_value = var_value.lower() == "true"
-            elif var_type.lower() == "int":
-                if '(' in var_value:
-                    var_value = var_value.split('-')[1].split(')')[0].strip()
-                    var_value = -int(var_value)
-                else:
-                    var_value = int(var_value)
-            elif var_type.lower() == "real":
-                if '[' in var_value:
-                    # parsing interval (dreal)
-                    min_val = var_value.split('[')[1].strip().split(',')[0].strip().split(')')[0]
-                    var_value = float(min_val)
-                elif '/' in var_value:
-                    # parsing rational number
-                    num = var_value.split('/')[1].strip().split(' ')[0].strip().split(')')[0]
-                    den = var_value.split('/')[1].strip().split(' ')[1].strip().split(')')[0]
-                    if float(den) == 0:
-                        var_value = float(num)
-                    else:
-                        var_value = float(num) / float(den)
-                var_value = float(var_value)
-            return True, (var_name, var_value)
-        else:
-            return False, (None, None)
-        
 
     def filter_items(self, model : any) -> tuple[Circuit, list[Vector]]:
         # get only the (gate, true) tuples, get the cost of the circuits
@@ -257,7 +171,7 @@ class ModelParser:
                 items = self.expand_milp_model(model)
             except Exception as e:
                 print(f"Error expanding MILP model: {e}")
-                return False
+                return False, None, None
         elif isinstance(model, str): # pasrsing smt model
             items = self.parse_model_to_items(model)
 
@@ -286,3 +200,69 @@ class ModelParser:
                 return False
         else:
             return True
+
+
+def _read_sexprs(text : str) -> list:
+    # nested lists of atoms; a dReal interval [lo, hi] becomes ["[", lo, hi]
+    tokens = re.findall(r'"(?:[^"]|"")*"|[()\[\],]|[^\s()\[\],"]+', text)
+    stack = [[]]
+    for token in tokens:
+        if token in ("(", "["):
+            expr = [] if token == "(" else ["["]
+            stack[-1].append(expr)
+            stack.append(expr)
+        elif token in (")", "]"):
+            if len(stack) > 1:
+                stack.pop()
+        elif token != ",":
+            stack[-1].append(token)
+    return stack[0]
+
+
+def _numeral(term) -> Fraction | None:
+    # exact value of a numeric SMT-LIB term, e.g. 2, 2.0, (- 3), (/ (- 1) 2), (- (/ 1.0 2.0));
+    # None if the term is not numeric
+    if isinstance(term, str):
+        try:
+            return Fraction(term)
+        except ValueError:
+            return None
+    if not term:
+        return None
+    head = term[0]
+    if head == "[":
+        # dReal interval [lo, hi]: take the lower bound
+        return _numeral(term[1]) if len(term) > 1 else None
+    if head == "interval":
+        # dReal interval (interval (closed lo) (open hi)): take the lower bound
+        return _numeral(term[1][1]) if len(term) > 1 and isinstance(term[1], list) and len(term[1]) == 2 else None
+    args = [_numeral(arg) for arg in term[1:]]
+    if not args or any(arg is None for arg in args):
+        return None
+    if head == "-":
+        return -args[0] if len(args) == 1 else args[0] - sum(args[1:])
+    if head == "+":
+        return sum(args)
+    if head == "*":
+        product = Fraction(1)
+        for arg in args:
+            product *= arg
+        return product
+    if head == "/" and len(args) == 2:
+        # division by zero is unspecified in SMT-LIB; keep the numerator
+        return args[0] / args[1] if args[1] != 0 else args[0]
+    return None
+
+
+def _term_value(term, sort : str | None = None):
+    # Python value of a model term: bool, int (Int sort or integral literal) or float
+    if term in ("true", "false"):
+        return term == "true"
+    value = _numeral(term)
+    if value is None:
+        return None
+    if sort == "Real":
+        return float(value)
+    if value.denominator == 1 and (sort == "Int" or "." not in str(term)):
+        return int(value)
+    return float(value)

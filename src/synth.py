@@ -56,6 +56,7 @@ class Synthesizer:
         self.qubits_to_measure = None
         self.post_measurement = False
         self.approx = False
+        self.max_depth = None
         self.basis = "cb"
         self.ref_dot = None
         self.stats = {}
@@ -817,7 +818,7 @@ class Synthesizer:
     
     def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="gurobi", solver=None, mode="incremental", output_qasm="circuit.qasm", 
                 complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1, 
-                up_to_global_phase=False, basis="cb", approx=False, no_measurement=False) -> tuple[bool, Circuit, list[Vector]]:
+                up_to_global_phase=False, basis="cb", approx=False, no_measurement=False, max_depth=None) -> tuple[bool, Circuit, list[Vector]]:
         """
             qasm_file -> file to synthesize
             vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas, custom -> has to specify vector_pairs, q, d, gate_set)
@@ -837,6 +838,7 @@ class Synthesizer:
             basis -> basis to use for the synthesis ["pauli", "cb"] - pauli basis (density matrices) or computational basis (vectors)
             approx -> if True, the synthesis will be done approximately (if the mode supports it)
             no_measurement -> if True, the output qubits will not be measured (ignores end-of-circuit measurement in the input circuit)
+            max_depth -> incremental modes only: give up (return False) when no circuit with at most max_depth gates exists; None = no limit
         """
         start_time = time.time()
         if vectors is None:
@@ -871,6 +873,8 @@ class Synthesizer:
             self.gen.logic = "QF_NRA"
         if fidelity_threshold > 1.0 or fidelity_threshold < 0.0:
             raise ValueError("fidelity_threshold must be in [0.0, 1.0]")
+        if max_depth is not None and max_depth < 1:
+            raise ValueError("max_depth must be at least 1")
 
         self.vec_mode = vectors
         self.q = q
@@ -883,6 +887,7 @@ class Synthesizer:
         self.basis = basis
         self.approx = approx
         self.fidelity_threshold = fidelity_threshold
+        self.max_depth = max_depth
 
         if vectors in ["zero", "all", "rus", "jamiolkowski"]:
             # set circuit statistics to prepare synthesis
@@ -1116,7 +1121,11 @@ class Synthesizer:
             if self.encoding_method == "pareto-incremental":
                 self.pareto_front = Pareto(max_x=self.d, max_y=1.0)
             self.curr_depth = 1
+            circuit, vectors = None, None
             while not res:
+                if self.max_depth is not None and self.curr_depth > self.max_depth:
+                    self.logger.log("INFO", f"No circuit with at most {self.max_depth} gates exists")
+                    break
                 self.logger.log("INFO", f"Trying depth: {self.curr_depth}")
                 self.logger.log("INFO", f"Encoding new layer")
                 self.gen.d = self.curr_depth
@@ -1128,17 +1137,18 @@ class Synthesizer:
                     self.layer_bigM = self.layer_bigM
                 else:
                     self.layer_bigM = self.layer_bigM * 2
+                if self.curr_depth > self.d:
+                    # beyond the preallocated depth: one new weight for the layer, one new state per pair
+                    weight_bound = weight_bound + max_weight
+                    weights.append(self.gen.declare_integer(f"W{self.curr_depth}", lb=0, ub=weight_bound))
                 for pair_idx in range(len(vector_pairs)):
-                    if self.curr_depth > self.d: # new vector needs to be added
-                        state = None
+                    if self.curr_depth > self.d:
                         if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
-                            state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = input_state.n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
+                            state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = vector_pairs[pair_idx][0].n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
                         else:
                             state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
-                        weight_bound = weight_bound + max_weight
-                        weights.append(self.gen.declare_integer(f"W{self.curr_depth}", lb=0, ub=weight_bound))
                         inter_states[pair_idx].append(state)
-     
+
                     # encode the layer
                     self.encode_layer(inter_states[pair_idx][self.curr_depth-1], inter_states[pair_idx][self.curr_depth], self.curr_depth-1, weights[self.curr_depth-1], weights[self.curr_depth], selection_variables, bool_variables)
                 

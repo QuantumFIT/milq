@@ -71,7 +71,7 @@ $ python3 cli/cli.py -s gurobi -c Classic -v zero benchmarks/ghz/2.qasm
 
 | `-m` | What it does |
 |---|---|
-| `incremental` (default) | Tries 1, 2, 3, … layers until a circuit is found, so the result has the minimum number of gates. |
+| `incremental` (default) | Tries 1, 2, 3, … layers until a circuit is found, so the result has the minimum number of gates. With `--max-depth N` it gives up once no circuit with at most *N* gates exists. |
 | `basic` | Encodes a fixed number of layers *d* (the input's gate count, or `-d`) and solves once. Gurobi minimizes the gate count within *d* layers. SMT solvers return *some* circuit with at most *d* gates. |
 | `bottomup`, `topdown`, `binary` | Encode *d* layers like `basic`, then search over a bound on the gate count: upwards from 0, downwards from *d* + 1, or by bisection. |
 | `pareto-incremental` | Experimental; currently broken ([#6](https://github.com/QuantumFIT/milq/issues/6)). |
@@ -147,7 +147,6 @@ The circuit file uses `include "stdgates.inc";`. If it uses gates that are not i
 
 ## Known limitations
 
-- **Beyond the input's gate count:** incremental SMT synthesis crashes if it needs more layers than the input circuit has gates ([#5](https://github.com/QuantumFIT/milq/issues/5)). This only happens with `-d` or settings under which the input circuit itself is not a solution.
 - **Portfolio:** a portfolio can hang if every solver answers *unknown* ([#9](https://github.com/QuantumFIT/milq/issues/9)).
 - **Input gates:** `swap`, `iswap`, `cy`, `cs`, `csdg`, `csx`, `sqrtswap`, `cswap` and `ccz` can appear in synthesized circuits but are not yet accepted in input circuits ([#18](https://github.com/QuantumFIT/milq/issues/18)).
 

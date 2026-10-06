@@ -27,6 +27,7 @@ $ python3 cli/cli.py [options] <qasm_file>
 | `-T`, `--targets` | integer | `1` | Number of target qubits for `-v rus`. |
 | `-A`, `--ancillas` | integer | `1` | Number of ancilla qubits for `-v rus`. |
 | `-nm`, `--no_measurement` | flag | off | Ignore end-of-circuit measurements in the input. |
+| `--max-depth` | integer | no limit | Incremental modes: give up (`synthesis failed`) when no circuit with at most this many gates exists. |
 | `-o`, `--output_qasm` | path | `circuit.qasm` | Where to write the synthesized circuit. |
 | `-b`, `--basis` | `cb` | `cb` | Basis of the encoding; only the computational basis is available. |
 
@@ -73,7 +74,7 @@ print(circuit)                          # the circuit as OpenQASM 3.0
 print(synthesizer.logger.get_times())   # time per phase, in seconds
 ```
 
-The keyword arguments mirror the command-line options (`vectors` ↔ `-v`, `solving` ↔ `-s`, `solver` ↔ `-a`, `mode` ↔ `-m`, `complex_representation` ↔ `-c`, `d` ↔ `-d`, `up_to_global_phase` ↔ `-u`, `approx` ↔ `-ap`, `fidelity_threshold` ↔ `-f`, `targets` ↔ `-T`, `ancillas` ↔ `-A`, `no_measurement` ↔ `-nm`). Two more are available only from Python:
+The keyword arguments mirror the command-line options (`vectors` ↔ `-v`, `solving` ↔ `-s`, `solver` ↔ `-a`, `mode` ↔ `-m`, `complex_representation` ↔ `-c`, `d` ↔ `-d`, `up_to_global_phase` ↔ `-u`, `approx` ↔ `-ap`, `fidelity_threshold` ↔ `-f`, `targets` ↔ `-T`, `ancillas` ↔ `-A`, `no_measurement` ↔ `-nm`, `max_depth` ↔ `--max-depth`). Two more are available only from Python:
 
 - `gate_set=GateSet([...])` (from `gates`) restricts the gates the synthesized circuit may use.
 - `vectors="custom"` together with `vector_pairs`, `q`, `d` and `gate_set` gives the (input, output) state pairs directly instead of a QASM file.

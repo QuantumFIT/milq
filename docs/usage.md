@@ -147,7 +147,6 @@ The circuit file uses `include "stdgates.inc";`. If it uses gates that are not i
 
 ## Known limitations
 
-- **Portfolio:** a portfolio can hang if every solver answers *unknown* ([#9](https://github.com/QuantumFIT/milq/issues/9)).
 - **Input gates:** `swap`, `iswap`, `cy`, `cs`, `csdg`, `csx`, `sqrtswap`, `cswap` and `ccz` can appear in synthesized circuits but are not yet accepted in input circuits ([#18](https://github.com/QuantumFIT/milq/issues/18)).
 
 All open issues are listed on [GitHub](https://github.com/QuantumFIT/milq/issues).

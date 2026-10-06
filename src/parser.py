@@ -215,8 +215,7 @@ class ModelParser:
                     # parse part of a vector -- check which vector by pair_idx, then index in the vector and which coefficient it is
                     pair_idx = int(parts[1])
                     if parts[3] == "k": 
-                        out_vectors[pair_idx].k = int(value_obj)
-                        setattr(out_vectors[pair_idx], "k", value_obj)
+                        out_vectors[pair_idx].k = round(value_obj) if isinstance(value_obj, float) else value_obj
                     else:
                         coeff = parts[4].strip()
                         indice = int(parts[3])
@@ -236,9 +235,9 @@ class ModelParser:
                 if isinstance(value_obj, int):
                     costs[indice] = value_obj
                 elif isinstance(value_obj, float):
-                    costs[indice] = int(value_obj)
+                    costs[indice] = round(value_obj)
                 elif isinstance(value_obj, str):
-                    costs[indice] = float(value_obj)
+                    costs[indice] = round(float(value_obj))
                 else:
                     costs[indice] = int(value_obj.constant_value())
         self.stats['cost'] = costs[best_indice]

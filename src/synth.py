@@ -1351,10 +1351,20 @@ class Synthesizer:
             parsing_start = time.time()
             self.logger.log("INFO", f"Parsing model")
             model = self.gen.get_model()
-            res = self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=write_to_file, draw_circuit=draw_circuit, v=self.v)
+            res = self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=False, draw_circuit=False, v=self.v)
             parsing_end = time.time()
             self.logger.update_time("parsing", parsing_end - parsing_start)
             self.logger.log("INFO", f"Parsing finished")
+            if isinstance(res, tuple) and res[0]:
+                circuit = res[1]
+                # every layer selects exactly one gate (possibly id), so an empty layer means the model is incomplete
+                empty_layers = [d for d, gate in enumerate(circuit.gates) if gate is None]
+                if empty_layers:
+                    raise RuntimeError(f"the solver model selects no gate in layer(s) {empty_layers}; it is incomplete or was not parsed correctly")
+                if write_to_file:
+                    circuit.write_to_file(output_qasm)
+                if draw_circuit:
+                    circuit.draw(output_file=os.path.splitext(output_qasm)[0] + ".png")
             return res
         else:
             return False, None, None

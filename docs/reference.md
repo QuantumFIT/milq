@@ -76,6 +76,6 @@ print(synthesizer.logger.get_times())   # time per phase, in seconds
 The keyword arguments mirror the command-line options (`vectors` ↔ `-v`, `solving` ↔ `-s`, `solver` ↔ `-a`, `mode` ↔ `-m`, `complex_representation` ↔ `-c`, `d` ↔ `-d`, `up_to_global_phase` ↔ `-u`, `approx` ↔ `-ap`, `fidelity_threshold` ↔ `-f`, `targets` ↔ `-T`, `ancillas` ↔ `-A`, `no_measurement` ↔ `-nm`). Two more are available only from Python:
 
 - `gate_set=GateSet([...])` (from `gates`) restricts the gates the synthesized circuit may use.
-- `vectors="custom"` together with `vector_pairs`, `q`, `d` and `gate_set` gives the (input, output) state pairs directly instead of a QASM file. Fixed-depth modes do not work with it yet ([#27](https://github.com/QuantumFIT/milq/issues/27)).
+- `vectors="custom"` together with `vector_pairs`, `q`, `d` and `gate_set` gives the (input, output) state pairs directly instead of a QASM file.
 
 Create a new `Synthesizer` for every run.

@@ -84,7 +84,7 @@ def process_gone(pid, seconds=3):
             with open(f"/proc/{pid}/stat") as f:
                 if f.read().rsplit(")", 1)[1].split()[0] == "Z":
                     return True
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):  # gone, possibly while reading
             return True
         if time.monotonic() >= deadline:
             return False

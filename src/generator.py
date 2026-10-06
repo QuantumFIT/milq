@@ -988,7 +988,10 @@ class Generator:
         if self.mode == "milp" or self.mode == "gurobi":
             # cant just make it depth >= ... because of numerical imprecisions
             self.add_assertion(depth - 0.5 >= self.Sum([self.symbols[bool_var] for bool_var in model]))
-        elif self.mode == "smtlib" or self.mode == "pysmt":
+        elif self.mode == "smtlib":
+            # SMT-LIB terms are the variable names themselves (symbols is not filled in incremental mode)
+            self.add_assertion(self.Not(self.And(*model)))
+        elif self.mode == "pysmt":
             self.add_assertion(self.Not(self.And(*[self.symbols[bool_var] for bool_var in model])))
             
     def write_incremental(self, statement : str):

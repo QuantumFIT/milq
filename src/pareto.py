@@ -5,7 +5,7 @@
 @brief: Pareto front class to store circuits in a pareto front with a cost metric
 """
 
-from multiprocessing import Process, Queue
+import multiprocessing
 import time
 import os
 from gates import Circuit
@@ -42,8 +42,10 @@ class Pareto:
             self.tmout_met = True
             return False, None, None
 
-        q = Queue()
-        proc = Process(target=_pareto_run_queue, args=(q, func))
+        # fork explicitly: func is a closure, which other start methods cannot pickle
+        context = multiprocessing.get_context("fork")
+        q = context.Queue()
+        proc = context.Process(target=_pareto_run_queue, args=(q, func))
         proc.start()
         proc.join(timeout=remaining)
         if proc.is_alive():
@@ -94,6 +96,14 @@ class Pareto:
         plt.close()
         
         
+    def best(self) -> tuple[bool, Circuit, list]:
+        # the cheapest circuit of the front (most likely to succeed among equally cheap ones)
+        frontier = self.get_frontier()
+        if not frontier:
+            return False, None, []
+        frontier.sort(key=lambda p: (p[0], -p[1]))
+        return True, frontier[0][3], []
+
     def get_models_count(self):
         return self.models
     
@@ -104,8 +114,9 @@ class Pareto:
         self.models += 1
         self.front.append((cost_x, cost_y, depth, circuit, recovery_circuit))
         os.makedirs(f"pareto_front", exist_ok=True)
-        output_qasm = f"pareto_front/pareto_{depth}_{cost_x}_{cost_y:.3f}.qasm"
-        recovery_output_qasm = f"pareto_front/pareto_{depth}_{cost_x}_{cost_y:.3f}_recovery.qasm"
+        # the model number keeps circuits with the same depth and costs apart
+        output_qasm = f"pareto_front/pareto_{depth}_{cost_x}_{cost_y:.3f}_{self.models}.qasm"
+        recovery_output_qasm = f"pareto_front/pareto_{depth}_{cost_x}_{cost_y:.3f}_{self.models}_recovery.qasm"
         circuit.write_to_file(output_qasm)
         if recovery_circuit is not None:
             recovery_circuit.write_to_file(recovery_output_qasm)

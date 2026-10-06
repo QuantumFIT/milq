@@ -48,6 +48,7 @@ class Synthesizer:
         self.v = 0
         self.vec_mode = None
         self.pareto_front = None
+        self.pareto_timeout = 10*60*60
         self.up_to_global_phase = False
         self.targets = 1
         self.ancillas = 0
@@ -804,9 +805,9 @@ class Synthesizer:
         except Exception as e:
             return np.inf, 0.0
         
-    def circuit_cost(self, circuit) -> tuple[int, int]:
-        # x is circuit depth, y is the cost
-        return circuit.gate_count(), circuit.get_cost()
+    def circuit_cost(self, circuit) -> tuple[int, float]:
+        # x is the cost of the circuit, y the probability of success (a deterministic circuit always succeeds)
+        return circuit.get_cost(), 1.0
 
     def set_initial_values(self):
         for i, (gate, qubits) in enumerate(self.simulator.stats['input_circuit']):
@@ -818,7 +819,7 @@ class Synthesizer:
     
     def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="gurobi", solver=None, mode="incremental", output_qasm="circuit.qasm", 
                 complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1, 
-                up_to_global_phase=False, basis="cb", approx=False, no_measurement=False, max_depth=None) -> tuple[bool, Circuit, list[Vector]]:
+                up_to_global_phase=False, basis="cb", approx=False, no_measurement=False, max_depth=None, pareto_timeout=10*60*60) -> tuple[bool, Circuit, list[Vector]]:
         """
             qasm_file -> file to synthesize
             vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas, custom -> has to specify vector_pairs, q, d, gate_set)
@@ -839,6 +840,7 @@ class Synthesizer:
             approx -> if True, the synthesis will be done approximately (if the mode supports it)
             no_measurement -> if True, the output qubits will not be measured (ignores end-of-circuit measurement in the input circuit)
             max_depth -> incremental modes only: give up (return False) when no circuit with at most max_depth gates exists; None = no limit
+            pareto_timeout -> overall time limit in seconds for mode=pareto-incremental
         """
         start_time = time.time()
         if vectors is None:
@@ -888,6 +890,7 @@ class Synthesizer:
         self.approx = approx
         self.fidelity_threshold = fidelity_threshold
         self.max_depth = max_depth
+        self.pareto_timeout = pareto_timeout
 
         if vectors in ["zero", "all", "rus", "jamiolkowski"]:
             # set circuit statistics to prepare synthesis
@@ -1119,7 +1122,7 @@ class Synthesizer:
             self.logger.update_time("encoding", encoding_end - encoding_start)
             encoding_start = time.time()
             if self.encoding_method == "pareto-incremental":
-                self.pareto_front = Pareto(max_x=self.d, max_y=1.0)
+                self.pareto_front = Pareto(timeout=self.pareto_timeout, max_x=self.d, max_y=1.0)
             self.curr_depth = 1
             circuit, vectors = None, None
             while not res:
@@ -1167,14 +1170,13 @@ class Synthesizer:
                     self.logger.log("INFO", f"Encoding equivalence for depth {self.curr_depth}")
                     self.encode_equivalence(inter_states, target_states, self.curr_depth)
                     self.logger.log("INFO", f"Encoded equivalence for depth {self.curr_depth}")
-                    self.logger.log("INFO", f"Writing formula for depth {self.curr_depth}")
-                    formula_file = self.gen.write_formula(output_qasm)
-                    self.logger.log("INFO", f"Formula written for depth {self.curr_depth}")
 
                     # enumerate models for this depth
                     sat = True
                     self.logger.log("INFO", f"Enumerating models for depth {self.curr_depth}")
                     while sat:
+                        # rewritten for every model, the previous ones are filtered out by then
+                        formula_file = self.gen.write_formula(output_qasm)
                         result, circuit, vectors = self.pareto_front.start(
                             lambda: self.solve_and_extract_circuit(
                                 formula_file=formula_file,
@@ -1184,25 +1186,22 @@ class Synthesizer:
                             )
                         )
                         if self.pareto_front.timeout_met():
-                            self.pareto_front.cleanup()
-                            return True, None, None
+                            break
                         if not result:
                             sat = False # last model found
                         else:
                             # compute the cost, if RUS, also synthesize the recovery operation
                             cost_x, cost_y = 0.0, 0.0
+                            recovery_circuit = None
                             if self.vector_mode == "rus":
-                                # synthesize recovery operation
-                                measured_states = []
-                                for state in states:
-                                    measured_states.append(state.measure(self.qubits_to_measure, 1)) # measure ancilla to 1, indicating failure
-                                    
+                                # synthesize the recovery operation: it maps the state after a failed
+                                # attempt (ancilla measured to 1) back to the input state
                                 states_recovery = []
-                                for pair_idx in range(len(vector_pairs)):
-                                    # create input state from the post-measurement state
-                                    states_recovery.append((measured_states[pair_idx].to_precision(1e-8), inter_states[pair_idx][0].to_precision(1e-8)))
+                                for pair_idx, state in enumerate(vectors):
+                                    measured_state = state.measure(self.qubits_to_measure, 1)
+                                    input_state = vector_pairs[pair_idx][0]
+                                    states_recovery.append((measured_state.to_precision(1e-8), input_state.to_precision(1e-8)))
                                 try:
-                                    print(states_recovery)
                                     synthesizer = Synthesizer()
                                     gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
                                     gate_set.set_t_optimal()
@@ -1224,8 +1223,7 @@ class Synthesizer:
                                         )
                                     )
                                     if self.pareto_front.timeout_met():
-                                        self.pareto_front.cleanup()
-                                        return True, None, None
+                                        break
                                     if not res_recovery:
                                         recovery_circuit = Circuit(gates=[], q=self.q, d=self.d)
                                         recovery_circuit.cost = np.inf
@@ -1241,6 +1239,12 @@ class Synthesizer:
                             self.gen.filter_model(circuit.bool_variables, self.curr_depth)
                     self.gen.pop()
                     self.curr_depth += 1
+                    if self.pareto_front.timeout_met():
+                        break
+                    # outside RUS, every circuit with at most d gates is a model at depth d (empty
+                    # layers are id), so deeper layers only repeat them
+                    if self.vector_mode != "rus" and self.curr_depth > self.d:
+                        break
                             
                 else:
                     self.logger.log("INFO", f"Encoding equivalence for depth {self.curr_depth}")
@@ -1264,6 +1268,7 @@ class Synthesizer:
                         self.curr_depth += 1
             if self.encoding_method == "pareto-incremental":
                 self.pareto_front.cleanup()
+                res, circuit, vectors = self.pareto_front.best()
         else:
             raise ValueError(f"Invalid encoding method: {self.encoding_method}")
 

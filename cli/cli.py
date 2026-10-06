@@ -29,6 +29,7 @@ parser.add_argument('-u', '--up_to_global_phase', action='store_true', help='up 
 parser.add_argument('-b', '--basis', type=str, help='basis to use', required=False, choices=["cb"], default="cb")
 parser.add_argument('-d', '--depth', type=int, help='number of allowed gates', required=False, default=None)
 parser.add_argument('-nm', '--no_measurement', action='store_true', help='do not measure the output qubits', default=False)
+parser.add_argument('-pt', '--pareto_timeout', type=float, help='time limit in seconds for the pareto-incremental mode', required=False, default=10*60*60)
 args = parser.parse_args()
 synthesizer = Synthesizer()
 res, circuit, _ = synthesizer.synthesis(qasm_file=args.qasm_file, 
@@ -44,7 +45,8 @@ res, circuit, _ = synthesizer.synthesis(qasm_file=args.qasm_file,
                                   basis=args.basis,
                                   d=args.depth,
                                   approx=args.approx,
-                                  no_measurement=args.no_measurement)
+                                  no_measurement=args.no_measurement,
+                                  pareto_timeout=args.pareto_timeout)
 if res:
     print("synthesis successful")
 else:

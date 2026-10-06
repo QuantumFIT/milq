@@ -861,7 +861,7 @@ class Synthesizer:
         if complex_representation == "FiveTuple":
             self.complex_representation = FiveTuple
         elif complex_representation == "nTuple":
-            self.complex_representation = nTuple
+            raise NotImplementedError("nTuple representation is not implemented, use FiveTuple or Classic")
         elif complex_representation == "Classic":
             self.gen.logic = "QF_NRA"
             self.complex_representation = Complex

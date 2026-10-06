@@ -1,4 +1,5 @@
 title: MILQ
 description: Gate-count optimal quantum circuit synthesis using SMT and MILP
-theme: jekyll-theme-cayman
+theme: jekyll-theme-minimal
+logo: /milq-logo.png
 show_downloads: false

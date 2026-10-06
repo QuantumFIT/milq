@@ -4,6 +4,8 @@ title: Command-line reference
 
 [Home](./) · [Installation](installation) · [Usage](usage) · [Reference](reference)
 
+# Command-line reference
+
 ## `cli/cli.py`: synthesis
 
 ```console

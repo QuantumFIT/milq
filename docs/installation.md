@@ -4,6 +4,8 @@ title: Installation
 
 [Home](./) · [Installation](installation) · [Usage](usage) · [Reference](reference)
 
+# Installation
+
 ## Requirements
 
 - **Linux on x86-64.** The bundled solver binaries are Linux x86-64 executables.

@@ -4,6 +4,8 @@ title: Usage
 
 [Home](./) · [Installation](installation) · [Usage](usage) · [Reference](reference)
 
+# Usage
+
 Synthesis is run with `cli/cli.py`. It can be started from any directory: paths are relative to the current directory, which is also where the output files go.
 
 ```console

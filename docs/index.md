@@ -3,10 +3,6 @@
 
 [Home](./) · [Installation](installation) · [Usage](usage) · [Reference](reference)
 
-<p align="center">
-  <img src="{{ '/milq-logo.png' | relative_url }}" alt="MILQ logo" width="300">
-</p>
-
 **MILQ** (**M**ixed **I**nteger linear programming & first order **L**ogic **Q**uantum circuit synthesis) takes a quantum circuit in OpenQASM and finds an equivalent circuit with the **minimum number of gates**. It encodes the synthesis problem as an SMT formula or a mixed integer linear program (MILP) and lets a solver find the circuit.
 
 ## How it works

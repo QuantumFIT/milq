@@ -191,8 +191,8 @@ class Matrix:
         # expand the matrix to a certain number of qubits using tensor products
         # used for gate application on a target qubit in system with qubits number of qubits
         full_mat = None
-        if target > qubits:
-            raise ValueError("target is greater than qubits")
+        if target >= qubits:
+            raise ValueError("target must be less than qubits")
         if qubits > 1:
             identity = Matrix.i(matrix.element_representation, q=0, qubits=1)
             i = qubits

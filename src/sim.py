@@ -64,17 +64,17 @@ class Simulator:
             qasm_content = f.read()
         # drop comments, definitions of non-standard gates (they are simulated natively);
         # a definition can span lines and be followed by more statements on the line of its '}'
-        qasm_content = re.sub(r'//[^\n]*', '', qasm_content)
+        qasm_content = re.sub(r'//[^\n]*|/\*.*?\*/', '', qasm_content, flags=re.S)
         qasm_content = re.sub(r'\bgate\s[^{]*\{[^}]*\}', '', qasm_content)
 
-        lines = qasm_content.split('\n')
         gates = []
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith('//') or line.startswith('OPENQASM') or line.startswith('include'):
+        # one statement per ';', whitespace (tabs, newlines) collapsed to single spaces
+        for line in qasm_content.split(';'):
+            line = ' '.join(line.split())
+            if not line or line.startswith('OPENQASM') or line.startswith('include'):
                 continue
             # find quantum register to initialize vectors
-            if line.startswith('qreg'):
+            if re.match(r'qreg\b', line):
                 # qreg name[n]
                 parts = line.split('[')
                 if len(parts) > 1:
@@ -85,7 +85,7 @@ class Simulator:
                         vec[i] = self.complex_representation.one(None)
                         vectors.append(vec)
                 continue
-            if line.startswith('qubit'):
+            if re.match(r'qubit\b', line):
                 # qubit[n] name
                 parts = line.split('[')
                 if len(parts) > 1:
@@ -99,7 +99,8 @@ class Simulator:
                         vectors.append(vec)
                 continue
             
-            if line.startswith('creg') or line.startswith('bit'):
+            # classical declarations; `bit c = measure q[0]` is a measurement and is parsed below
+            if re.match(r'(creg|bit)\b', line) and 'measure' not in line:
                 continue
 
             # every complete definition was removed above, so this one has no closing brace
@@ -107,12 +108,18 @@ class Simulator:
                 raise Exception("gate definition not closed, not a valid qasm file")
 
             qreg_name = self.stats['qreg']
+            # whole-register measurement (measure q -> c, c = measure q) -> measure every qubit
+            if re.fullmatch(rf'(?:[^=]*=\s*)?measure {re.escape(qreg_name)}(?: ?->.*)?', line):
+                for i in range(self.stats['q']):
+                    gates.append(('measure', [i]))
+                    self.stats['input_circuit'].append(('measure', [i]))
+                continue
             # find gates using the register name
             qreg_pattern = re.compile(rf'{re.escape(f"{qreg_name}")}\s*\[')
             if qreg_pattern.search(line):
                 gate_line = line.rstrip(';').strip()
-                # OpenQASM 3 measurement (c[i] = measure q[i]) -> measure q[i]
-                assignment = re.match(r'^\S+\s*=\s*(measure\s+.*)$', gate_line)
+                # OpenQASM 3 measurement (c[i] = measure q[i], bit c = measure q[i]) -> measure q[i]
+                assignment = re.match(r'^[^=]*=\s*(measure\s+.*)$', gate_line)
                 if assignment:
                     gate_line = assignment.group(1)
                 # parse the gate and its qubits as (gate, q1, q2, ...)

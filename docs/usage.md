@@ -95,10 +95,8 @@ $ python3 cli/cli.py -s smt -a yices2 -nm benchmarks/mqt-bench/ghz_nativegates_c
 With `-u`, the synthesized circuit may differ from the input by a global phase. For FiveTuple, the phase is a multiple of π/4.
 
 ```console
-$ python3 cli/cli.py -s smt -a yices2 -u -v zero benchmarks/ghz/2.qasm
+$ python3 cli/cli.py -s smt -a yices2 -u benchmarks/ghz/2.qasm
 ```
-
-**Warning:** In incremental SMT mode, `-u` currently works only with a single input state (`-v zero`). With `-v all` it crashes ([#7](https://github.com/QuantumFIT/milq/issues/7)). With Gurobi it works in both cases.
 
 ## Approximate synthesis
 

@@ -78,17 +78,33 @@ class Vector:
         new_vec.k = self.k
         return new_vec
 
-    def to_real(self):
+    def to_real(self, max_k=None):
+        # convert all elements to the a+bi representation
         if self.element_representation == Complex:
             return self
-        name = None
-        if self.name is not None:
-            name = f"Rescaled_{self.name}"
-        
-        # convert all elements to the a+bj representation
-        new_vec = Vector(q=len(self.vec), generator=self.gen, name=name, element_representation=Complex, k=self.k)
+        new_vec = Vector(q=len(self.vec), generator=self.gen, element_representation=Complex)
+        if self.gen is None:
+            for i in range(len(self.vec)):
+                new_vec[i] = self.vec[i].to_real(self.k)
+            return new_vec
+
+        # the elements share k, so sqrt(2)^k is built once, exactly: 2^(i//2), times sqrt2 for odd i
+        if max_k is None:
+            raise ValueError("max_k (an upper bound on k) must be provided with a generator")
+        gen = self.gen
+        sqrt2 = gen.declare_real("sqrt2")
+        gen.add_assertion(gen.Equals(gen.Times(sqrt2, sqrt2), gen.Real(2)))
+        gen.add_assertion(gen.GT(sqrt2, gen.Real(0)))
+        sqrt2_k = gen.declare_real(f"sqrt2_k_{gen.stats['reals']}")
+        gen.add_assertion(gen.LE(self.k, gen.Int(max_k)))
+        for i in range(max_k + 1):
+            power = gen.Real(2 ** (i // 2))
+            if i % 2 == 1:
+                power = gen.Times(power, sqrt2)
+            gen.add_assertion(gen.Implies(gen.Equals(self.k, gen.Int(i)), gen.Equals(sqrt2_k, power)))
         for i in range(len(self.vec)):
-            new_vec[i] = self.vec[i].to_real(self.k)
+            # to_real() without k gives the numerator, a + (b-d)/sqrt2 + (c + (b+d)/sqrt2)i
+            new_vec[i] = self.vec[i].to_real().divide_by_real(sqrt2_k)
         return new_vec
     
     def conjugate(self, generator = None):
@@ -142,44 +158,22 @@ class Vector:
     
 
     def rescale_with(self, other):
-        k1 = self.k
-        k2 = other.k
-        diff = abs(k1 - k2)
-        parity = diff % 2
-        diff = diff // 2
-        exponent = 2**diff
-        if k1 > k2:
-            # rescale other
-            new_vec = other.copy()
-            for i in range(len(new_vec)):
-                if parity == 0:
-                    # rescale by identity
-                    new_vec[i] = other[i].multiply_by_real(exponent)
-
-                else:
-                    # rescale by M
-                    new_vec[i].a = (other[i].b + other[i].d) * exponent
-                    new_vec[i].b = (other[i].a + other[i].c) * exponent
-                    new_vec[i].c = (other[i].b - other[i].d) * exponent
-                    new_vec[i].d = (other[i].c - other[i].a) * exponent
-            return self, new_vec
-        elif k2 > k1:
-            # rescale self
-            new_vec = self.copy()
-            for i in range(len(new_vec)):
-                if parity == 0:
-                    # rescale by identity
-                    new_vec[i] = self[i].multiply_by_real(exponent)
-                else:
-                    # rescale by M
-                    new_vec[i].a = (self[i].b + self[i].d) * exponent
-                    new_vec[i].b = (self[i].a + self[i].c) * exponent
-                    new_vec[i].c = (self[i].b - self[i].d) * exponent
-                    new_vec[i].d = (self[i].c - self[i].a) * exponent
-            return new_vec, other
-        else:
-            # same k, no rescaling
+        # bring the vector with the smaller k to the larger k: multiply its elements by sqrt(2)^diff
+        if self.gen is not None or other.gen is not None:
+            # with a generator, k is a symbolic expression and diff is unknown at encoding time
+            raise NotImplementedError("rescale_with is not supported with a generator")
+        if self.k == other.k:
             return self, other
+        low, high = (self, other) if self.k < other.k else (other, self)
+        diff = high.k - low.k
+        new_vec = low.copy()
+        for i in range(len(new_vec)):
+            new_vec[i] = low[i].multiply_by_real(2 ** (diff // 2))
+            if diff % 2 == 1:
+                # multiply by sqrt2 = omega - omega^3
+                new_vec[i] = new_vec[i].increase_k(low.gen)
+        new_vec.k = high.k
+        return (new_vec, other) if low is self else (self, new_vec)
     
     def norm(self) -> float:
         # compute the L2 norm of the vector

@@ -70,6 +70,11 @@ class Matrix:
         self.generator = generator
         
     
+    @property
+    def qubits(self) -> int:
+        # the matrix is 2**qubits x 2**qubits
+        return self.size.bit_length() - 1
+
     def __mul__(self, other):
         if isinstance(other, Vector):
             if other.element_representation == Complex:
@@ -181,7 +186,6 @@ class Matrix:
         m.gen = self.gen
         m.k = self.k
         m.element_representation = self.element_representation
-        m.qubits = getattr(self, "qubits", None)
         m.name = getattr(self, "name", None)
         m.generator = getattr(self, "generator", None)
         return m

@@ -11,7 +11,9 @@ answer is chosen by MODE:
   error                             (error "boom"), exit code 1
   crash                             no answer, message on stderr, exit code 3
   hang                              never answers
-A "success+" prefix makes the solver print "success" after every command (like SMTInterpol).
+  exit                              exits at once with code 2, without reading any input
+A "success+" prefix makes the solver print "success" after every command (like SMTInterpol);
+in file mode it prints a "success" line and a blank line before the answer.
 DELAY is the number of seconds to wait before answering.
 """
 
@@ -44,7 +46,13 @@ def answer():
     return 0
 
 
+if mode == "exit":
+    sys.stderr.write("fake solver exited\n")
+    sys.exit(2)
+
 if len(sys.argv) > 3:  # file mode
+    if echo_success:
+        print("success\n", flush=True)
     status = answer()
     if mode in ("sat", "delta-sat"):
         print("(\n  (define-fun x () Int 1)\n)", flush=True)

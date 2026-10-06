@@ -24,7 +24,8 @@ def formula(tmp_path):
 
 # file mode (used by the portfolio and by non-incremental single-solver runs)
 
-@pytest.mark.parametrize("mode, expected", [("unsat", "unsat"), ("unknown", "unknown"), ("unsat-then-error", "unsat")])
+@pytest.mark.parametrize("mode, expected", [("unsat", "unsat"), ("unknown", "unknown"), ("unsat-then-error", "unsat"),
+                                            ("success+unsat", "unsat")])
 def test_file_mode_answers(formula, mode, expected):
     assert fake(mode).solve(formula) == expected
 
@@ -38,6 +39,15 @@ def test_file_mode_sat_returns_model(formula, mode):
 def test_file_mode_failure_raises(formula, mode, message):
     with pytest.raises(SolverError, match=message):
         fake(mode).solve(formula)
+
+
+def test_file_mode_command_not_found(formula, tmp_path):
+    # a wrapper script whose program is missing (like SMTInterpol's script without java) exits with 127
+    wrapper = tmp_path / "wrapper.sh"
+    wrapper.write_text("#!/bin/sh\nmilq-nonexistent-program \"$@\"\n")
+    wrapper.chmod(0o755)
+    with pytest.raises(SolverError, match=r"exit code 127 \(command not found\)"):
+        SMTSolver("wrapper", [str(wrapper)], ["QF_LIA"]).solve(formula)
 
 
 def test_file_mode_missing_binary_raises(formula):
@@ -70,7 +80,20 @@ def test_incremental_failure_raises(mode, message):
         check_sat(fake(mode, incremental=True))
 
 
+def test_incremental_write_to_exited_solver_raises():
+    solver = fake("exit", incremental=True)
+    solver.create_process()
+    solver.process.wait()  # the solver is gone before it read anything
+    with pytest.raises(SolverError, match="exit code 2: fake solver exited"):
+        solver.write_incremental("(declare-fun x () Int)")
+
+
 # portfolio: a failing solver is skipped, the others decide
+
+def test_portfolio_unknown_lets_others_decide(formula):
+    portfolio = PortfolioSMTSolver({"unknown": fake("unknown"), "slow-sat": fake("sat", 0.5, name="slow-sat")})
+    assert "define-fun x" in portfolio.solve(formula)
+
 
 def test_portfolio_skips_failed_solvers(formula):
     portfolio = PortfolioSMTSolver({"error": fake("error"), "crash": fake("crash"),

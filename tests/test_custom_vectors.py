@@ -27,8 +27,15 @@ def sqrt_swap_pairs():
 
 @pytest.mark.parametrize("mode", ["basic", "incremental"])
 def test_custom_vectors_sqrt_swap(workdir, mode):
-    res, circuit, _ = Synthesizer().synthesis(vectors="custom", vector_pairs=sqrt_swap_pairs(), q=2, d=1,
-                                              gate_set=GateSet(["sqrtswap"]), solving="gurobi", solver="gurobi",
-                                              mode=mode, complex_representation="Classic", output_qasm="out.qasm")
+    pairs = sqrt_swap_pairs()
+    res, circuit, vectors = Synthesizer().synthesis(vectors="custom", vector_pairs=pairs, q=2, d=1,
+                                                    gate_set=GateSet(["sqrtswap"]), solving="gurobi", solver="gurobi",
+                                                    mode=mode, complex_representation="Classic", output_qasm="out.qasm")
     assert res
     assert [gate.name for gate in circuit.gates if gate is not None and gate.name != "id"] == ["sqrtswap"]
+    # one output vector per pair, equal to the target
+    assert len(vectors) == len(pairs)
+    for vector, (_, target) in zip(vectors, pairs):
+        for j in range(4):
+            assert vector[j].real == pytest.approx(target[j].real, abs=1e-6)
+            assert vector[j].imag == pytest.approx(target[j].imag, abs=1e-6)

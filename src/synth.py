@@ -917,6 +917,7 @@ class Synthesizer:
         else:
             self.q = q
             self.d = d
+            self.curr_depth = self.d
             self.max_k = 2*self.d
             self.gate_set = gate_set
             self.qubits_to_measure = []

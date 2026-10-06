@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import os
+import signal
 import sys
 import time
 
@@ -73,3 +74,36 @@ def test_waiting_does_not_spin(formula):
     assert solve_within(portfolio(("unsat", 1.0)), formula) == "unsat"
     # the solver runs for 1 s; a polling loop would burn about that much CPU in this process
     assert time.process_time() - cpu < 0.3
+
+
+def process_gone(pid, seconds=3):
+    # true once the process no longer runs (gone, or a zombie waiting to be reaped by init)
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                if f.read().rsplit(")", 1)[1].split()[0] == "Z":
+                    return True
+        except FileNotFoundError:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def test_processes_started_by_a_losing_solver_are_killed(formula, tmp_path):
+    # like the SMTInterpol script, the wrapper runs the actual solver (java there) as a child, not via exec
+    child_pid_file = tmp_path / "child.pid"
+    wrapper = tmp_path / "wrapper.sh"
+    wrapper.write_text(f'#!/bin/sh\n"{sys.executable}" "{FAKE}" hang 0 "$@" &\necho $! > "{child_pid_file}"\nwait\n')
+    wrapper.chmod(0o755)
+    solvers = portfolio(("sat", 0.5))
+    solvers.solvers["wrapper"] = SMTSolver("wrapper", [str(wrapper)], ["QF_LIA"])
+    child = None
+    try:
+        assert "define-fun x" in solve_within(solvers, formula)
+        child = int(child_pid_file.read_text())
+        assert process_gone(child), "the solver started by the losing wrapper is still running"
+    finally:
+        if child is not None and not process_gone(child, seconds=0):
+            os.kill(child, signal.SIGKILL)  # do not leave it running after a failure

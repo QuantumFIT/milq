@@ -8,6 +8,7 @@
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import queue
+import signal
 import subprocess
 import threading
 
@@ -36,6 +37,17 @@ def _describe_failure(name: str, stdout: str, stderr: str, returncode=None) -> s
     if returncode == 127:  # the shell could not find a program, e.g. java for SMTInterpol
         code += " (command not found)"
     return f"{name} failed{code}: {details}"
+
+
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    # the solver runs in its own process group (start_new_session), so this also stops the processes
+    # it started, e.g. the java process behind the SMTInterpol wrapper script; only a live leader is
+    # signalled, since the group ID of an exited leader may already belong to another process
+    if proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 class SMTSolver:
@@ -150,6 +162,7 @@ class PortfolioSMTSolver:
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
+                        start_new_session=True,  # own process group, see _kill_process_group
                     )
                 except OSError as e:  # e.g. the solver is not installed
                     failures.append(f"{name} could not be started: {e}")
@@ -174,7 +187,6 @@ class PortfolioSMTSolver:
         finally:
             # stop the solvers that are still running and reap all of them
             for proc in processes.values():
-                if proc.poll() is None:
-                    proc.kill()
+                _kill_process_group(proc)
             for proc in processes.values():
                 proc.wait()

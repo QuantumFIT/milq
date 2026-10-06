@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from gates import Circuit, Gate
+from gates import Circuit, Gate, supported_gates
 from synth import Synthesizer
 
 
@@ -48,3 +48,15 @@ def test_model_without_a_gate_in_a_layer_is_rejected(workdir, monkeypatch):
     with pytest.raises(RuntimeError, match=r"layer\(s\) \[1\]"):
         synthesizer.solve_and_extract_circuit(output_qasm="out.qasm")
     assert not os.path.exists("out.qasm")
+
+
+def test_draw_every_supported_gate(tmp_path):
+    # qiskit has no circuit method for some gates (xcx, sqrtswap)
+    circuit = Circuit(gates=[], q=3, d=0)
+    for qubits, names in enumerate(supported_gates, start=1):
+        for name in names:
+            circuit.append(Gate(name, list(range(qubits))))
+    circuit.d = len(circuit.gates)
+    output = tmp_path / "circuit.png"
+    circuit.draw(str(output))
+    assert output.stat().st_size > 0

@@ -379,7 +379,7 @@ class Simulator:
         # initialize the basis_states |0>, |1>, |+>
         vectors = []
         
-        # |0>^targets state and |1>^targets state
+        # every computational basis state of the targets (|0...0> to |1...1>), ancillas in |0>
         for i in range(2**targets):
             vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
             vector[i] = self.complex_representation.one(None)
@@ -387,7 +387,7 @@ class Simulator:
                 vector = Matrix.density_from_vector(vector)
             vectors.append(vector)
             
-        # |+>^targets
+        # |+>^targets, ancillas in |0>
         vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=targets)
         for i in range(2**targets):
             amplitude = self.complex_representation.one(None)

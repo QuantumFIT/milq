@@ -66,3 +66,13 @@ def test_rus_input_states(tmp_path, targets, ancillas, representation):
     assert len(states) == len(expected)
     for state, reference in zip(states, expected):
         np.testing.assert_allclose(state, reference, atol=1e-9)
+
+
+def test_fivetuple_mul_matches_complex():
+    """Concrete FiveTuple product (a + b*w + c*w^2 + d*w^3) agrees with complex multiplication."""
+    w = np.exp(1j * np.pi / 4)
+    value = lambda t: t.a + t.b * w + t.c * w**2 + t.d * w**3
+    basis = [FiveTuple(a=1), FiveTuple(b=1), FiveTuple(c=1), FiveTuple(d=1)]
+    for x in basis:
+        for y in basis:
+            assert np.isclose(value(x * y), value(x) * value(y))

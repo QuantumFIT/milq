@@ -6,7 +6,7 @@ import gurobipy as gp
 import numpy as np
 import pytest
 from gurobipy import GRB
-from pulp import GUROBI, PULP_CBC_CMD, LpMinimize, LpProblem, LpVariable
+from pulp import GUROBI, PULP_CBC_CMD, LpMinimize, LpProblem, LpSolutionNoSolutionFound, LpStatusNotSolved, LpVariable
 
 from complex.classic import Complex
 from complex.vector import Vector
@@ -117,3 +117,26 @@ def test_gurobi_solving_rejects_other_solver(workdir):
     with pytest.raises(ValueError, match="gurobi"):
         Synthesizer().synthesis(qasm_file=os.path.join(BENCHMARKS, "ghz/2.qasm"), vectors="zero",
                                 solving="gurobi", solver="cbc")
+
+
+def test_gurobi_status_name():
+    from generator import _gurobi_status_name
+    assert _gurobi_status_name(GRB.TIME_LIMIT) == "TIME_LIMIT"
+    assert _gurobi_status_name(12345) == "12345"  # unknown code falls back to the number
+
+
+class StoppedSolver:
+    # stands in for a PuLP solver that stops (e.g. on a limit) before finding any solution
+    def actualSolve(self, lp, **kwargs):
+        lp.assignStatus(LpStatusNotSolved, LpSolutionNoSolutionFound)
+        return LpStatusNotSolved
+
+
+def test_pulp_without_solution_raises():
+    gen = Generator(mode="milp", logger=Logger())
+    gen.solver = StoppedSolver
+    gen.lp_problem = LpProblem("stopped", LpMinimize)
+    x = LpVariable("x", lowBound=0, upBound=1, cat="Integer")
+    gen.lp_problem += x
+    with pytest.raises(RuntimeError, match="Not Solved"):
+        gen.check_sat()

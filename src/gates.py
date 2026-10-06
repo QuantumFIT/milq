@@ -13,7 +13,7 @@ supported_gates = [
     ['ccx','cswap','ccz']
 ]
 
-self_adjoints = ['h', 'x', 'y', 'z', 'cx', 'cz', 'cy', 'ch', 'swap', 'dcx', 'ccx', 'ccz']
+self_adjoints = ['h', 'x', 'y', 'z', 'cx', 'cz', 'cy', 'ch', 'swap', 'ccx', 'ccz']
 
 # OpenQASM 3 definitions of supported gates that are not part of stdgates.inc
 nonstandard_gate_definitions = {
@@ -105,15 +105,15 @@ class GateSet:
         if 't' not in self.gates or 'tdg' not in self.gates:
             raise ValueError("t and tdg are not in the gate set")
         self.set_all_to_zero()
-        self.set_gate('t', 1)
-        self.set_gate('tdg', 1)
+        self.gates['t'] = 1
+        self.gates['tdg'] = 1
 
     # set only CX count to matter
     def set_cx_optimal(self) -> None:
         if 'cx' not in self.gates:
             raise ValueError("cx is not in the gate set")
         self.set_all_to_zero()
-        self.set_gate('cx', 1)
+        self.gates['cx'] = 1
 
     # reset all weights to 0
     def set_all_to_zero(self) -> None:

@@ -76,14 +76,14 @@ class FiveTuple:
 
     def __mul__(self, other):
         # a = a1*a2 - b1*d2 - c1*c2 - d1*b2
-        # b = a1*b2 + b1*a2 + c1*d2 - d1*c2
+        # b = a1*b2 + b1*a2 - c1*d2 - d1*c2
         # c = a1*c2 + b1*b2 + c1*a2 - d1*d2
         # d = a1*d2 + b1*c2 + c1*b2 + d1*a2
         # k = k1 + k2
         if self.gen is None:
             return FiveTuple(
                 a=self.a * other.a - self.b * other.d - self.c * other.c - self.d * other.b, 
-                b=self.a * other.b + self.b * other.a + self.c * other.d - self.d * other.c, 
+                b=self.a * other.b + self.b * other.a - self.c * other.d - self.d * other.c, 
                 c=self.a * other.c + self.b * other.b + self.c * other.a - self.d * other.d, 
                 d=self.a * other.d + self.b * other.c + self.c * other.b + self.d * other.a,
             )

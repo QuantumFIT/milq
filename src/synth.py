@@ -27,6 +27,16 @@ import time
 from logger import Logger
 import numpy as np
 
+def rus_recovery_pairs(output_vectors, vector_pairs, measured_qubits):
+    # (input, output) pairs for the RUS recovery operation: it maps the state after a failed
+    # attempt (measured qubits projected to 1) back to the original input state
+    pairs = []
+    for pair_idx, state in enumerate(output_vectors):
+        measured_state = state.measure(measured_qubits, 1)
+        input_state = vector_pairs[pair_idx][0]
+        pairs.append((measured_state.to_precision(1e-8), input_state.to_precision(1e-8)))
+    return pairs
+
 class Synthesizer:
     def __init__(self) -> None:
         self.logger = Logger(verbosity=1, filename="synth.log")
@@ -1183,11 +1193,7 @@ class Synthesizer:
                             if self.vector_mode == "rus":
                                 # synthesize the recovery operation: it maps the state after a failed
                                 # attempt (ancilla measured to 1) back to the input state
-                                states_recovery = []
-                                for pair_idx, state in enumerate(vectors):
-                                    measured_state = state.measure(self.qubits_to_measure, 1)
-                                    input_state = vector_pairs[pair_idx][0]
-                                    states_recovery.append((measured_state.to_precision(1e-8), input_state.to_precision(1e-8)))
+                                states_recovery = rus_recovery_pairs(vectors, vector_pairs, self.qubits_to_measure)
                                 try:
                                     synthesizer = Synthesizer()
                                     gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))

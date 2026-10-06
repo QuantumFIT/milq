@@ -137,9 +137,6 @@ class Synthesizer:
 
         if not check_supported(self.gate_set):
             raise ValueError("gate set contains an unsupported gate")
-
-        # add constraints for only one gate per layer
-        self.gen.ExactlyOne(*bool_variables)
     
         size = 2**self.q
         size = size if self.basis == 'cb' else size * size

@@ -192,15 +192,6 @@ class ModelParser:
         print(f"Gate counts: {self.stats['gate_counts']}")
         print(f"Cost: {self.stats['cost']}")
 
-    def is_sat(self, model : any) -> bool:
-        if isinstance(model, str):
-            if ("sat" in model.lower() and "unsat" not in model.lower()) or "delta-sat" in model.lower():
-                return True
-            else:
-                return False
-        else:
-            return True
-
 
 def _read_sexprs(text : str) -> list:
     # nested lists of atoms; a dReal interval [lo, hi] becomes ["[", lo, hi]

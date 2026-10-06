@@ -5,6 +5,7 @@ import pytest
 
 from conftest import to_complex
 from complex.classic import Complex
+from generator import Generator
 from logger import Logger
 from parser import ModelParser
 from sim import Simulator
@@ -118,6 +119,39 @@ def test_dreal_intervals_take_lower_bound():
 
 def test_unparsable_terms_are_skipped():
     assert parse("sat\n((define-fun x () Real (root-obj (+ (^ x 2) (- 2)) 2)) (define-fun y () Int 3))") == [("y", 3)]
+
+
+@pytest.mark.parametrize("term, value", [
+    ("(+ 1 (/ 1 2))", 1.5),
+    ("(* 2 (- 3))", -6),
+    ("(- 5 1 1)", 3),
+    ("(/ 1 0)", 1),  # division by zero is unspecified in SMT-LIB, the numerator is kept
+])
+def test_arithmetic_terms(term, value):
+    assert parse(f"((x {term}))") == [("x", value)]
+
+
+@pytest.mark.parametrize("term", [
+    "()",           # empty term
+    "(^ 2 3)",      # unsupported operator
+    "(/ 1 2 3)",    # wrong arity
+    "(-)",          # operator without arguments
+    "(+ 1 foo)",    # non-numeric argument
+])
+def test_non_numeric_terms_are_skipped(term):
+    assert parse(f"((x {term}) (y 1))") == [("y", 1)]
+
+
+def test_unbalanced_input():
+    # stray closing parentheses are ignored; an unclosed response still yields its complete entries
+    assert parse("))((x 1) (y (- 2)))") == [("x", 1), ("y", -2)]
+    assert parse("((x 1) (y (- 2)") == [("x", 1), ("y", -2)]
+
+
+def test_parse_returns_failure_triple_on_milp_error():
+    generator = Generator(logger=Logger())
+    generator.bool_variables = {"L0_h_q0": "not a solver variable"}
+    assert ModelParser(Logger()).parse(generator, qubits=1, depth=1, write_to_file=False) == (False, None, None)
 
 
 def test_negative_amplitude_end_to_end(workdir):

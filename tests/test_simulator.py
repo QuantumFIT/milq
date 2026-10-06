@@ -8,8 +8,9 @@ from qiskit.quantum_info import Operator
 
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
-from conftest import unitary
+from conftest import to_complex, unitary
 from gates import supported_gates
+from sim import Simulator
 
 QUBITS = 3
 # out-of-order arguments exercise qubit indexing
@@ -51,3 +52,19 @@ def test_gate_matches_qiskit(tmp_path, gate, qubits, representation):
     qasm = tmp_path / "gate.qasm"
     qasm.write_text(f"OPENQASM 2.0;\nqreg q[{QUBITS}];\n{gate} " + ", ".join(f"q[{q}]" for q in qubits) + ";\n")
     np.testing.assert_allclose(unitary(str(qasm), representation), reference(gate, qubits), atol=1e-9)
+
+
+@pytest.mark.parametrize("targets, ancillas", [(1, 1), (2, 1), (1, 2), (3, 1)])
+@pytest.mark.parametrize("representation", [FiveTuple, Complex], ids=lambda r: r.__name__)
+def test_rus_input_states(tmp_path, targets, ancillas, representation):
+    # every basis state and |+>^T on the targets (lowest qubits), ancillas in |0>
+    qasm = tmp_path / "id.qasm"
+    qasm.write_text(f"OPENQASM 2.0;\nqreg q[{targets + ancillas}];\nid q[0];\n")
+    pairs = Simulator(str(qasm), complex_representation=representation).simulate_rus(targets, ancillas)
+    ancilla_zero = np.eye(2**ancillas)[0]
+    expected = [np.kron(ancilla_zero, np.eye(2**targets)[b]) for b in range(2**targets)]
+    expected.append(np.kron(ancilla_zero, np.full(2**targets, 2 ** (-targets / 2))))
+    states = [[to_complex(amplitude, state.k, representation) for amplitude in state] for state, _ in pairs]
+    assert len(states) == len(expected)
+    for state, reference in zip(states, expected):
+        np.testing.assert_allclose(state, reference, atol=1e-9)

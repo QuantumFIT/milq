@@ -44,6 +44,8 @@ class Generator:
         self.real_variables: dict[str, object] = {}
         self.saved_lp_problem = None
         self.saved_push = []
+        # incremental SMT: names declared since each (push 1), forgotten again on (pop 1)
+        self.declaration_scopes = []
         self.objective_assertions = []
         # statistics for number of variables, numbers ...
         self.stats['reals'] = 0
@@ -464,9 +466,10 @@ class Generator:
         self.declarations.append(("declare-fun", x, f"() {type}"))
         if self.incremental_mode:
             self.write_incremental(f"(declare-fun {x} () {type})")
-        else:
-            self.symbols[x] = x
-            self.declared_names.add(x)
+            if self.declaration_scopes:
+                self.declaration_scopes[-1].append(x)
+        self.symbols[x] = x
+        self.declared_names.add(x)
         return x
 
     def _milp_declaration(self, x, type, lb=None, ub=None):
@@ -946,6 +949,7 @@ class Generator:
         elif self.mode == "smtlib":
             if self.incremental_mode:
                 self.write_incremental("(push 1)")
+                self.declaration_scopes.append([])
             else:
                 assertions_to_push = self.assertions.copy()
                 optimize_objectives = self.optimize_objectives.copy()
@@ -974,7 +978,13 @@ class Generator:
                 self.logger.update_time("updating", time.time() - start_time)
         elif self.mode == "smtlib":
             if self.incremental_mode:
-                self.write_incremental("(pop 1)") 
+                self.write_incremental("(pop 1)")
+                # the solver drops declarations made since the matching push, so must we
+                for name in self.declaration_scopes.pop() if self.declaration_scopes else []:
+                    self.declared_names.discard(name)
+                    self.symbols.pop(name, None)
+                    for variables in (self.bool_variables, self.integer_variables, self.real_variables):
+                        variables.pop(name, None)
             else:
                 self.assertions = self.saved_push["assertions"]
                 self.optimize_objectives = self.saved_push["optimize_objectives"]

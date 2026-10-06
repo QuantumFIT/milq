@@ -125,9 +125,6 @@ class Synthesizer:
 
         if not check_supported(self.gate_set):
             raise ValueError("gate set contains an unsupported gate")
-
-        # add constraints for only one gate per layer
-        self.gen.ExactlyOne(*bool_variables)
     
         size = 2**self.q
         size = size if self.basis == 'cb' else size * size
@@ -1129,6 +1126,10 @@ class Synthesizer:
                     self.layer_bigM = self.layer_bigM
                 else:
                     self.layer_bigM = self.layer_bigM * 2
+                if self.curr_depth > self.d:
+                    # one weight per depth, shared by all pairs
+                    weight_bound = weight_bound + max_weight
+                    weights.append(self.gen.declare_integer(f"W{self.curr_depth}", lb=0, ub=weight_bound))
                 for pair_idx in range(len(vector_pairs)):
                     if self.curr_depth > self.d: # new vector needs to be added
                         state = None
@@ -1136,8 +1137,6 @@ class Synthesizer:
                             state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = input_state.n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
                         else:
                             state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
-                        weight_bound = weight_bound + max_weight
-                        weights.append(self.gen.declare_integer(f"W{self.curr_depth}", lb=0, ub=weight_bound))
                         inter_states[pair_idx].append(state)
      
                     # encode the layer

@@ -19,6 +19,7 @@ from logger import Logger
 import time
 import os
 import numbers
+from itertools import permutations
 
 def _gurobi_status_name(status: int) -> str:
     # GRB.Status.TIME_LIMIT == 9 -> "TIME_LIMIT"
@@ -136,35 +137,19 @@ class Generator:
         selection_variables = []
         bool_variables = []
         gate_set.add_gate(gate="id", weight=0, qubits=1)
-        gates = gate_set.get_gates(1)
         if self.jamiolkowski:
             # here qubits is 2*q, the actual zone of interest is q
             qubits = qubits // 2
-        variables = [(gate, q) for q in range(qubits) for gate in gates]
-        for var in variables:
-            v = self.declare_bool(f"L{layer}_{var[0]}_q{var[1]}")
-            selection_variable = (v, var)
-            selection_variables.append(selection_variable)
-            bool_variables.append(v)
-            self.stats['selection_variables'] += 1
-        
-        gates = gate_set.get_gates(2)
-        variables = [(gate, q1, q2) for q1 in range(qubits) for q2 in range(qubits) for gate in gates if q1 != q2]
-        for var in variables:
-            v = self.declare_bool(f"L{layer}_{var[0]}_q{var[1]}_q{var[2]}")
-            selection_variable = (v, var)
-            selection_variables.append(selection_variable)
-            bool_variables.append(v)
-            self.stats['selection_variables'] += 1
-
-        gates = gate_set.get_gates(3)
-        variables = [(gate, q1, q2, q3) for q1 in range(qubits) for q2 in range(qubits) for q3 in range(qubits) if q1 != q2 and q1 != q3 and q2 != q3 for gate in gates]
-        for var in variables:
-            v = self.declare_bool(f"L{layer}_{var[0]}_q{var[1]}_q{var[2]}_q{var[3]}")
-            selection_variable = (v, var)
-            selection_variables.append(selection_variable)
-            bool_variables.append(v)
-            self.stats['selection_variables'] += 1
+        for n in (1, 2, 3):
+            gates = gate_set.get_gates(n)
+            for qs in permutations(range(qubits), n):
+                for gate in gates:
+                    v = self.declare_bool(f"L{layer}_{gate}" + "".join(f"_q{q}" for q in qs))
+                    selection_variables.append((v, (gate, *qs)))
+                    bool_variables.append(v)
+                    self.stats['selection_variables'] += 1
+        # exactly one selection variable can be True
+        self.ExactlyOne(*bool_variables)
         return selection_variables, bool_variables
 
     def Plus(self, x, y):
@@ -634,6 +619,7 @@ class Generator:
         if self.logic == "QF_NRA" and (self.mode in ["pysmt", "smtlib"]):
             self.declare_real("sqrt2")
             self.add_assertion(self.Equals(self.Times(self.format_real("sqrt2"), self.format_real("sqrt2")), self.Real(2.0)))
+            self.add_assertion(self.GT(self.format_real("sqrt2"), self.Real(0)))
             self.declare_real("one_half")
             self.add_assertion(self.Equals(self.format_real("one_half"), self.Div(self.format_real(1), self.format_real(2))))
             self.declare_real("inv_sqrt2")
@@ -805,7 +791,7 @@ class Generator:
                 for j, s in enumerate(constants):
                     for parity in [("even", (1 - q)), ("odd", q)]:
                         for rel in [("<=", sleq), (">", (1 - sleq))]:
-                            and_var = self.declare_bool(f"and_var{i}_{j}_{parity[0]}_{'lower' if rel[0] == '<=' else 'upper'}")
+                            and_var = self.declare_bool(f"and_var{i}_{j}_{pair_idx}_{parity[0]}_{'lower' if rel[0] == '<=' else 'upper'}")
                             self.add_assertion(and_var <= rel[1])
                             self.add_assertion(and_var <= s)
                             self.add_assertion(and_var <= parity[1])
@@ -861,6 +847,9 @@ class Generator:
         # such as T Tdg ... not needed in incremental mode
         if last_encoded_layer < 1:
             return
+        if self.jamiolkowski:
+            # as in add_selection_variables: only the first half of the 2*q qubits gets gates
+            qubits = qubits // 2
 
         pairs = []
         self_adjoints_in_gate_set = set(gate_set).intersection(set(self_adjoints))
@@ -870,28 +859,17 @@ class Generator:
         for gate in others:
             name = gate + "dg"
             if name in gate_set:
+                # G Gdg and Gdg G both reduce to identity
                 pairs.append((gate, name))
+                pairs.append((name, gate))
         
         for (gate, adjoint) in pairs:
-            gate_qubits = gate_to_qubits(gate)
-            for q in range(qubits):
-                if gate_qubits > 1:
-                    for q2 in range(qubits):
-                        if q2 == q: continue
-                        if gate_qubits > 2:
-                            for q3 in range(qubits):
-                                if q3 == q or q3 == q2: continue
-                                prev_layer = f"L{last_encoded_layer - 1}_{gate}_q{q}_q{q2}_q{q3}"
-                                curr_layer = f"L{last_encoded_layer}_{gate}_q{q}_q{q2}_q{q3}"
-                                self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
-                        else:
-                            prev_layer = f"L{last_encoded_layer - 1}_{gate}_q{q}_q{q2}"
-                            curr_layer = f"L{last_encoded_layer}_{gate}_q{q}_q{q2}"
-                            self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
-                else:
-                    prev_layer = f"L{last_encoded_layer - 1}_{gate}_q{q}"
-                    curr_layer = f"L{last_encoded_layer}_{gate}_q{q}"
-                    self.add_assertion(self.Or(self.Not(self.symbols[prev_layer]), self.Not(self.symbols[curr_layer])))
+            for qs in permutations(range(qubits), gate_to_qubits(gate)):
+                wires = "".join(f"_q{q}" for q in qs)
+                prev_layer = self.symbols[f"L{last_encoded_layer - 1}_{gate}{wires}"]
+                curr_layer = self.symbols[f"L{last_encoded_layer}_{adjoint}{wires}"]
+                # AtLeastOne: the milp/gurobi Or doesn't force the disjunction to hold
+                self.AtLeastOne(self.Not(prev_layer), self.Not(curr_layer))
         
     def get_stats(self):
         self.stats['variables'] = self.stats['reals'] + self.stats['integers'] + self.stats['bools']

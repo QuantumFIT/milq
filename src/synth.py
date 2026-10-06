@@ -1275,8 +1275,8 @@ class Synthesizer:
                 # found the optimal depth -- upper bound is the best solution
                 if lower_bound not in solved and lower_bound not in unsolved:
                     middle = lower_bound # dont know anything about the result
-                elif lower_bound not in solved and upper_bound not in solved:
-                    middle = upper_bound # know that the result is unsat
+                elif upper_bound not in solved and upper_bound not in unsolved:
+                    middle = upper_bound # lower bound is unsat, upper bound untested
                 else:
                     break
             self.gen.push()

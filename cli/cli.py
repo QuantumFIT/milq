@@ -30,6 +30,7 @@ parser.add_argument('-u', '--up_to_global_phase', action='store_true', help='up 
 parser.add_argument('-b', '--basis', type=str, help='basis to use', required=False, choices=["cb"], default="cb")
 parser.add_argument('-d', '--depth', type=int, help='number of allowed gates', required=False, default=None)
 parser.add_argument('-nm', '--no_measurement', action='store_true', help='do not measure the output qubits', default=False)
+parser.add_argument('--max-depth', type=int, help='incremental modes: give up when no circuit with at most this many gates exists (default: no limit)', required=False, default=None)
 args = parser.parse_args()
 synthesizer = Synthesizer()
 try:
@@ -46,7 +47,8 @@ try:
                                       basis=args.basis,
                                       d=args.depth,
                                       approx=args.approx,
-                                      no_measurement=args.no_measurement)
+                                      no_measurement=args.no_measurement,
+                                      max_depth=args.max_depth)
 except SolverError as e:
     print(f"synthesis failed: {e}", file=sys.stderr)
     sys.exit(1)
@@ -60,4 +62,5 @@ print(f"Parsing time: {synthesizer.logger.get_times()['parsing']} seconds")
 print(f"Encoding time: {synthesizer.logger.get_times()['encoding']} seconds")
 print(f"Solving time: {synthesizer.logger.get_times()['solving']} seconds")
 print(f"Updating time: {synthesizer.logger.get_times()['updating']} seconds")
-print(circuit)
+if circuit is not None:
+    print(circuit)

@@ -484,7 +484,7 @@ class FiveTuple:
         
 
     def conjugate(self, generator = None):
-        if generator is None:
+        if self.gen is None:
             return FiveTuple(a=self.a, b=-self.d, c=-self.c, d=-self.b, generator=generator)
         else:
             return FiveTuple(
@@ -525,6 +525,9 @@ class FiveTuple:
             
     def __len__(self):
         return 4
+
+    def to_precision(self, precision):
+        return self # fivetuples are exact
     
     def increase_k(self, generator):
         # k itself is incremented in the Vector

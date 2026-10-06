@@ -911,16 +911,15 @@ class Synthesizer:
             if self.qubits_to_measure is None:
                 self.qubits_to_measure = stats['measured_qubits']
                 self.post_measurement = len(self.qubits_to_measure) > 0
-            self.v = len(vector_pairs)
-            self.curr_depth = self.d
             self.max_k = 2*self.d if self.d > stats['max_k'] else 2*stats['max_k']
         else:
             self.q = q
             self.d = d
-            self.curr_depth = self.d
             self.max_k = 2*self.d
             self.gate_set = gate_set
             self.qubits_to_measure = []
+        self.v = len(vector_pairs)
+        self.curr_depth = self.d
         max = 0
         for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
             tmp = input_vector.max_value()

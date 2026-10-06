@@ -7,7 +7,9 @@
 
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import queue
 import subprocess
+import threading
 
 
 class SolverError(Exception):
@@ -133,38 +135,46 @@ class PortfolioSMTSolver:
     def solve(self, formula_file) -> str:
         processes = {}
         failures = []  # solvers that failed are skipped, the others keep running
-        for name, solver in self.solvers.items():
-            try:
-                proc = subprocess.Popen(
-                    solver.args + solver.smtlib_flags + [formula_file],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-            except OSError as e:  # e.g. the solver is not installed
-                failures.append(f"{name} could not be started: {e}")
-                continue
-            processes[name] = proc
+        finished = queue.Queue()
 
-        while processes:
-            for name, proc in list(processes.items()):
-                ret = proc.poll()
-                if ret is None:
+        def collect(name, proc):
+            # reading the whole output also keeps a solver printing a large model from blocking on a full pipe
+            stdout, stderr = proc.communicate()
+            finished.put((name, proc.returncode, stdout, stderr))
+
+        try:
+            for name, solver in self.solvers.items():
+                try:
+                    proc = subprocess.Popen(
+                        solver.args + solver.smtlib_flags + [formula_file],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                except OSError as e:  # e.g. the solver is not installed
+                    failures.append(f"{name} could not be started: {e}")
                     continue
-                stdout, stderr = proc.communicate() # wait for one of the outputs
+                processes[name] = proc
+                threading.Thread(target=collect, args=(name, proc), daemon=True).start()
+
+            unknown = False
+            for _ in range(len(processes)):
+                name, ret, stdout, stderr = finished.get()  # block until the next solver finishes
                 answer = classify_answer(stdout)
                 if answer == "error":
                     failures.append(_describe_failure(name, stdout, stderr, ret))
-                    del processes[name]
                     continue
                 if answer == "unknown":
-                    # just kill the current process and let the others continue
-                    proc.kill()
-                    continue
-
-                for other_name, other_proc in processes.items():
-                    if other_name != name:
-                        other_proc.kill()
-
+                    unknown = True
+                    continue  # let the others continue
                 return stdout if answer == "sat" else "unsat"
-        raise SolverError("all solvers of the portfolio failed: " + "; ".join(failures))
+            if unknown:
+                return "unknown"
+            raise SolverError("all solvers of the portfolio failed: " + "; ".join(failures))
+        finally:
+            # stop the solvers that are still running and reap all of them
+            for proc in processes.values():
+                if proc.poll() is None:
+                    proc.kill()
+            for proc in processes.values():
+                proc.wait()

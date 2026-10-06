@@ -8,7 +8,34 @@
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import subprocess
-    
+
+
+class SolverError(Exception):
+    """the solver failed (error response, crash, ...) instead of answering sat/unsat/unknown"""
+
+
+def classify_answer(output: str) -> str:
+    # the answer is the first line other than SMTInterpol's "success" acknowledgements
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or line == "success":
+            continue
+        if line == "sat" or line.startswith("delta-sat"):  # dReal: "delta-sat with delta = ..."
+            return "sat"
+        if line in ("unsat", "unknown"):
+            return line
+        return "error"
+    return "error"
+
+
+def _describe_failure(name: str, stdout: str, stderr: str, returncode=None) -> str:
+    details = (stdout.strip() or stderr.strip() or "no output").splitlines()[0]
+    code = f", exit code {returncode}" if returncode is not None else ""
+    if returncode == 127:  # the shell could not find a program, e.g. java for SMTInterpol
+        code += " (command not found)"
+    return f"{name} failed{code}: {details}"
+
+
 class SMTSolver:
     def __init__(self, name: str, args: list[str], logics: list[str], smtlib_flags: list[str] | None = None, incremental_mode: bool = False):
         self.name = name
@@ -28,41 +55,37 @@ class SMTSolver:
         )
 
     def solve(self, formula_file : str = None) -> str:
+        # returns "sat" (incremental) or the solver output with the model (file mode), "unsat" or "unknown";
+        # raises SolverError when the solver fails instead of answering
         if self.incremental_mode:
             # formula sent to the solver, add check-sat and get-model, retreive result
             result = self.process.stdout.readline()
             # smtinterpol return 'success' first after each statement, 
-            while 'success' in result.lower():
+            while result.strip() == 'success':
                 result = self.process.stdout.readline()
-
-            if ("sat" in result.lower() and "unsat" not in result.lower()) or "delta-sat" in result.lower():
-                return "sat"
-            elif "unknown" in result.lower():
-                return "unknown"
-            else:
-                return "unsat"
+            if result == '':  # end of output: the solver exited
+                self.process.wait()
+                raise SolverError(_describe_failure(self.name, "", self.process.stderr.read(), self.process.returncode))
+            answer = classify_answer(result)
+            if answer == "error":
+                raise SolverError(_describe_failure(self.name, result, ""))
+            return answer
         else: # not fully incremental mode (when used in Portfolio), just solve .smt2 file and get the model
-            try: 
+            try:
                 result = subprocess.Popen(
                     self.args + self.smtlib_flags + [formula_file],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
                 )
-                
                 stdout, stderr = result.communicate()
-            except Exception as e:
-                return "unknown"
-            if result is None:
-                return "unknown"
-            if result.returncode != 0:
-                return "unknown"
-            if ("sat" in stdout.lower() and "unsat" not in stdout.lower()) or "delta-sat" in stdout.lower():
-                return stdout
-            elif "unknown" in stdout.lower():
-                return "unknown"
-            else:
-                return "unsat"
+            except OSError as e:
+                raise SolverError(f"{self.name} could not be started: {e}") from e
+            # z3 exits with 1 after "unsat" because (get-model) fails, so the answer decides, not the exit code
+            answer = classify_answer(stdout)
+            if answer == "error":
+                raise SolverError(_describe_failure(self.name, stdout, stderr, result.returncode))
+            return stdout if answer == "sat" else answer
             
     def get_model(self) -> str:
         if not self.incremental_mode:
@@ -86,8 +109,12 @@ class SMTSolver:
     def write_incremental(self, statement : str):
         # incrementally send a command to the solver's input
         if self.incremental_mode:
-            self.process.stdin.write(statement + "\n")
-            self.process.stdin.flush()
+            try:
+                self.process.stdin.write(statement + "\n")
+                self.process.stdin.flush()
+            except BrokenPipeError as e:
+                self.process.wait()
+                raise SolverError(_describe_failure(self.name, "", self.process.stderr.read(), self.process.returncode)) from e
 
 
 class PortfolioSMTSolver:            
@@ -105,13 +132,18 @@ class PortfolioSMTSolver:
     
     def solve(self, formula_file) -> str:
         processes = {}
+        failures = []  # solvers that failed are skipped, the others keep running
         for name, solver in self.solvers.items():
-            proc = subprocess.Popen(
-                solver.args + solver.smtlib_flags + [formula_file],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
+            try:
+                proc = subprocess.Popen(
+                    solver.args + solver.smtlib_flags + [formula_file],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+            except OSError as e:  # e.g. the solver is not installed
+                failures.append(f"{name} could not be started: {e}")
+                continue
             processes[name] = proc
 
         while processes:
@@ -120,7 +152,12 @@ class PortfolioSMTSolver:
                 if ret is None:
                     continue
                 stdout, stderr = proc.communicate() # wait for one of the outputs
-                if "unknown" in stdout.lower():
+                answer = classify_answer(stdout)
+                if answer == "error":
+                    failures.append(_describe_failure(name, stdout, stderr, ret))
+                    del processes[name]
+                    continue
+                if answer == "unknown":
                     # just kill the current process and let the others continue
                     proc.kill()
                     continue
@@ -129,7 +166,5 @@ class PortfolioSMTSolver:
                     if other_name != name:
                         other_proc.kill()
 
-                if ret == 0 and (("sat" in stdout.lower() and "unsat" not in stdout.lower()) or "delta-sat" in stdout.lower()):
-                    return stdout                        
-                else:
-                    return "unsat"
+                return stdout if answer == "sat" else "unsat"
+        raise SolverError("all solvers of the portfolio failed: " + "; ".join(failures))

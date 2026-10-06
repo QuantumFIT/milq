@@ -12,6 +12,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src/'))
 from synth import Synthesizer
+from solvers import SolverError
 
 parser = argparse.ArgumentParser(description='CLI for the synthesis tool')
 parser.add_argument('qasm_file', type=str, help='qasm file to synthesize')
@@ -31,20 +32,24 @@ parser.add_argument('-d', '--depth', type=int, help='number of allowed gates', r
 parser.add_argument('-nm', '--no_measurement', action='store_true', help='do not measure the output qubits', default=False)
 args = parser.parse_args()
 synthesizer = Synthesizer()
-res, circuit, _ = synthesizer.synthesis(qasm_file=args.qasm_file, 
-                                  vectors=args.vectors, 
-                                  solving=args.solving, 
-                                  mode=args.mode, 
-                                  solver=args.solver, 
-                                  output_qasm=args.output_qasm, 
-                                  complex_representation=args.complex_representation, 
-                                  fidelity_threshold=args.fidelity_threshold, 
-                                  targets=args.targets, ancillas=args.ancillas, 
-                                  up_to_global_phase=args.up_to_global_phase, 
-                                  basis=args.basis,
-                                  d=args.depth,
-                                  approx=args.approx,
-                                  no_measurement=args.no_measurement)
+try:
+    res, circuit, _ = synthesizer.synthesis(qasm_file=args.qasm_file, 
+                                      vectors=args.vectors, 
+                                      solving=args.solving, 
+                                      mode=args.mode, 
+                                      solver=args.solver, 
+                                      output_qasm=args.output_qasm, 
+                                      complex_representation=args.complex_representation, 
+                                      fidelity_threshold=args.fidelity_threshold, 
+                                      targets=args.targets, ancillas=args.ancillas, 
+                                      up_to_global_phase=args.up_to_global_phase, 
+                                      basis=args.basis,
+                                      d=args.depth,
+                                      approx=args.approx,
+                                      no_measurement=args.no_measurement)
+except SolverError as e:
+    print(f"synthesis failed: {e}", file=sys.stderr)
+    sys.exit(1)
 if res:
     print("synthesis successful")
 else:

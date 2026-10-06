@@ -34,7 +34,7 @@ You need at least one solver. **yices2 and cvc5 work out of the box** and are en
 | dReal | [dReal 4.21.06.2](https://github.com/dreal/dreal4) | Expected at `/opt/dreal/4.21.06.2/bin/dreal` |
 | Gurobi | `gurobipy` (installed by `requirements.txt`) | See below |
 
-The `portfolio` option runs every compatible SMT solver, so it needs z3, and Java for SMTInterpol.
+The `portfolio` option runs every compatible SMT solver. Solvers that are not installed or that fail (e.g. SMTInterpol without Java) are skipped, so it works with just the bundled ones.
 
 If the bundled binaries lost their executable bit (e.g. after copying the repository), restore it:
 

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/milq-logo.png" alt="MILQ logo" width="320">
+</p>
+
 # MILQ: A tool for gate-count optimal Quantum circuit synthesis
 
 [![CI](https://github.com/QuantumFIT/milq/actions/workflows/ci.yml/badge.svg)](https://github.com/QuantumFIT/milq/actions/workflows/ci.yml)

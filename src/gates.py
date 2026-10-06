@@ -237,10 +237,23 @@ class Circuit:
             
     def draw(self, output_file : str) -> None:
         from qiskit import QuantumCircuit
+        from qiskit.circuit.library import SwapGate
+        
+        # add supported gates qiskit has no method for
+        sqrtswap = SwapGate().power(0.5)
+        sqrtswap.label = "√SWAP"
+        xcx = QuantumCircuit(2, name="xcx")
+        xcx.x(0)
+        xcx.cx(0, 1)
+        xcx.x(0)
+        custom = {'xcx': xcx.to_gate(), 'sqrtswap': sqrtswap}
+        # build the circuit
         circuit = QuantumCircuit(self.q)
         for gate in self.operations():
-            attribute = getattr(circuit, gate.name)
-            attribute(*gate.qubits)
+            if gate.name in custom:
+                circuit.append(custom[gate.name], gate.qubits)
+            else:
+                getattr(circuit, gate.name)(*gate.qubits)
         circuit.draw(output="mpl", filename=output_file, reverse_bits=True)
         
     def add_measurement(self, qubits: list[int]) -> None:

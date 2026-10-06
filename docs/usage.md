@@ -51,7 +51,7 @@ cx q[2], q[0];
 | `smt` | a solver name | The formula is sent to an external SMT solver. In incremental mode a single solver keeps running, and new layers are added with `push`/`pop`. |
 | `smt` | `portfolio` | All compatible SMT solvers run in parallel on each formula, and the first answer wins. |
 | `gurobi` (default) | `gurobi` | The problem is built directly in Gurobi's Python API. |
-| `milp` | `gurobi` | The problem is built as a PuLP model and solved by Gurobi. |
+| `milp` | `gurobi` or `cbc` | The problem is built as a PuLP model and solved by Gurobi or by CBC. CBC ships with PuLP, so it needs no license. |
 
 The **complex-number representation** (`-c`) decides which SMT solvers can be used:
 
@@ -149,7 +149,6 @@ The circuit file uses `include "stdgates.inc";`. If it uses gates that are not i
 
 - **Beyond the input's gate count:** incremental SMT synthesis crashes if it needs more layers than the input circuit has gates ([#5](https://github.com/QuantumFIT/milq/issues/5)). This only happens with `-d` or settings under which the input circuit itself is not a solution.
 - **Solver errors:** a solver error or crash is treated like "no circuit at this depth" ([#4](https://github.com/QuantumFIT/milq/issues/4)), and a portfolio can hang if every solver answers *unknown* ([#9](https://github.com/QuantumFIT/milq/issues/9)).
-- **Gurobi statuses:** Gurobi results other than *optimal* or *infeasible*, such as a time limit, are treated as success ([#8](https://github.com/QuantumFIT/milq/issues/8)).
 - **Input gates:** `swap`, `iswap`, `cy`, `cs`, `csdg`, `csx`, `sqrtswap`, `cswap` and `ccz` can appear in synthesized circuits but are not yet accepted in input circuits ([#18](https://github.com/QuantumFIT/milq/issues/18)).
 
 All open issues are listed on [GitHub](https://github.com/QuantumFIT/milq/issues).

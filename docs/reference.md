@@ -17,7 +17,7 @@ $ python3 cli/cli.py [options] <qasm_file>
 | `qasm_file` | path | *(required)* | Input circuit ([format](usage#input-circuits)). |
 | `-v`, `--vectors` | `all`, `zero`, `jamiolkowski`, `rus` | `all` | Input states the circuits must agree on ([details](usage#1-pick-what-must-be-preserved--v)). |
 | `-s`, `--solving` | `smt`, `gurobi`, `milp` | `gurobi` | Solving method ([details](usage#2-pick-a-backend--s--a--c)). |
-| `-a`, `--solver` | `yices2`, `cvc5`, `opensmt`, `smtinterpol`, `z3`, `dreal`, `portfolio`, `gurobi` | `gurobi` | Solver; SMT solvers require `-s smt`. |
+| `-a`, `--solver` | `yices2`, `cvc5`, `opensmt`, `smtinterpol`, `z3`, `dreal`, `portfolio`, `gurobi`, `cbc` | `gurobi` | Solver; SMT solvers require `-s smt`, and `cbc` requires `-s milp`. |
 | `-c`, `--complex_representation` | `FiveTuple`, `Classic` | `FiveTuple` | Representation of amplitudes. |
 | `-m`, `--mode` | `incremental`, `basic`, `bottomup`, `topdown`, `binary`, `pareto-incremental` | `incremental` | Search mode ([details](usage#3-pick-a-search-mode--m)). |
 | `-d`, `--depth` | integer | input gate count | Number of layers for the fixed-depth modes. |

@@ -46,6 +46,8 @@ $ chmod +x solvers/cvc5/cvc5 solvers/opensmt/opensmt solvers/yices2/yices_smt2 s
 
 `pip install gurobipy` comes with a **size-limited license**: models with at most 2000 variables and constraints. That is enough for very small instances, e.g. a 2-qubit circuit with `-v zero -c Classic`. Larger instances fail with *"Model too large for size-limited license"*. Gurobi offers [free academic licenses](https://www.gurobi.com/academia/academic-program-and-licenses/). Follow Gurobi's instructions to install the `gurobi.lic` file.
 
+Without a Gurobi license, `-s milp -a cbc` solves the same MILP encoding with CBC, which ships with PuLP. It is much slower, though: `benchmarks/ghz/3.qasm` with `-v zero` takes about 2 minutes, against about a second with yices2.
+
 ## Check the installation
 
 ```console

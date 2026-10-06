@@ -20,6 +20,13 @@ import time
 import os
 import numbers
 
+def _gurobi_status_name(status: int) -> str:
+    # GRB.Status.TIME_LIMIT == 9 -> "TIME_LIMIT"
+    for name in dir(GRB.Status):
+        if name.isupper() and getattr(GRB.Status, name) == status:
+            return name
+    return str(status)
+
 class Generator:
     def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA", logger : Logger = None) -> None:
         # modes - ["pysmt", "smtlib", "milp", "gurobi"] -- however, pysmt is inaccessible from the CLI program
@@ -1041,27 +1048,34 @@ class Generator:
         
     def check_sat(self, formula_file: str = "formula.smt2"):
         if self.mode == "milp":
-            self.solver = GUROBI(msg=False, FeasibilityTol=1e-9, MIPGap=1e-9)
-            self.solver.solve(self.lp_problem)
-            print(f"Solver status: {LpStatus[self.lp_problem.status]}")
-            if LpStatus[self.lp_problem.status].lower() == "optimal":
+            # self.solver creates the PuLP solver chosen in Synthesizer.synthesis (GUROBI or PULP_CBC_CMD)
+            self.lp_problem.solve(self.solver())
+            status = LpStatus[self.lp_problem.status]
+            self.logger.log(tag="Satisfiability", message=f"MILP solver status: {status}, solution: {LpSolution[self.lp_problem.sol_status]}")
+            if self.lp_problem.sol_status in [LpSolutionOptimal, LpSolutionIntegerFeasible]:
                 self.logger.log(tag="Satisfiability", message="Solver returned SAT")
                 return True
-            elif LpStatus[self.lp_problem.status].lower() == "infeasible":
+            elif self.lp_problem.status == LpStatusInfeasible:
                 self.logger.log(tag="Satisfiability", message="Solver returned UNSAT")
                 return False
-            else:
-                return True # suboptimal solution
+            raise RuntimeError(f"MILP solver stopped without a solution (status: {status})")
         elif self.mode == "gurobi":
             self.lp_problem.optimize()
-            if self.lp_problem.status == GRB.OPTIMAL:
+            status = self.lp_problem.Status
+            if status == GRB.OPTIMAL:
                 self.logger.log(tag="Satisfiability", message="Solver returned SAT")
                 return True
-            elif self.lp_problem.status == GRB.INFEASIBLE:
+            # the objective is either constant or a cost variable with finite bounds, so the model
+            # cannot be unbounded: INF_OR_UNBD (presolve could not tell the two apart) means infeasible
+            elif status in [GRB.INFEASIBLE, GRB.INF_OR_UNBD]:
                 self.logger.log(tag="Satisfiability", message="Solver returned UNSAT")
                 return False
-            else:
-                return True # suboptimal solution
+            elif self.lp_problem.SolCount > 0:
+                # e.g. a time or solution limit was hit after a circuit was found: the circuit is
+                # correct, but its cost was not proven minimal
+                self.logger.log(tag="WARNING", message=f"Gurobi stopped with status {_gurobi_status_name(status)}, using the best circuit found (cost not proven minimal)")
+                return True
+            raise RuntimeError(f"Gurobi stopped with status {_gurobi_status_name(status)} without finding a solution")
         elif self.mode == "smtlib":
             if self.incremental_mode:
                 # first has to add check-sat

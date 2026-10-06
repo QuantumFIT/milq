@@ -971,12 +971,16 @@ class Synthesizer:
             if solver not in ["gurobi", "cbc"]:
                 raise ValueError(f"Invalid solver: {solver}")
             self.gen.mode = "milp"
-            solver_to_class = {
-                "gurobi": GUROBI,
-                "cbc": PULP_CBC_CMD,
-            }
-            self.gen.solver = solver_to_class[solver](msg=False, FeasibilityTol=1e-9, MIPGap=1e-9)
+            # a factory, not a solver object: PuLP's GUROBI keeps one Gurobi model and adds the
+            # whole problem to it again on every solve(), so each solve needs a fresh solver
+            if solver == "gurobi":
+                self.gen.solver = lambda: GUROBI(msg=False, FeasibilityTol=1e-9, MIPGap=1e-9)
+            else:
+                # CBC ships with PuLP; gapRel=0 proves optimality like MIPGap above
+                self.gen.solver = lambda: PULP_CBC_CMD(msg=False, gapRel=0)
         elif solving == "gurobi":
+            if solver not in [None, "gurobi"]:
+                raise ValueError(f"Invalid solver for gurobi solving: {solver}")
             self.gen.mode = "gurobi"
             self.gen.solver = solver
         
@@ -995,7 +999,7 @@ class Synthesizer:
         if solving == "pysmt":
             self.gen.solver.exit()
         self.logger.log("INFO", f"Circuit: {circuit}")
-        for pair_idx, (vector) in enumerate(vectors):
+        for pair_idx, (vector) in enumerate(vectors or []):
             self.logger.log("INFO", f"Vector {pair_idx}: {vector}")
         self.logger.log("INFO", f"Result: {res}")
         self.logger.update_time("full", time.time() - start_time)

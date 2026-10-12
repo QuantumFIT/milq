@@ -27,7 +27,7 @@ parser.add_argument('-a', '--solver', type=str, help='solver to use: with -s smt
 parser.add_argument('--solver-config', type=str, help='SMT solver configuration file (default: $MILQ_SOLVER_CONFIG, else solvers.toml next to this script)', required=False, default=None)
 parser.add_argument('-o', '--output_qasm', type=str, help='also write the synthesized circuit to this qasm file', required=False, default=None)
 parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "Classic"], default="FiveTuple")
-parser.add_argument('-f', '--fidelity_threshold', type=float, help='fidelity threshold (use with dreal solver)', required=False, default=1.0)
+parser.add_argument('-f', '--fidelity_threshold', type=float, help='minimum average fidelity for approximate synthesis (-ap)', required=False, default=1.0)
 parser.add_argument('-ap', '--approx', action='store_true', help='approximate equivalence', default=False)
 parser.add_argument('-T', '--targets', type=int, help='number of target qubits', required=False, default=1)
 parser.add_argument('-A', '--ancillas', type=int, help='number of ancilla qubits', required=False, default=1)

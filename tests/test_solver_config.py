@@ -151,6 +151,12 @@ def test_solver_without_the_logic(workdir):
         synthesize("opensmt", representation="Classic")
 
 
+def test_dreal_needs_classic(workdir):
+    # dReal supports only QF_NRA; forcing QF_NRA on a FiveTuple formula failed in the encoding
+    with pytest.raises(SolverConfigError, match="dreal does not support QF_LIA"):
+        synthesize("dreal")
+
+
 def test_portfolio_without_a_solver_for_the_logic(workdir):
     config = write_config(workdir / "s.toml", f'[solvers.yices2]\npath = "{YICES}"\nlogics = ["QF_LIA"]\n')
     with pytest.raises(SolverConfigError, match="no portfolio solver supports QF_NRA"):

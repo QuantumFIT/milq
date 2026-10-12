@@ -84,8 +84,6 @@ class Generator:
         self.d = 0
         self.num_of_vectors = 0
         self.model = None
-        if self.solver == "dreal":
-            self.logic = "QF_NRA"
 
     def _new_gurobi_model(self):
         self.lp_problem = gp.Model("Circuit_Synthesis", env=quiet_gurobi_env())

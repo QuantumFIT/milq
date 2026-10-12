@@ -939,9 +939,7 @@ class Synthesizer:
             self.gen.mode = "smtlib"
             incremental_mode = True if (mode == "incremental" or mode == "pareto-incremental") and solver != "portfolio" else False
             self.add_solvers(incremental_mode=incremental_mode)
-            if solver == "dreal":
-                self.gen.logic = "QF_NRA"
-            
+
             new_dict = {}
             for name, s in self.solvers.items():
                 if self.gen.logic in s.logics and self.solver_config[name].portfolio:
@@ -1402,7 +1400,6 @@ class Synthesizer:
         """    
             formula_file: Path to the formula file
             output_qasm: Output filename for QASM circuit
-            solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2, dreal (experimental)
         """
         log.info("Solving formula")
         with timed("solving"):

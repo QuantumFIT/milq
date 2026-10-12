@@ -16,13 +16,15 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'src'))
 from synth import Synthesizer
 from solvers import SolverError
+from solver_config import SolverConfigError
 
 parser = argparse.ArgumentParser(description='CLI for the synthesis tool')
 parser.add_argument('qasm_file', type=str, help='qasm file to synthesize')
 parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for the synthesis', choices=["zero", "all", "rus", "jamiolkowski"], default="all")
 parser.add_argument('-s', '--solving', type=str, help='solving method to use', choices=["smt", "milp", "gurobi"], default="gurobi")
 parser.add_argument('-m', '--mode', type=str, help='solving mode to use', choices=["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"], default="incremental")
-parser.add_argument('-a', '--solver', type=str, help='solver to use', required=False, choices=["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "gurobi", "cbc", "portfolio"], default="gurobi")
+parser.add_argument('-a', '--solver', type=str, help='solver to use: with -s smt a solver from the solver configuration or portfolio, with -s milp gurobi or cbc', required=False, default="gurobi")
+parser.add_argument('--solver-config', type=str, help='SMT solver configuration file (default: $MILQ_SOLVER_CONFIG, else solvers.toml next to this script)', required=False, default=None)
 parser.add_argument('-o', '--output_qasm', type=str, help='also write the synthesized circuit to this qasm file', required=False, default=None)
 parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "Classic"], default="FiveTuple")
 parser.add_argument('-f', '--fidelity_threshold', type=float, help='fidelity threshold (use with dreal solver)', required=False, default=1.0)
@@ -74,7 +76,11 @@ try:
                                       approx=args.approx,
                                       no_measurement=args.no_measurement,
                                       max_depth=args.max_depth,
-                                      pareto_timeout=args.pareto_timeout)
+                                      pareto_timeout=args.pareto_timeout,
+                                      solver_config=args.solver_config)
+except SolverConfigError as e:
+    print(f"milq: error: {e}", file=sys.stderr)
+    sys.exit(2)
 except SolverError as e:
     print(f"synthesis failed: {e}", file=sys.stderr)
     sys.exit(1)

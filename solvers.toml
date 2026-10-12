@@ -1,0 +1,46 @@
+# SMT solvers available to `milq -s smt`. Each [solvers.NAME] table defines one solver; NAME is what
+# `-a NAME` selects. The names `portfolio`, `gurobi` and `cbc` are reserved.
+#
+#   path              the executable. A relative path is relative to this file, a bare name (e.g. "z3")
+#                     is looked up on PATH, and ~ and $VARIABLES are expanded.
+#   args              arguments always passed to the solver (default: none)
+#   incremental_args  extra arguments for the incremental modes, where MILQ sends the formula through
+#                     stdin instead of a file (default: none)
+#   logics            SMT-LIB logics the solver supports, from QF_LIA, QF_LRA, QF_NIA, QF_NRA.
+#                     FiveTuple formulas are QF_LIA, Classic ones QF_NRA.
+#   portfolio         whether `-a portfolio` runs this solver (default: true). The portfolio runs every
+#                     such solver whose logics include the formula's logic.
+#
+# To use another file, pass `--solver-config FILE` or set the MILQ_SOLVER_CONFIG environment variable.
+
+[solvers.yices2]
+path = "solvers/yices2/yices_smt2"
+incremental_args = ["--incremental"]
+logics = ["QF_LIA", "QF_LRA", "QF_NIA", "QF_NRA"]
+
+[solvers.cvc5]
+path = "solvers/cvc5/cvc5"
+args = ["--produce-models"]
+incremental_args = ["--incremental"]
+logics = ["QF_LIA", "QF_NIA", "QF_NRA"]
+
+[solvers.opensmt]
+path = "solvers/opensmt/opensmt"
+logics = ["QF_LIA", "QF_LRA"]
+
+# a wrapper script that starts SMTInterpol with Java 21
+[solvers.smtinterpol]
+path = "solvers/smtinterpol/smtinterpol"
+logics = ["QF_LIA", "QF_NIA"]  # it answers unknown to any nonlinear real term
+
+[solvers.z3]
+path = "z3"
+incremental_args = ["-in"]
+logics = ["QF_LIA", "QF_NIA", "QF_NRA"]
+
+# --precision is dReal's delta: it answers delta-sat when the formula holds up to that precision
+[solvers.dreal]
+path = "/opt/dreal/4.21.06.2/bin/dreal"
+args = ["--precision", "1e-9", "--produce-models"]
+incremental_args = ["--in"]
+logics = ["QF_NRA"]

@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src/'))
 from sim import Simulator
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
-from complex.ntuple import nTuple
 from gates import GateSet
 
 parser = argparse.ArgumentParser(description='CLI for the synthesis tool')
@@ -28,8 +27,6 @@ args = parser.parse_args()
 
 if args.complex_representation == "FiveTuple":
     complex_representation = FiveTuple
-elif args.complex_representation == "nTuple":
-    complex_representation = nTuple
 elif args.complex_representation == "Classic":
     complex_representation = Complex
 

@@ -10,7 +10,7 @@ from pysmt.shortcuts import Solver
 import pareto
 from complex.classic import Complex
 from complex.vector import Vector
-from conftest import BENCHMARKS
+from conftest import BENCHMARKS, unitary
 from gates import Circuit, Gate, GateSet
 from generator import Generator
 from pareto import Pareto
@@ -125,3 +125,23 @@ def test_non_rus_points_are_gate_count_and_weighted_cost(workdir, monkeypatch):
     assert res
     assert [gate.name for gate in circuit.operations()] == ["s"]
     assert (1, 0) in points and (2, 2) in points
+
+
+def test_every_circuit_is_enumerated_once(workdir, monkeypatch):
+    # without empty (id) layers, a circuit is found once, at the depth equal to its gate count
+    points = []
+    original_add_point = Pareto.add_point
+    def record(self, x, y, depth, circuit, recovery_circuit):
+        points.append((depth, tuple(str(gate) for gate in circuit.gates)))
+        original_add_point(self, x, y, depth, circuit, recovery_circuit)
+    monkeypatch.setattr(Pareto, "add_point", record)
+    qasm_file = os.path.join(BENCHMARKS, "ghz/2.qasm")
+    res, _, _ = Synthesizer().synthesis(qasm_file=qasm_file, vectors="zero", solving="smt", solver="yices2",
+                                        mode="pareto-incremental", complex_representation="FiveTuple",
+                                        output_qasm="out.qasm", pareto_timeout=120, max_depth=3)
+    assert res
+    assert {depth for depth, _ in points} == {2, 3}
+    assert all(len(gates) == depth and not any(g.startswith("id ") for g in gates) for depth, gates in points)
+    assert len({gates for _, gates in points}) == len(points)
+    for point in os.listdir("pareto_front"):  # every enumerated circuit prepares the same state
+        np.testing.assert_allclose(unitary(os.path.join("pareto_front", point))[:, 0], unitary(qasm_file)[:, 0], atol=1e-9)

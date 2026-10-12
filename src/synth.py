@@ -8,7 +8,6 @@
 from complex.classic import Complex
 from complex.vector import Vector
 from complex.fivetuple import FiveTuple
-from complex.ntuple import nTuple
 from complex.matrix import Matrix
 from generator import Generator
 from parser import ModelParser
@@ -158,7 +157,7 @@ class Synthesizer:
                     if cannot_propagate:
                         for pos in range(size):
                             saved_operations[pos].append((bool_var, inp[pos]))
-                    if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                    if self.complex_representation == FiveTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'h':
                     modified_positions = []
@@ -172,7 +171,7 @@ class Synthesizer:
                             saved_operations[other].append((bool_var, ((inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen))))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_incr(bool_var, out.k, inp.k, 1)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for H gate")
@@ -185,7 +184,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for S gate")
@@ -198,7 +197,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for SDG gate")
@@ -211,7 +210,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for T gate")
@@ -224,7 +223,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for TDG gate")
@@ -240,7 +239,7 @@ class Synthesizer:
                             saved_operations[other].append((bool_var, inp[pos]))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                    if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                    if self.complex_representation == FiveTuple:
                         add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for X gate")
@@ -256,7 +255,7 @@ class Synthesizer:
                             saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_incr(bool_var, out.k, inp.k, 2)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for SX gate")
@@ -272,7 +271,7 @@ class Synthesizer:
                             saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_incr(bool_var, out.k, inp.k, 2)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for SXDG gate")
@@ -295,7 +294,7 @@ class Synthesizer:
                                 saved_operations[other].append((bool_var, inp[pos].multiply_by_i(self.gen)))
                                 propagate_identities[pos].append(bool_var)
                                 propagate_identities[other].append(bool_var)
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for Y gate")
@@ -308,7 +307,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for Z gate")
@@ -331,7 +330,7 @@ class Synthesizer:
                                 propagate_identities[other].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CX gate") 
@@ -351,7 +350,7 @@ class Synthesizer:
                                 propagate_identities[other].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for XCX gate")
@@ -365,7 +364,7 @@ class Synthesizer:
                             if image == pos and not cannot_propagate: continue
                             saved_operations[image].append((bool_var, inp[pos]))
                             propagate_identities[image].append(bool_var)
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for DCX gate")
@@ -389,7 +388,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_incr(bool_var, out.k, inp.k, 1)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CH gate")
@@ -413,7 +412,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_incr(bool_var, out.k, inp.k, 2)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CSX gate")
@@ -441,7 +440,7 @@ class Synthesizer:
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
                         
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CY gate")
@@ -455,7 +454,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CZ gate")
@@ -469,7 +468,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CS gate")
@@ -483,7 +482,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CSDG gate")
@@ -504,7 +503,7 @@ class Synthesizer:
                                 propagate_identities[other].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for SWAP gate")
@@ -525,7 +524,7 @@ class Synthesizer:
                                 propagate_identities[other].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for ISWAP gate")
@@ -550,7 +549,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_incr(bool_var, out.k, inp.k, 2)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for SQRTSWAP gate")
@@ -575,7 +574,7 @@ class Synthesizer:
                                 propagate_identities[other].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CCX gate")
@@ -597,7 +596,7 @@ class Synthesizer:
                                 saved_operations[other].append((bool_var, inp[pos]))
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CSwap gate")
@@ -612,7 +611,7 @@ class Synthesizer:
                                 propagate_identities[pos].append(bool_var)
                             elif cannot_propagate:
                                 saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             add_k_eq(bool_var, out.k, inp.k)
                     elif self.basis == "pauli":
                         raise NotImplementedError("Pauli basis not supported for CCZ gate")
@@ -827,7 +826,7 @@ class Synthesizer:
             solver -> specify specific solver or portfolio of solvers
             mode -> specify solving method (basic -> create whole formula and get the best model, incremental -> incrementally generate the formula, binary, topdown, bottomup -> searches to optimize cost function)
             output_qasm -> file to write the output circuit to
-            complex_representation -> specify the complex representation ["FiveTuple", "nTuple", "Classic"]
+            complex_representation -> specify the complex representation ["FiveTuple", "Classic"]
             gate_set -> specify the gate set to use using the GateSet class, otherwise, the gate set is taken from the input qasm file
             q -> number of qubits of the output circuit (has to correspond to the vector_pairs size)
             d -> number of allowed gates in the output circuit
@@ -870,12 +869,10 @@ class Synthesizer:
             raise ValueError("a solver is required for basic smt and milp solving")
         if mode not in ["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"]:
             raise ValueError("mode can be only basic, incremental, binary, topdown, bottomup, or pareto-incremental")
-        if complex_representation not in ["FiveTuple", "nTuple", "Classic"]:
-            raise ValueError("complex_representation can be only FiveTuple, nTuple, or Classic")
+        if complex_representation not in ["FiveTuple", "Classic"]:
+            raise ValueError("complex_representation can be only FiveTuple or Classic")
         if complex_representation == "FiveTuple":
             self.complex_representation = FiveTuple
-        elif complex_representation == "nTuple":
-            raise NotImplementedError("nTuple representation is not implemented, use FiveTuple or Classic")
         elif complex_representation == "Classic":
             self.gen.logic = "QF_NRA"
             self.complex_representation = Complex
@@ -1056,14 +1053,14 @@ class Synthesizer:
                         self.gen.add_assertion(self.gen.Equals(In[i][j], self.gen.Real(val[j])))
                 else:
                     self.gen.add_assertion(self.gen.Equals(In[i], val))
-            if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+            if self.complex_representation == FiveTuple:
                 self.gen.add_assertion(self.gen.Equals(In.k, self.gen.format_integer(input_state.k)))
             
             # encode intermediate vectors, bind the first one to the input vector
             inter = [None] * (self.d + 1)
             for d in range(self.d + 1):
                 Inter = None
-                if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                if self.complex_representation == FiveTuple:
                     Inter = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_state.k if d == 0 else 0, n = input_state.n, bound = bounds[d], k_bound = 2 * (d+1))
                 else:
                     Inter = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, bound = bounds[d], k_bound = 2 * (d+1))
@@ -1089,7 +1086,7 @@ class Synthesizer:
                 else:
                     self.gen.add_assertion(Target[i] == val)
             
-            if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+            if self.complex_representation == FiveTuple:
                 self.gen.add_assertion(self.gen.Equals(Target.k, self.gen.format_integer(output_state.k)))
             
             target_states.append(Target)
@@ -1164,7 +1161,7 @@ class Synthesizer:
                     weights.append(self.gen.declare_integer(f"W{self.curr_depth}", lb=0, ub=weight_bound))
                 for pair_idx in range(len(vector_pairs)):
                     if self.curr_depth > self.d:
-                        if self.complex_representation == FiveTuple or self.complex_representation == nTuple:
+                        if self.complex_representation == FiveTuple:
                             state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = vector_pairs[pair_idx][0].n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
                         else:
                             state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (self.curr_depth+1))

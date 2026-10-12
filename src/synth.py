@@ -794,26 +794,15 @@ class Synthesizer:
                         self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
                     
     def rus_cost(self, circuit, recovery_circuit, vectors) -> tuple[int, float]:
-        # Cost(circuit) / P[success]
-        try:
-            print(f"Calculating RUS circuit cost")
-            target_zero = vectors[0][0]
-            target_one = vectors[0][1]
-            prob = target_zero.abs2() + target_one.abs2()
-            cost = circuit.cost
-            recovery_cost = recovery_circuit.cost
-            sum = 0
-            for i in range(len(vectors[0])):
-                sum += vectors[0][i].abs2()
-                
-            prob_success = prob / sum
-            print(f"Probability of success: {prob_success}")
-            print(f"Circuit T count: {cost}")
-            print(f"Recovery circuit T count: {recovery_cost}")
-            print(f"Cost: {(cost + recovery_cost) / prob_success}")
-            return cost + recovery_cost, prob_success
-        except Exception as e:
-            return np.inf, 0.0
+        # x is the T count of the circuit and its recovery (None: no recovery needed), y the probability
+        # of success, i.e. of measuring every measured qubit to 0 (for the first input state)
+        vector = vectors[0]
+        probabilities = [e.abs2() if vector.element_representation == Complex else e.abs2(vector.k) for e in vector.vec]
+        success = sum(p for i, p in enumerate(probabilities) if not any(i >> q & 1 for q in self.qubits_to_measure))
+        prob_success = float(success / sum(probabilities))
+        recovery_cost = recovery_circuit.cost if recovery_circuit is not None else 0
+        self.logger.log("INFO", f"RUS circuit T count: {circuit.cost}, recovery T count: {recovery_cost}, probability of success: {prob_success}")
+        return circuit.cost + recovery_cost, prob_success
         
     def circuit_cost(self, circuit) -> tuple[int, int]:
         # x is the number of gates, y the cost given by the gate weights (e.g. the T-count with T-optimal weights)
@@ -1199,7 +1188,7 @@ class Synthesizer:
                             lambda: self.solve_and_extract_circuit(
                                 formula_file=formula_file,
                                 output_qasm=output_qasm,
-                                write_to_file=True,
+                                write_to_file=False,  # every point goes to pareto_front/, the best one to output_qasm
                                 draw_circuit=False,
                             )
                         )
@@ -1212,37 +1201,42 @@ class Synthesizer:
                             cost_x, cost_y = 0.0, 0.0
                             recovery_circuit = None
                             if self.vector_mode == "rus":
-                                # synthesize the recovery operation: it maps the state after a failed
-                                # attempt (ancilla measured to 1) back to the input state
-                                states_recovery = rus_recovery_pairs(vectors, vector_pairs, self.qubits_to_measure)
-                                synthesizer = Synthesizer()
-                                gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
-                                gate_set.set_t_optimal()
-                                # errors (e.g. a failing solver) are raised again by start() and stop the run
-                                res_recovery, recovery_circuit, recovery_vectors = self.pareto_front.start(
-                                    lambda: synthesizer.synthesis(
-                                        vector_pairs=states_recovery,
-                                        vectors="custom",
-                                        q=self.q,
-                                        d=self.d,
-                                        gate_set=gate_set,
-                                        output_qasm=os.path.splitext(output_qasm)[0] + "_recovery.qasm",
-                                        solving="gurobi",
-                                        solver="gurobi",
-                                        mode="incremental",
-                                        complex_representation="Classic",
-                                        targets=self.targets,
-                                        ancillas=self.ancillas,
-                                        up_to_global_phase=True,
+                                cost_x, cost_y = self.rus_cost(circuit, None, vectors)
+                                # a circuit that always succeeds needs no recovery (the state after a failure is zero)
+                                if cost_y < 1 - 1e-8:
+                                    # synthesize the recovery operation: it maps the state after a failed
+                                    # attempt (ancilla measured to 1) back to the input state
+                                    states_recovery = rus_recovery_pairs(vectors, vector_pairs, self.qubits_to_measure)
+                                    synthesizer = Synthesizer()
+                                    gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
+                                    gate_set.set_t_optimal()
+                                    # errors (e.g. a failing solver) are raised again by start() and stop the run
+                                    res_recovery, recovery_circuit, recovery_vectors = self.pareto_front.start(
+                                        lambda: synthesizer.synthesis(
+                                            vector_pairs=states_recovery,
+                                            vectors="custom",
+                                            q=self.q,
+                                            d=self.d,
+                                            # a recovery longer than the input circuit is not worth it; without
+                                            # a bound, a missing recovery would use up the whole time limit
+                                            max_depth=self.d,
+                                            gate_set=gate_set,
+                                            output_qasm=os.path.splitext(output_qasm)[0] + "_recovery.qasm",
+                                            solving="gurobi",
+                                            solver="gurobi",
+                                            mode="incremental",
+                                            complex_representation="Classic",
+                                            targets=self.targets,
+                                            ancillas=self.ancillas,
+                                            up_to_global_phase=True,
+                                        )
                                     )
-                                )
-                                if self.pareto_front.timeout_met():
-                                    break
-                                if not res_recovery:  # no recovery circuit exists
-                                    recovery_circuit = Circuit(gates=[], q=self.q, d=self.d)
-                                    recovery_circuit.cost = np.inf
-
-                                cost_x, cost_y = self.rus_cost(circuit, recovery_circuit, vectors)
+                                    if self.pareto_front.timeout_met():
+                                        break
+                                    if not res_recovery:  # no recovery circuit exists
+                                        recovery_circuit = Circuit(gates=[], q=self.q, d=self.d)
+                                        recovery_circuit.cost = np.inf
+                                    cost_x, cost_y = self.rus_cost(circuit, recovery_circuit, vectors)
                             else:
                                 cost_x, cost_y = self.circuit_cost(circuit)
                             # add the point to the pareto front and filter the model
@@ -1276,6 +1270,12 @@ class Synthesizer:
             if self.encoding_method == "pareto-incremental":
                 self.pareto_front.cleanup()
                 res, circuit, vectors = self.pareto_front.best()
+                if res:
+                    circuit.write_to_file(output_qasm)
+                    recovery_circuit = next(point[4] for point in self.pareto_front.front if point[3] is circuit)
+                    if recovery_circuit is not None:
+                        # the recovery synthesis wrote the recovery of every model here, keep the best one's
+                        recovery_circuit.write_to_file(os.path.splitext(output_qasm)[0] + "_recovery.qasm")
         else:
             raise ValueError(f"Invalid encoding method: {self.encoding_method}")
 

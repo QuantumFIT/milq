@@ -1148,7 +1148,10 @@ class Synthesizer:
                 self.logger.log("INFO", f"Encoding new layer")
                 self.gen.d = self.curr_depth
                 # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
-                selection_variables, bool_variables = self.gen.add_selection_variables(self.curr_depth-1, self.gate_set, self.q)
+                # pareto-incremental enumerates every circuit once, at the depth equal to its gate count: with empty
+                # (id) layers, each circuit would come back with ids in every position, on every qubit, at every depth
+                selection_variables, bool_variables = self.gen.add_selection_variables(self.curr_depth-1, self.gate_set, self.q,
+                                                                                       include_identity=self.encoding_method != "pareto-incremental")
                 if self.complex_representation == Complex:
                     if self.layer_bigM == 1:
                         self.layer_bigM = 4

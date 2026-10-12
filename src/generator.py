@@ -133,12 +133,13 @@ class Generator:
             self.lp_problem.setObjective(objective, GRB.MINIMIZE)
         self.stats['objectives'] += 1
         
-    def add_selection_variables(self, layer, gate_set, qubits) -> tuple[list, list]:
-        # add all selection variables for the given layer
+    def add_selection_variables(self, layer, gate_set, qubits, include_identity=True) -> tuple[list, list]:
+        # add all selection variables for the given layer; the identity lets a layer stay empty
         selection_variables = []
         bool_variables = []
-        gate_set.add_gate(gate="id", weight=0, qubits=1)
-        gates = gate_set.get_gates(1)
+        if include_identity:
+            gate_set.add_gate(gate="id", weight=0, qubits=1)
+        gates = [gate for gate in gate_set.get_gates(1) if include_identity or gate != "id"]
         if self.jamiolkowski:
             # here qubits is 2*q, the actual zone of interest is q
             qubits = qubits // 2

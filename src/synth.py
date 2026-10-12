@@ -839,7 +839,7 @@ class Synthesizer:
             gate_set -> specify the gate set to use using the GateSet class, otherwise, the gate set is taken from the input qasm file
             q -> number of qubits of the output circuit (has to correspond to the vector_pairs size)
             d -> number of allowed gates in the output circuit
-            fidelity_threshold -> solver=dreal and mode=smtlib uses QF_NRA and fidelity instead of exact equivalence
+            fidelity_threshold -> minimum average fidelity for approximate synthesis (approx=True)
             targets -> number of target qubits (used for RUS -- targets are always the lowest indices)
             ancillas -> number of ancilla qubits (used for RUS -- ancillas are always the highest indices)
             up_to_global_phase -> if True, the synthesis will be done up to global phase (if the mode supports it)
@@ -966,9 +966,7 @@ class Synthesizer:
             self.gen.mode = "smtlib"
             incremental_mode = True if (mode == "incremental" or mode == "pareto-incremental") and solver != "portfolio" else False
             self.add_solvers(incremental_mode=incremental_mode)
-            if solver == "dreal":
-                self.gen.logic = "QF_NRA"
-            
+
             new_dict = {}
             for name, s in self.solvers.items():
                 if self.gen.logic in s.logics and self.solver_config[name].portfolio:
@@ -1384,7 +1382,6 @@ class Synthesizer:
         """    
             formula_file: Path to the formula file
             output_qasm: Output filename for QASM circuit
-            solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2, dreal (experimental)
         """
         solving_start = time.time()
         self.logger.log("INFO", f"Solving formula")

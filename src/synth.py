@@ -815,11 +815,14 @@ class Synthesizer:
     
     def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="gurobi", solver=None, mode="incremental", output_qasm="circuit.qasm", 
                 complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1, 
-                up_to_global_phase=False, basis="cb", approx=False, no_measurement=False, max_depth=None, pareto_timeout=10*60*60) -> tuple[bool, Circuit, list[Vector]]:
+                up_to_global_phase=False, basis="cb", approx=False, no_measurement=False, max_depth=None, pareto_timeout=10*60*60,
+                input_vectors=None) -> tuple[bool, Circuit, list[Vector]]:
         """
             qasm_file -> file to synthesize
-            vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas, custom -> has to specify vector_pairs, q, d, gate_set)
+            vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas,
+                       custom -> input_vectors with qasm_file or matrix, or else vector_pairs, q, d, gate_set)
             vector_pairs -> list of pairs (input_vector, output_vector) for input and its expected output.
+            input_vectors -> with vectors=custom and a qasm_file or matrix: the input states; the expected outputs are simulated from the circuit
             solving -> specify if smt (has to specify solver), pysmt, milp, gurobipy
             solver -> specify specific solver or portfolio of solvers
             mode -> specify solving method (basic -> create whole formula and get the best model, incremental -> incrementally generate the formula, binary, topdown, bottomup -> searches to optimize cost function)
@@ -845,15 +848,24 @@ class Synthesizer:
             raise ValueError("vectors can be only zero, all, rus, jamiolkowski, or custom")
         if vectors in ["zero", "all", "rus", "jamiolkowski"] and vector_pairs is not None:
             raise ValueError("vector_pairs cannot be provided when vectors are specified")
-        if vectors == "custom" and (vector_pairs is None or q is None or d is None or gate_set is None):
+        from_circuit = qasm_file is not None or matrix is not None
+        if vectors == "custom" and from_circuit:
+            # the outputs are simulated from the circuit, so only the inputs are given
+            if vector_pairs is not None:
+                raise ValueError("with a qasm_file or matrix, give the input states as input_vectors, not vector_pairs")
+            if not input_vectors:
+                raise ValueError("input_vectors are required when vectors are custom and a qasm_file or matrix is given")
+        elif vectors == "custom" and (vector_pairs is None or q is None or d is None or gate_set is None):
             raise ValueError("vector_pairs, q, d, and gate_set are required when vectors are custom")
+        if input_vectors is not None and not (vectors == "custom" and from_circuit):
+            raise ValueError("input_vectors can be provided only with vectors=custom and a qasm_file or matrix")
         if qasm_file is None and matrix is None and vector_pairs is None:
             raise ValueError("input qasm_file, matrix, or vector_pairs is required")
         if qasm_file is not None and matrix is not None:
             raise ValueError("qasm_file and matrix cannot be provided at the same time")
         
-        if matrix is not None and vectors != "rus":
-            raise ValueError("matrix can be provided only for rus mode")
+        if matrix is not None and vectors not in ["rus", "custom"]:
+            raise ValueError("matrix can be provided only for rus and custom mode")
         if solving in ["smt", "milp", "pysmt"] and solver is None:
             raise ValueError("a solver is required for basic smt and milp solving")
         if mode not in ["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"]:
@@ -888,7 +900,7 @@ class Synthesizer:
         self.max_depth = max_depth
         self.pareto_timeout = pareto_timeout
 
-        if vectors in ["zero", "all", "rus", "jamiolkowski"]:
+        if vectors in ["zero", "all", "rus", "jamiolkowski"] or (vectors == "custom" and from_circuit):
             # set circuit statistics to prepare synthesis
             self.simulator = Simulator(qasm_file, matrix, complex_representation=self.complex_representation, basis=basis, no_measurement=no_measurement)
             self.gate_set = gate_set
@@ -902,6 +914,8 @@ class Synthesizer:
             elif vectors == "jamiolkowski":
                 self.gen.jamiolkowski = True
                 vector_pairs = self.simulator.simulate_jamiolkowski()
+            elif vectors == "custom":
+                vector_pairs = self.simulator.simulate_custom(input_vectors)
             
             stats = self.simulator.circuit_stats()
             if self.gate_set is None:

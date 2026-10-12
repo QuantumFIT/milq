@@ -363,7 +363,18 @@ class Simulator:
     """
     def simulate_custom(self, vectors: list[Vector]) -> list[tuple[Vector, Vector]]:
         gates, _ = self.parse_file()
-        return self.simulate(vectors, gates)
+        size = 2**self.stats['q']
+        for i, vector in enumerate(vectors):
+            if len(vector) != size:
+                raise ValueError(f"input vector {i} has {len(vector)} amplitudes, the circuit acts on {self.stats['q']} qubit(s) ({size} amplitudes)")
+            if vector.element_representation != self.complex_representation:
+                raise ValueError(f"input vector {i} uses {vector.element_representation.__name__}, "
+                                 f"the synthesis uses {self.complex_representation.__name__}")
+        # simulate() replaces the elements of the list it gets, so the caller's list is left alone
+        res = self.simulate(list(vectors), gates)
+        for (inp, out) in res:
+            self.stats['max_k'] = max(self.stats['max_k'], inp.k, out.k)
+        return res
 
     """
     simulate the unitary part of RUS circuit (without the measurement) on states |0>, |1>, |+> for the target qubit

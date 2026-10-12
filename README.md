@@ -91,7 +91,6 @@ The tests use the bundled yices2/cvc5 binaries and the size-limited license ship
 - src/
 | - complex/
 | | - classic.py (a+bj)
-| | - ntuple.py (algebraic n-tuples)
 | | - fivetuple.py (algebraic fivetuples)
 | | - matrix.py (unitary matrices)
 | | - vector.py (vector abstraction)

@@ -8,7 +8,6 @@
 import re
 from complex.vector import Vector
 from complex.fivetuple import FiveTuple
-from complex.ntuple import nTuple
 from complex.classic import Complex
 from complex.matrix import Matrix
 from gates import GateSet
@@ -17,7 +16,7 @@ import numpy as np
 
 class Simulator:
     """
-    simulate quantum circuit using the representation for synthesis - complex, fivetuples, ntuples
+    simulate quantum circuit using the representation for synthesis - complex, fivetuples
     can simulate either normal circuits (all cbs) or RUS circuits (0, 1, + states)
     """
     def __init__(self, qasm_file: str = None, matrix: np.array = None, complex_representation: type[Vector] = FiveTuple, meas: int = 0, basis="cb", no_measurement=False):

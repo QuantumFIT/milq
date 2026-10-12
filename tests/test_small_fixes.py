@@ -55,11 +55,10 @@ def test_qasm_statements(tmp_path, body, gates):
     assert Simulator(str(path), complex_representation=Complex).parse_file()[0] == gates
 
 
-def test_ntuple_is_not_implemented(tmp_path):
-    # nTuple is dead code until it is rewritten
+def test_unknown_complex_representation(tmp_path):
     from synth import Synthesizer
     path = tmp_path / "c.qasm"
     path.write_text('OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nh q[0];\n')
-    with pytest.raises(NotImplementedError):
-        Synthesizer().synthesis(qasm_file=str(path), vectors="all", solving="smt", solver="z3",
+    with pytest.raises(ValueError, match="complex_representation can be only FiveTuple or Classic"):
+        Synthesizer().synthesis(qasm_file=str(path), vectors="all", solving="smt", solver="yices2",
                                 mode="incremental", complex_representation="nTuple", output_qasm=str(tmp_path / "o.qasm"))

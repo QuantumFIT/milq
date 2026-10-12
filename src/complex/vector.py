@@ -7,7 +7,6 @@
 
 import numpy as np
 from .classic import Complex
-from .ntuple import nTuple
 from .fivetuple import FiveTuple
 
 class Vector:
@@ -23,7 +22,7 @@ class Vector:
         
         # k is stored in the vector (shared by all elements)
         if generator is not None:
-            if (element_representation == FiveTuple or element_representation == nTuple) and k is not None:
+            if element_representation == FiveTuple and k is not None:
                 if name is not None:
                     self.k = generator.declare_integer(f"{name}_k", lb=0, ub=k_bound)
                 else:
@@ -42,16 +41,9 @@ class Vector:
         self.bound = bound
         for i in range(q):
             if name is not None:
-                if element_representation == nTuple:
-                    self.vec.append(element_representation(name=f"{name}_{i}", n=n, generator=generator, bound=bound))
-                else:
-                    self.vec.append(element_representation(name=f"{name}_{i}", generator=generator, bound=bound))
+                self.vec.append(element_representation(name=f"{name}_{i}", generator=generator, bound=bound))
             else:
-                if element_representation == nTuple:
-                    self.vec.append(element_representation.zero(generator, n=n, bound=bound))
-                    
-                else:
-                    self.vec.append(element_representation.zero(generator, bound=bound))
+                self.vec.append(element_representation.zero(generator, bound=bound))
 
     def __getitem__(self, i):
         return self.vec[i]

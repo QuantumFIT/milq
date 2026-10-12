@@ -7,7 +7,6 @@
 
 from .classic import Complex
 from .fivetuple import FiveTuple
-from .ntuple import nTuple
 from .vector import Vector
 from gates import GateSet
 import numpy as np
@@ -100,7 +99,7 @@ class Matrix:
             new_matrix.k = self.k + other.k
             return new_matrix
         
-        if isinstance(other, float) or isinstance(other, int) or isinstance(other, Complex) or isinstance(other, FiveTuple) or isinstance(other, nTuple):
+        if isinstance(other, float) or isinstance(other, int) or isinstance(other, Complex) or isinstance(other, FiveTuple):
             # pointwise multiplication
             for i in range(len(self.matrix)):
                 for j in range(len(self.matrix[i])):

@@ -6,10 +6,10 @@ title: Command-line reference
 
 # Command-line reference
 
-## `cli/cli.py`: synthesis
+## `milq`: synthesis
 
 ```console
-$ python3 cli/cli.py [options] <qasm_file>
+$ ./milq [options] <qasm_file>
 ```
 
 | Option | Values | Default | Description |

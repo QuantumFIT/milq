@@ -48,10 +48,19 @@ $ chmod +x solvers/cvc5/cvc5 solvers/opensmt/opensmt solvers/yices2/yices_smt2 s
 
 Without a Gurobi license, `-s milp -a cbc` solves the same MILP encoding with CBC, which ships with PuLP. It is much slower, though: `benchmarks/ghz/3.qasm` with `-v zero` takes about 2 minutes, against about a second with yices2.
 
+## Put `milq` on your `PATH` (optional)
+
+`milq` is an executable script in the repository root. To call it from anywhere, link it into a directory on your `PATH` (run in the repository root):
+
+```console
+$ ln -s "$PWD/milq" ~/.local/bin/milq
+$ milq --help
+```
+
 ## Check the installation
 
 ```console
-$ python3 cli/cli.py -s smt -a yices2 benchmarks/ghz/2.qasm
+$ ./milq -s smt -a yices2 benchmarks/ghz/2.qasm
 synthesis successful
 ```
 

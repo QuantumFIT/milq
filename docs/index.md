@@ -18,7 +18,7 @@ MILQ simulates the input circuit on a set of input states and asks a solver for 
 The GHZ state preparation circuit in `benchmarks/ghz/3.qasm` is synthesized with yices2 (bundled with MILQ) in about a second:
 
 ```console
-$ python3 cli/cli.py -s smt -a yices2 benchmarks/ghz/3.qasm
+$ ./milq -s smt -a yices2 benchmarks/ghz/3.qasm
 synthesis successful
 ...
 OPENQASM 3.0;

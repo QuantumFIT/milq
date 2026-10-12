@@ -9,6 +9,7 @@ from pysmt.shortcuts import Solver
 
 import pareto
 from complex.classic import Complex
+from complex.fivetuple import FiveTuple
 from complex.vector import Vector
 from conftest import BENCHMARKS, unitary
 from gates import Circuit, Gate, GateSet
@@ -41,6 +42,29 @@ def test_rus_recovery_pairs_use_failure_state_and_concrete_input():
     # normalized projection onto ancilla = 1, mapped back to the input state
     np.testing.assert_allclose(values(failure_state), [0, 0, 1 / np.sqrt(2), -1 / np.sqrt(2)], atol=1e-8)
     np.testing.assert_allclose(values(target), values(input_state))
+
+
+def five_tuple_vector(a_values, k):
+    vec = Vector(q=len(a_values), element_representation=FiveTuple, k=k)
+    for i, a in enumerate(a_values):
+        vec[i] = FiveTuple(a=a)
+    return vec
+
+
+@pytest.mark.parametrize("representation", ["Classic", "FiveTuple"])
+def test_rus_cost(workdir, representation):
+    # target q0, ancilla q1; the attempt succeeds when the ancilla is measured as 0
+    if representation == "Classic":
+        always, half = classic_vector([1, 0, 0, 0]), classic_vector([0.5, 0.5, 0.5, -0.5])
+    else:
+        always, half = five_tuple_vector([1, 0, 0, 0], k=0), five_tuple_vector([1, 1, 1, -1], k=2)
+    synthesizer = Synthesizer()
+    synthesizer.qubits_to_measure = [1]
+    circuit, recovery = Circuit(gates=[], q=2, d=1), Circuit(gates=[], q=2, d=1)
+    circuit.cost, recovery.cost = 3, 2
+    # no recovery is needed when the attempt always succeeds
+    assert synthesizer.rus_cost(circuit, None, [always]) == (3, pytest.approx(1.0))
+    assert synthesizer.rus_cost(circuit, recovery, [half]) == (5, pytest.approx(0.5))
 
 
 def test_filter_model_pysmt_excludes_model():
@@ -125,6 +149,9 @@ def test_non_rus_points_are_gate_count_and_weighted_cost(workdir, monkeypatch):
     assert res
     assert [gate.name for gate in circuit.operations()] == ["s"]
     assert (1, 0) in points and (2, 2) in points
+    # the output file holds the returned circuit, not the last enumerated model
+    output = (workdir / "out.qasm").read_text()
+    assert "s q[0];" in output and "t q[0];" not in output
 
 
 def test_every_circuit_is_enumerated_once(workdir, monkeypatch):

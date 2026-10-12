@@ -80,6 +80,8 @@ def test_file_selection(tmp_path, monkeypatch):
     ('[solvers.a]\npath = "a"\nlogics = ["QF_LIA"]\nflags = []\n', "unknown key(s) ['flags']"),
     ('[solvers.portfolio]\npath = "a"\nlogics = ["QF_LIA"]\n', "'portfolio' is reserved"),
     ('[solver.a]\npath = "a"\n', "unknown top-level key(s) ['solver']"),
+    ('solvers = 1\n', "'solvers' must contain [solvers.NAME] tables"),
+    ('[solvers]\na = 1\n', "[solvers.a]: must be a table"),
     ('', "no solvers configured"),
     ('[solvers.a\n', "s.toml: "),  # invalid TOML
 ])
@@ -153,6 +155,28 @@ def test_portfolio_without_a_solver_for_the_logic(workdir):
     config = write_config(workdir / "s.toml", f'[solvers.yices2]\npath = "{YICES}"\nlogics = ["QF_LIA"]\n')
     with pytest.raises(SolverConfigError, match="no portfolio solver supports QF_NRA"):
         synthesize("portfolio", config, representation="Classic")
+
+
+@pytest.mark.parametrize("solver", ["yices2", "portfolio"])
+def test_pysmt_solving(workdir, solver):
+    # the pySMT backend registers the configured solvers as pySMT generic solvers
+    res, circuit, _ = Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="pysmt", solver=solver, mode="basic",
+                                              output_qasm="out.qasm")
+    assert res
+    assert circuit.gate_count() == 2
+
+
+def test_pysmt_solving_rejects_a_changed_solver(workdir):
+    Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="pysmt", solver="yices2", mode="basic")
+    config = write_config(workdir / "s.toml", f'[solvers.yices2]\npath = "{YICES}"\nargs = ["-v", "0"]\nlogics = ["QF_LIA"]\n')
+    with pytest.raises(SolverConfigError, match="pySMT already has a solver yices2"):
+        Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="pysmt", solver="yices2", mode="basic",
+                                solver_config=config)
+
+
+def test_pysmt_solving_rejects_unknown_solver(workdir):
+    with pytest.raises(SolverConfigError, match="Invalid solver: yices"):
+        Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="pysmt", solver="yices", mode="basic")
 
 
 def test_cli_reports_config_errors(workdir):

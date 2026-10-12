@@ -6,68 +6,85 @@
 """
 
 import multiprocessing
+import multiprocessing.connection
 import time
 import os
+import traceback
 from gates import Circuit
 
 
-def _pareto_run_queue(queue, fn):
+def _pareto_worker(conn, fn):
+    # runs in the forked process; an exception is sent back and raised again by Pareto.start
     try:
-        queue.put(("ok", fn()))
+        result = ("ok", fn(), None)
     except Exception as e:
-        queue.put(("err", (False, None, None)))
+        result = ("err", e, traceback.format_exc())
+    try:
+        conn.send(result)
+    except Exception as e:  # the result or the exception cannot be pickled
+        conn.send(("err", RuntimeError(f"the pareto worker could not send its result back: {e}"), traceback.format_exc()))
+    finally:
+        conn.close()
 
 
 class Pareto:
-    def __init__(self, timeout: int = 10*60*60, max_x: int = 10, max_y: float = 1.0):
+    def __init__(self, timeout: float = 10*60*60, maximize_y: bool = False, x_label: str = "x", y_label: str = "y"):
+        # x is always minimized; y is maximized (e.g. probability of success) or minimized (e.g. a cost)
         self.timeout = timeout
         self.tmout_met = False
         self.start_time = time.time()
         self.end_time = self.start_time + timeout
         self.models = 0
-        self.max_x = max_x
-        self.max_y = max_y
+        self.maximize_y = maximize_y
+        self.x_label = x_label
+        self.y_label = y_label
         self.front = []
         
     
     def start(self, func: callable) -> any:
-        # start another process, this function handles the overall timeout
-        time_now = time.time()
-        if time_now >= self.end_time:
-            self.tmout_met = True
-            return False, None, None
-
-        remaining = self.end_time - time_now
+        # run func in another process, this function handles the overall timeout
+        remaining = self.end_time - time.time()
         if remaining <= 0:
             self.tmout_met = True
             return False, None, None
 
         # fork explicitly: func is a closure, which other start methods cannot pickle
         context = multiprocessing.get_context("fork")
-        q = context.Queue()
-        proc = context.Process(target=_pareto_run_queue, args=(q, func))
+        receiver, sender = context.Pipe(duplex=False)
+        proc = context.Process(target=_pareto_worker, args=(sender, func))
         proc.start()
-        proc.join(timeout=remaining)
-        if proc.is_alive():
-            proc.terminate()
+        sender.close()  # only the worker writes; closing this copy lets recv() see a worker that exited
+        try:
+            # read the result as soon as it is there, before joining: a result larger than the pipe
+            # buffer would otherwise keep the worker blocked in send() and the join waiting forever
+            if not multiprocessing.connection.wait([receiver, proc.sentinel], timeout=remaining):
+                proc.terminate()  # the time limit was met while the worker was still running
+                self.tmout_met = True
+                return False, None, None
+            try:
+                status, value, details = receiver.recv()
+            except EOFError:
+                proc.join()
+                raise RuntimeError(f"the pareto worker exited (exit code {proc.exitcode}) without a result")
+        finally:
             proc.join(timeout=10)
-            self.tmout_met = True
-            return False, None, None
+            receiver.close()
 
         self.tmout_met = False
-        if q.empty():
-            return False, None, None
-        status, return_value = q.get()
         if status == "err":
-            return False, None, None
-        return return_value
+            value.add_note(f"raised in the pareto worker:\n{details}")
+            raise value
+        return value
+
+    def _sort_key(self, point):
+        return (point[0], -point[1] if self.maximize_y else point[1])
     
     def get_frontier(self) -> list:
+        def at_least_as_good(q, p):
+            return q[0] <= p[0] and (q[1] >= p[1] if self.maximize_y else q[1] <= p[1])
+
         def dominated(p):
-            x, y = p[0], p[1]
-            return any(
-                q[0] <= x and q[1] >= y and (q[0] < x or q[1] > y) for q in self.front
-            )
+            return any(at_least_as_good(q, p) and (q[0], q[1]) != (p[0], p[1]) for q in self.front)
 
         return [p for p in self.front if not dominated(p)]
 
@@ -78,7 +95,7 @@ class Pareto:
             return
 
         f = self.get_frontier()
-        f.sort(key=lambda p: (p[0], -p[1]))
+        f.sort(key=self._sort_key)
         xs, ys = [p[0] for p in f], [p[1] for p in f]
         all_x = [p[0] for p in self.front]
         all_y = [p[1] for p in self.front]
@@ -89,27 +106,25 @@ class Pareto:
         if len(xs) > 1:
             plt.plot(xs, ys, color="tab:red", zorder=2)
         plt.title("Pareto front")
-        plt.xlabel("Circuit cost")
-        plt.ylabel("Probability of success")
+        plt.xlabel(self.x_label)
+        plt.ylabel(self.y_label)
         plt.legend()
         plt.savefig("pareto_front.pdf")
         plt.close()
         
         
     def best(self) -> tuple[bool, Circuit, list]:
-        # the cheapest circuit of the front (most likely to succeed among equally cheap ones)
+        # the point with the lowest x of the front (best y among equal x)
         frontier = self.get_frontier()
         if not frontier:
             return False, None, []
-        frontier.sort(key=lambda p: (p[0], -p[1]))
+        frontier.sort(key=self._sort_key)
         return True, frontier[0][3], []
 
     def get_models_count(self):
         return self.models
     
     def add_point(self, cost_x: int, cost_y: float, depth: int, circuit: Circuit, recovery_circuit: Circuit):
-        if cost_x > self.max_x or cost_y > self.max_y:
-            return
         # add a new point to the pareto front
         self.models += 1
         self.front.append((cost_x, cost_y, depth, circuit, recovery_circuit))

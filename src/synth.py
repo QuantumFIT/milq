@@ -815,9 +815,9 @@ class Synthesizer:
         except Exception as e:
             return np.inf, 0.0
         
-    def circuit_cost(self, circuit) -> tuple[int, float]:
-        # x is the cost of the circuit, y the probability of success (a deterministic circuit always succeeds)
-        return circuit.get_cost(), 1.0
+    def circuit_cost(self, circuit) -> tuple[int, int]:
+        # x is the number of gates, y the cost given by the gate weights (e.g. the T-count with T-optimal weights)
+        return circuit.gate_count(), circuit.get_cost()
 
     def set_initial_values(self):
         for i, (gate, qubits) in enumerate(self.simulator.stats['input_circuit']):
@@ -1132,7 +1132,12 @@ class Synthesizer:
             self.logger.update_time("encoding", encoding_end - encoding_start)
             encoding_start = time.time()
             if self.encoding_method == "pareto-incremental":
-                self.pareto_front = Pareto(timeout=self.pareto_timeout, max_x=self.d, max_y=1.0)
+                if self.vector_mode == "rus":
+                    self.pareto_front = Pareto(timeout=self.pareto_timeout, maximize_y=True,
+                                               x_label="T-count (circuit + recovery)", y_label="Probability of success")
+                else:
+                    self.pareto_front = Pareto(timeout=self.pareto_timeout, maximize_y=False,
+                                               x_label="Gate count", y_label="Cost (gate weights)")
             self.curr_depth = 1
             circuit, vectors = None, None
             while not res:
@@ -1207,36 +1212,33 @@ class Synthesizer:
                                 # synthesize the recovery operation: it maps the state after a failed
                                 # attempt (ancilla measured to 1) back to the input state
                                 states_recovery = rus_recovery_pairs(vectors, vector_pairs, self.qubits_to_measure)
-                                try:
-                                    synthesizer = Synthesizer()
-                                    gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
-                                    gate_set.set_t_optimal()
-                                    res_recovery, recovery_circuit, recovery_vectors = self.pareto_front.start(
-                                        lambda: synthesizer.synthesis(
-                                            vector_pairs=states_recovery,
-                                            vectors="custom",
-                                            q=self.q,
-                                            d=self.d,
-                                            gate_set=gate_set,
-                                            output_qasm=os.path.splitext(output_qasm)[0] + "_recovery.qasm",
-                                            solving="gurobi",
-                                            solver="gurobi",
-                                            mode="incremental",
-                                            complex_representation="Classic",
-                                            targets=self.targets,
-                                            ancillas=self.ancillas,
-                                            up_to_global_phase=True,
-                                        )
+                                synthesizer = Synthesizer()
+                                gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
+                                gate_set.set_t_optimal()
+                                # errors (e.g. a failing solver) are raised again by start() and stop the run
+                                res_recovery, recovery_circuit, recovery_vectors = self.pareto_front.start(
+                                    lambda: synthesizer.synthesis(
+                                        vector_pairs=states_recovery,
+                                        vectors="custom",
+                                        q=self.q,
+                                        d=self.d,
+                                        gate_set=gate_set,
+                                        output_qasm=os.path.splitext(output_qasm)[0] + "_recovery.qasm",
+                                        solving="gurobi",
+                                        solver="gurobi",
+                                        mode="incremental",
+                                        complex_representation="Classic",
+                                        targets=self.targets,
+                                        ancillas=self.ancillas,
+                                        up_to_global_phase=True,
                                     )
-                                    if self.pareto_front.timeout_met():
-                                        break
-                                    if not res_recovery:
-                                        recovery_circuit = Circuit(gates=[], q=self.q, d=self.d)
-                                        recovery_circuit.cost = np.inf
-                                except Exception as e:
+                                )
+                                if self.pareto_front.timeout_met():
+                                    break
+                                if not res_recovery:  # no recovery circuit exists
                                     recovery_circuit = Circuit(gates=[], q=self.q, d=self.d)
                                     recovery_circuit.cost = np.inf
-                                    
+
                                 cost_x, cost_y = self.rus_cost(circuit, recovery_circuit, vectors)
                             else:
                                 cost_x, cost_y = self.circuit_cost(circuit)
@@ -1246,10 +1248,6 @@ class Synthesizer:
                     self.gen.pop()
                     self.curr_depth += 1
                     if self.pareto_front.timeout_met():
-                        break
-                    # outside RUS, every circuit with at most d gates is a model at depth d (empty
-                    # layers are id), so deeper layers only repeat them
-                    if self.vector_mode != "rus" and self.curr_depth > self.d:
                         break
                             
                 else:

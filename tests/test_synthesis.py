@@ -44,7 +44,7 @@ def test_pareto_incremental_enumerates_front(workdir, solving, solver, represent
     qasm_file = os.path.join(BENCHMARKS, "ghz/2.qasm")
     res, circuit, _ = Synthesizer().synthesis(qasm_file=qasm_file, vectors="zero", solving=solving, solver=solver,
                                               mode="pareto-incremental", complex_representation=representation,
-                                              output_qasm="out.qasm", pareto_timeout=60)
+                                              output_qasm="out.qasm", pareto_timeout=60, max_depth=2)
     assert res
     assert gate_count(circuit) == 2
     # both Bell-state preparations, h + cx in either orientation, are optimal points

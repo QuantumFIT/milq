@@ -74,7 +74,7 @@ $ python3 cli/cli.py -s gurobi -c Classic -v zero benchmarks/ghz/2.qasm
 | `incremental` (default) | Tries 1, 2, 3, … layers until a circuit is found, so the result has the minimum number of gates. With `--max-depth N` it gives up once no circuit with at most *N* gates exists. |
 | `basic` | Encodes a fixed number of layers *d* (the input's gate count, or `-d`) and solves once. Gurobi minimizes the gate count within *d* layers. SMT solvers return *some* circuit with at most *d* gates. |
 | `bottomup`, `topdown`, `binary` | Encode *d* layers like `basic`, then search over a bound on the gate count: upwards from 0, downwards from *d* + 1, or by bisection. |
-| `pareto-incremental` | Enumerates all circuits depth by depth and keeps a Pareto front of cost vs. probability of success (useful for RUS circuits; other circuits always succeed). Every point is written to `pareto_front/` and the front is plotted to `pareto_front.pdf`. It stops at the input's gate count (RUS: at the `-pt` time limit). |
+| `pareto-incremental` | Enumerates all circuits depth by depth and keeps a Pareto front: gate count vs. cost by the gate weights (e.g. T-count), or for `-v rus` T-count vs. probability of success. Every point is written to `pareto_front/` and the front is plotted to `pareto_front.pdf`. It runs until the `-pt` time limit or `--max-depth`. |
 
 The gate set is the set of gates in the input circuit plus Clifford+T (`x`, `z`, `h`, `s`, `sdg`, `t`, `tdg`, `cx`). Every gate costs 1. An empty layer (`id`) costs 0, so circuits shorter than *d* are allowed in the fixed-depth modes.
 

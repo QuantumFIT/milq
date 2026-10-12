@@ -116,8 +116,14 @@ class Synthesizer:
         if name == "z3" and self.gen.mode == "pysmt": 
             return
         if self.gen.mode == "pysmt":
-            env = get_env()
-            env.factory.add_generic_solver(name=name, args=args, logics=logics)
+            factory = get_env().factory
+            # pySMT keeps solvers registered for the whole process, e.g. by an earlier synthesis
+            if factory.is_generic_solver(name):
+                if factory.get_generic_solver_info(name) != (args, logics):
+                    raise SolverConfigError(f"pySMT already has a solver {name} with another command or logics; "
+                                            "use one solver configuration per process")
+                return
+            factory.add_generic_solver(name=name, args=args, logics=logics)
         else:
             self.solvers[name] = SMTSolver(name, args, logics, smtlib_flags, incremental_mode)
 

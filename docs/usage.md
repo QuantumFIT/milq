@@ -19,7 +19,7 @@ All options are listed in the [command-line reference](reference). This page wal
 The input is an OpenQASM 2.0 or 3.0 file with a single quantum register. Examples are in `benchmarks/`.
 
 - **Registers:** `qreg q[n];` / `creg c[n];` (2.0), or `qubit[n] q;` / `bit[n] c;` (3.0).
-- **Gates without parameters,** one per statement, applied to qubits `q[i]`: `h`, `x`, `y`, `z`, `s`, `sdg`, `t`, `tdg`, `sx`, `sxdg`, `id`, `cx`, `cz`, `ch`, `ccx`, `dcx`, and `xcx` (a CX controlled on \|0⟩).
+- **Gates without parameters,** one per statement, applied to qubits `q[i]`: `h`, `x`, `y`, `z`, `s`, `sdg`, `t`, `tdg`, `sx`, `sxdg`, `id`, `cx`, `cy`, `cz`, `ch`, `cs`, `csdg`, `csx`, `swap`, `iswap`, `sqrtswap`, `dcx`, `xcx` (a CX controlled on \|0⟩), `ccx`, `cswap` and `ccz`.
 - **Measurements at the end:** `measure q[i] -> c[i];` (2.0) or `c[i] = measure q[i];` (3.0). See [Measurements](#measurements).
 - Comments and `gate` definitions are skipped.
 
@@ -145,6 +145,4 @@ The circuit file uses `include "stdgates.inc";`. If it uses gates that are not i
 
 ## Known limitations
 
-- **Input gates:** `swap`, `iswap`, `cy`, `cs`, `csdg`, `csx`, `sqrtswap`, `cswap` and `ccz` can appear in synthesized circuits but are not yet accepted in input circuits ([#18](https://github.com/QuantumFIT/milq/issues/18)).
-
-All open issues are listed on [GitHub](https://github.com/QuantumFIT/milq/issues).
+Known limitations and planned features are tracked as issues on [GitHub](https://github.com/QuantumFIT/milq/issues).

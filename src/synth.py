@@ -1287,8 +1287,6 @@ class Synthesizer:
         else:
             raise ValueError(f"Invalid encoding method: {self.encoding_method}")
 
-        if circuit is not None:
-            circuit.add_measurement(self.qubits_to_measure)
         return res, circuit, vectors
 
     def binary_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
@@ -1390,6 +1388,8 @@ class Synthesizer:
                 empty_layers = [d for d, gate in enumerate(circuit.gates) if gate is None]
                 if empty_layers:
                     raise RuntimeError(f"the solver model selects no gate in layer(s) {empty_layers}; it is incomplete or was not parsed correctly")
+                # before writing: the output file needs the input circuit's end-of-circuit measurements too
+                circuit.add_measurement(self.qubits_to_measure or [])
                 if write_to_file:
                     circuit.write_to_file(output_qasm)
                 if draw_circuit:

@@ -75,9 +75,22 @@ print(circuit)                          # the circuit as OpenQASM 3.0
 print(synthesizer.logger.get_times())   # time per phase, in seconds
 ```
 
-The keyword arguments mirror the command-line options (`vectors` ↔ `-v`, `solving` ↔ `-s`, `solver` ↔ `-a`, `mode` ↔ `-m`, `complex_representation` ↔ `-c`, `d` ↔ `-d`, `up_to_global_phase` ↔ `-u`, `approx` ↔ `-ap`, `fidelity_threshold` ↔ `-f`, `targets` ↔ `-T`, `ancillas` ↔ `-A`, `no_measurement` ↔ `-nm`, `max_depth` ↔ `--max-depth`, `pareto_timeout` ↔ `-pt`). Two more are available only from Python:
+The keyword arguments mirror the command-line options (`vectors` ↔ `-v`, `solving` ↔ `-s`, `solver` ↔ `-a`, `mode` ↔ `-m`, `complex_representation` ↔ `-c`, `d` ↔ `-d`, `up_to_global_phase` ↔ `-u`, `approx` ↔ `-ap`, `fidelity_threshold` ↔ `-f`, `targets` ↔ `-T`, `ancillas` ↔ `-A`, `no_measurement` ↔ `-nm`, `max_depth` ↔ `--max-depth`, `pareto_timeout` ↔ `-pt`). Three more are available only from Python:
 
 - `gate_set=GateSet([...])` (from `gates`) restricts the gates the synthesized circuit may use.
-- `vectors="custom"` together with `vector_pairs`, `q`, `d` and `gate_set` gives the (input, output) state pairs directly instead of a QASM file.
+- `vectors="custom"` with `input_vectors` and a `qasm_file` (or `matrix`, which requires `complex_representation="Classic"`) synthesizes a circuit that agrees with the input circuit only on the given input states. The expected outputs are simulated from the circuit, and `q`, `d`, the gate set and the measured qubits are taken from it unless passed explicitly. Each input state is a `Vector` (from `complex.vector`) with 2<sup>q</sup> amplitudes in the chosen representation:
+
+  ```python
+  from complex.fivetuple import FiveTuple
+  from complex.vector import Vector
+
+  plus_zero = Vector(q=4, generator=None, element_representation=FiveTuple, k=1)  # |0>|+>, amplitudes / sqrt(2)^k
+  plus_zero[0] = FiveTuple.one(None)
+  plus_zero[1] = FiveTuple.one(None)
+  ok, circuit, _ = Synthesizer().synthesis(qasm_file="benchmarks/ghz/2.qasm", vectors="custom",
+                                           input_vectors=[plus_zero], solving="smt", solver="yices2")
+  print(circuit)  # h q[0]; on |0>|+>, the cx of the Bell circuit is not needed
+  ```
+- `vectors="custom"` together with `vector_pairs`, `q`, `d` and `gate_set` gives the (input, output) state pairs directly instead of a circuit.
 
 Create a new `Synthesizer` for every run.

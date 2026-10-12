@@ -22,6 +22,7 @@ from gates import GateSet, supported_gates, check_supported, Circuit
 from pulp import *
 from gurobipy import GRB
 from solvers import PortfolioSMTSolver, SMTSolver
+from solver_config import LOGICS, SolverConfigError, config_path, load_solver_config
 import time
 from logger import Logger
 import numpy as np
@@ -63,6 +64,7 @@ class Synthesizer:
         self.ancillas = 0
         self.vector_mode = None
         self.solvers = {}
+        self.solver_config = {}
         self.qubits_to_measure = None
         self.post_measurement = False
         # written to the synthesized circuit: (qubit, classical bit) and the classical declarations of the input
@@ -92,36 +94,23 @@ class Synthesizer:
         elif self.gen.mode == "pysmt" and hasattr(solver, "exit"):  # pySMT's Solver or Portfolio
             solver.exit()
             
+    def _load_solver_config(self, solver: str, path: str | None) -> None:
+        self.solver_config = load_solver_config(path)
+        if solver not in [*self.solver_config, "portfolio"]:
+            raise SolverConfigError(f"Invalid solver: {solver}; {config_path(path)} configures "
+                                    f"{', '.join(self.solver_config)} (or use portfolio)")
+
     def add_solvers(self, incremental_mode : bool = False) -> None:
-        # register custom solvers for pySMT portfolio solving
-        repo_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-        qf_lia = QF_LIA if self.gen.mode == "pysmt" else "QF_LIA"
-        qf_nra = QF_NRA if self.gen.mode == "pysmt" else "QF_NRA"
-        qf_nia = QF_NIA if self.gen.mode == "pysmt" else "QF_NIA"
-        qf_lra = QF_LRA if self.gen.mode == "pysmt" else "QF_LRA"
-        path = [os.path.join(repo_root, "solvers", "opensmt", "opensmt")]
-        self.add_one_solver(name="opensmt", args=path, logics=[qf_lia, qf_lra], incremental_mode=incremental_mode)
-        
-        path = ["z3"]
-        smtlib_flags = ["-in"] if incremental_mode else None
-        self.add_one_solver(name="z3", args=path, logics=[qf_lia, qf_nra, qf_nia], smtlib_flags=smtlib_flags, incremental_mode=incremental_mode)
-        
-        smtlib_flags = ["--incremental"] if incremental_mode else None
-        path = [os.path.join(repo_root, "solvers", "yices2", "yices_smt2")]
-        self.add_one_solver(name="yices2", args=path, logics=[qf_lia, qf_nra, qf_nia, qf_lra],smtlib_flags=smtlib_flags, incremental_mode=incremental_mode)
-        
-        path = [os.path.join(repo_root, "solvers", "smtinterpol", "smtinterpol")]
-        self.add_one_solver(name="smtinterpol", args=path, logics=[qf_lia, qf_nra, qf_nia], incremental_mode=incremental_mode)
-        
-        smtlib_flags = ["--produce-models"]
-        smtlib_flags.append("--incremental") if incremental_mode else None
-        path = [os.path.join(repo_root, "solvers", "cvc5", "cvc5")]
-        self.add_one_solver(name="cvc5", args=path, logics=[qf_lia, qf_nra, qf_nia], smtlib_flags=smtlib_flags, incremental_mode=incremental_mode)
-        
-        smtlib_flags = ["--precision", "1e-9", "--produce-models"]
-        smtlib_flags.append("--in") if incremental_mode else None
-        path = ['/opt/dreal/4.21.06.2/bin/dreal']
-        self.add_one_solver(name="dreal", args=path, logics=[qf_nra], smtlib_flags=smtlib_flags, incremental_mode=incremental_mode)
+        # register the solvers from the solver configuration (solvers.toml)
+        if self.gen.mode == "pysmt":
+            logics = {"QF_LIA": QF_LIA, "QF_LRA": QF_LRA, "QF_NIA": QF_NIA, "QF_NRA": QF_NRA}
+        else:
+            logics = {logic: logic for logic in LOGICS}
+        for name, config in self.solver_config.items():
+            # pySMT drives its generic solvers through stdin by itself
+            args = config.command(incremental_mode and self.gen.mode != "pysmt")
+            self.add_one_solver(name=name, args=args, logics=[logics[logic] for logic in config.logics],
+                                incremental_mode=incremental_mode)
     
     def add_one_solver(self, name: str, args: list[str], logics: list[str], smtlib_flags: list[str] = [], incremental_mode: bool = False) -> None:
         if name == "z3" and self.gen.mode == "pysmt": 
@@ -828,7 +817,7 @@ class Synthesizer:
     def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="gurobi", solver=None, mode="incremental", output_qasm="circuit.qasm", 
                 complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1, 
                 up_to_global_phase=False, basis="cb", approx=False, no_measurement=False, max_depth=None, pareto_timeout=10*60*60,
-                input_vectors=None) -> tuple[bool, Circuit, list[Vector]]:
+                input_vectors=None, solver_config=None) -> tuple[bool, Circuit, list[Vector]]:
         """
             qasm_file -> file to synthesize
             vectors -> specify what set of input vectors to use (zero -> only |0>^n state, all -> all cbs, rus -> |0>, |1>, |+> on target, |0> on ancillas,
@@ -837,6 +826,7 @@ class Synthesizer:
             input_vectors -> with vectors=custom and a qasm_file or matrix: the input states; the expected outputs are simulated from the circuit
             solving -> specify if smt (has to specify solver), pysmt, milp, gurobipy
             solver -> specify specific solver or portfolio of solvers
+            solver_config -> SMT solver configuration file (default: $MILQ_SOLVER_CONFIG, else solvers.toml in the repository root)
             mode -> specify solving method (basic -> create whole formula and get the best model, incremental -> incrementally generate the formula, binary, topdown, bottomup -> searches to optimize cost function)
             output_qasm -> file to write the output circuit to
             complex_representation -> specify the complex representation ["FiveTuple", "Classic"]
@@ -966,8 +956,7 @@ class Synthesizer:
         incremental_mode = False
         # set generator mode and solver
         if solving == "smt":
-            if solver not in ["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "portfolio"]:
-                raise ValueError(f"Invalid solver: {solver}")
+            self._load_solver_config(solver, solver_config)
             self.gen.mode = "smtlib"
             incremental_mode = True if (mode == "incremental" or mode == "pareto-incremental") and solver != "portfolio" else False
             self.add_solvers(incremental_mode=incremental_mode)
@@ -976,16 +965,20 @@ class Synthesizer:
             
             new_dict = {}
             for name, s in self.solvers.items():
-                if self.gen.logic in s.logics:
+                if self.gen.logic in s.logics and self.solver_config[name].portfolio:
                     new_dict[name] = s
             if solver == "portfolio":
+                if not new_dict:
+                    raise SolverConfigError(f"{config_path(solver_config)}: no portfolio solver supports {self.gen.logic}")
                 self.gen.solver = PortfolioSMTSolver(new_dict, logic=self.gen.logic)
             else:
-                self.gen.solver = new_dict[solver]
+                if self.gen.logic not in self.solvers[solver].logics:
+                    raise SolverConfigError(f"{solver} does not support {self.gen.logic} (logics in {config_path(solver_config)}: "
+                                            f"{', '.join(self.solvers[solver].logics)})")
+                self.gen.solver = self.solvers[solver]
 
         elif solving == "pysmt":
-            if solver not in ["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "portfolio"]:
-                raise ValueError(f"Invalid solver: {solver}")
+            self._load_solver_config(solver, solver_config)
             self.gen.mode = "pysmt"
             incremental_mode = True if mode == "incremental" or mode == "pareto-incremental" else False
             self.add_solvers(incremental_mode=incremental_mode)

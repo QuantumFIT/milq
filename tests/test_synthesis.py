@@ -97,3 +97,18 @@ def test_incremental_past_input_depth(workdir, solving, solver, body, gates, exp
                                               mode="incremental", complex_representation="FiveTuple", gate_set=GateSet(gates))
     assert res
     assert [str(gate) for gate in circuit.gates] == expected
+
+
+@pytest.mark.parametrize("mode", ["incremental", "basic", "binary", "pareto-incremental"])
+def test_output_file_keeps_end_of_circuit_measurements(workdir, mode):
+    # #57: the measurements were added to the returned circuit only after the file was written
+    with open("in.qasm", "w") as f:
+        f.write("OPENQASM 2.0;\nqreg q[2];\ncreg c[2];\nh q[0];\ncx q[0], q[1];\nmeasure q[0] -> c[0];\n")
+    res, circuit, _ = Synthesizer().synthesis(qasm_file="in.qasm", vectors="zero", solving="smt", solver="yices2", mode=mode,
+                                              complex_representation="Classic", output_qasm="out.qasm",
+                                              pareto_timeout=60, max_depth=2)
+    assert res
+    with open("out.qasm") as f:
+        written = f.read()
+    assert "c[0] = measure q[0];" in written
+    assert written == str(circuit)

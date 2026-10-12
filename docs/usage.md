@@ -6,10 +6,10 @@ title: Usage
 
 # Usage
 
-Synthesis is run with `cli/cli.py`. It can be started from any directory: paths are relative to the current directory, which is also where the output files go.
+Synthesis is run with the `milq` script in the repository root. It can be started from any directory, also through a symlink on your `PATH` ([Installation](installation#put-milq-on-your-path-optional)): paths are relative to the current directory, which is also where the output files go.
 
 ```console
-$ python3 cli/cli.py [options] <input.qasm>
+$ ./milq [options] <input.qasm>
 ```
 
 All options are listed in the [command-line reference](reference). This page walks through the choices you usually make.
@@ -37,7 +37,7 @@ MILQ simulates the input circuit on a set of input states and requires the synth
 `-v zero` is usually much faster than `-v all`, but it only guarantees the state prepared from \|0…0⟩:
 
 ```console
-$ python3 cli/cli.py -s smt -a cvc5 -v zero benchmarks/ghz/3.qasm
+$ ./milq -s smt -a cvc5 -v zero benchmarks/ghz/3.qasm
 ...
 h q[2];
 cx q[2], q[1];
@@ -63,8 +63,8 @@ The **complex-number representation** (`-c`) decides which SMT solvers can be us
 FiveTuple is exact and usually the fastest choice for Clifford+T circuits. Classic is needed for end-of-circuit measurements and is the practical choice for approximate synthesis.
 
 ```console
-$ python3 cli/cli.py -s smt -a opensmt benchmarks/ghz/2.qasm      # FiveTuple, OpenSMT
-$ python3 cli/cli.py -s gurobi -c Classic -v zero benchmarks/ghz/2.qasm
+$ ./milq -s smt -a opensmt benchmarks/ghz/2.qasm      # FiveTuple, OpenSMT
+$ ./milq -s gurobi -c Classic -v zero benchmarks/ghz/2.qasm
 ```
 
 ## 3. Pick a search mode (`-m`)
@@ -79,7 +79,7 @@ $ python3 cli/cli.py -s gurobi -c Classic -v zero benchmarks/ghz/2.qasm
 The gate set is the set of gates in the input circuit plus Clifford+T (`x`, `z`, `h`, `s`, `sdg`, `t`, `tdg`, `cx`). Every gate costs 1. An empty layer (`id`) costs 0, so circuits shorter than *d* are allowed in the fixed-depth modes.
 
 ```console
-$ python3 cli/cli.py -s smt -a yices2 -m bottomup benchmarks/ghz/2.qasm
+$ ./milq -s smt -a yices2 -m bottomup benchmarks/ghz/2.qasm
 ```
 
 ## Measurements
@@ -87,7 +87,7 @@ $ python3 cli/cli.py -s smt -a yices2 -m bottomup benchmarks/ghz/2.qasm
 If the input circuit measures qubits at the end, the synthesized circuit must produce the same post-measurement state, and that requires `-c Classic`. To ignore the final measurements instead, pass `-nm`. Circuits from [MQT Bench](https://www.cda.cit.tum.de/mqtbench/) end with measurements, for example:
 
 ```console
-$ python3 cli/cli.py -s smt -a yices2 -nm benchmarks/mqt-bench/ghz_nativegates_clifford+t_opt2_2.qasm
+$ ./milq -s smt -a yices2 -nm benchmarks/mqt-bench/ghz_nativegates_clifford+t_opt2_2.qasm
 ```
 
 ## Equivalence up to global phase
@@ -95,7 +95,7 @@ $ python3 cli/cli.py -s smt -a yices2 -nm benchmarks/mqt-bench/ghz_nativegates_c
 With `-u`, the synthesized circuit may differ from the input by a global phase. For FiveTuple, the phase is a multiple of π/4.
 
 ```console
-$ python3 cli/cli.py -s smt -a yices2 -u benchmarks/ghz/2.qasm
+$ ./milq -s smt -a yices2 -u benchmarks/ghz/2.qasm
 ```
 
 ## Approximate synthesis
@@ -103,7 +103,7 @@ $ python3 cli/cli.py -s smt -a yices2 -u benchmarks/ghz/2.qasm
 With `-ap`, the circuits only need an average fidelity of at least `-f` (default 1.0). The fidelity constraint is nonlinear. Gurobi handles small instances quickly, while SMT solvers can take very long.
 
 ```console
-$ python3 cli/cli.py -ap -f 0.9 -c Classic -s gurobi -v zero benchmarks/ghz/2.qasm
+$ ./milq -ap -f 0.9 -c Classic -s gurobi -v zero benchmarks/ghz/2.qasm
 ```
 
 ## Repeat-until-success circuits
@@ -111,14 +111,14 @@ $ python3 cli/cli.py -ap -f 0.9 -c Classic -s gurobi -v zero benchmarks/ghz/2.qa
 With `-v rus`, the input circuit is treated as a repeat-until-success (RUS) circuit with `-T` target qubits (the lowest indices) and `-A` ancilla qubits (the highest indices). The input states are \|0⟩, \|1⟩ and \|+⟩ on the targets, with the ancillas in \|0⟩. The cost counts only `t`/`tdg` gates (T-count). Examples are in `benchmarks/rus/`.
 
 ```console
-$ python3 cli/cli.py -v rus -T 1 -A 1 -c Classic -s gurobi benchmarks/rus/2/spec.qasm
+$ ./milq -v rus -T 1 -A 1 -c Classic -s gurobi benchmarks/rus/2/spec.qasm
 ```
 
 **Note:** RUS instances need a full Gurobi license; they exceed the size-limited one.
 
 ## Output
 
-On success, `cli.py` prints the timing of each phase and the synthesized circuit:
+On success, `milq` prints the timing of each phase and the synthesized circuit:
 
 ```console
 synthesis successful

@@ -31,7 +31,7 @@ chmod +x solvers/yices2/yices_smt2
 ```
 
 ## Usage
-To synthesize a quantum circuit, use the `cli/cli.py` script. 
+To synthesize a quantum circuit, run the `milq` script in the repository root. It can be called from any directory, or through a symlink on your `PATH` (e.g. `ln -s "$PWD/milq" ~/.local/bin/milq`).
 
 CLI flags for exact synthesis:
 - `-v` pick what vectors to use in the synthesis (either |0>^n, all CBS, jamiolkowski identity vector, or the three RUS states)
@@ -49,19 +49,19 @@ Approximate synthesis uses the `-ap` flag and a set `-f X` fidelity threshold `X
 
 RUS synthesis can also require the specification of `-T X`, `-A Y` to specify the number of target qubits `X` and number of ancillae `A`.
 
-Examples of execution inside of the `cli/` folder:
+Examples, run from the repository root:
 
 - SMT portfolio (five-tuples, incremental) - state |0>^n
 ```
-python3 cli.py -v zero -c FiveTuple -s smt -a portfolio -m incremental ../benchmarks/ghzzero/2.qasm
+./milq -v zero -c FiveTuple -s smt -a portfolio -m incremental benchmarks/ghz/2.qasm
 ```
 -  Gurobi (a+bj, incremental) - state |0>^n
 ```
-python3 cli.py -v zero -c Classic -s gurobi -m incremental ../benchmarks/ghzzero/2.qasm
+./milq -v zero -c Classic -s gurobi -m incremental benchmarks/ghz/2.qasm
 ```
 - Gurobi (five-tuples, incremental), all CBS synthesis
 ```
-python3 cli.py -v all -c FiveTuple -s gurobi -m incremental ../benchmarks/ghzzero/2.qasm
+./milq -v all -c FiveTuple -s gurobi -m incremental benchmarks/ghz/2.qasm
 ```
 
 
@@ -76,9 +76,10 @@ The tests use the bundled yices2/cvc5 binaries and the size-limited license ship
 
 ```
 - README.md
+- milq (CLI for synthesis)
 - requirements.txt
 - benchmarks/
-| - ghzzero (GHZ circuits)
+| - ghz (GHZ circuits)
 | - bernstein-vazirani (BV circuits)
 | - qsharp (benchmarks for comparison with Quokka#)
 | - mqt-bench (MQT benchmark library Clifford+T circuits)
@@ -86,7 +87,6 @@ The tests use the bundled yices2/cvc5 binaries and the size-limited license ship
 - solvers/
 | ... (solver binaries from SMT-comp -- cvc5, opensmt, yices2...)
 - cli/
-| - cli.py (CLI interface for Synthesis)
 | - simulator.py (CLI interface for our small simulator module)
 - src/
 | - complex/

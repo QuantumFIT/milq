@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 """
-@file: cli.py
+@file: milq
 @author: Jakub Havlík
 @date: 11.05.2026
 @brief: CLI for the synthesis tool
@@ -10,7 +11,8 @@ import sys
 import os
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src/'))
+# realpath: also works when milq is called through a symlink, e.g. one placed on PATH
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'src'))
 from synth import Synthesizer
 from solvers import SolverError
 

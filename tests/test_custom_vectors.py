@@ -131,6 +131,14 @@ def test_input_vectors_need_custom_vectors_and_a_circuit(workdir, kwargs):
         Synthesizer().synthesis(input_vectors=[basis_state(0, 2, FiveTuple)], solving="smt", solver="yices2", **kwargs)
 
 
+@pytest.mark.parametrize("missing", ["vector_pairs", "q", "d", "gate_set"])
+def test_custom_vector_pairs_need_q_d_and_gate_set(workdir, missing):
+    kwargs = dict(vector_pairs=sqrt_swap_pairs(), q=2, d=1, gate_set=GateSet(["sqrtswap"]))
+    kwargs[missing] = None
+    with pytest.raises(ValueError, match="vector_pairs, q, d, and gate_set are required when vectors are custom"):
+        Synthesizer().synthesis(vectors="custom", solving="smt", solver="yices2", **kwargs)
+
+
 def test_matrix_needs_rus_or_custom_vectors(workdir):
     with pytest.raises(ValueError, match="matrix can be provided only for rus and custom mode"):
         Synthesizer().synthesis(matrix=Matrix.h(), vectors="all", solving="smt", solver="yices2", complex_representation="Classic")

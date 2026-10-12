@@ -914,7 +914,7 @@ class Synthesizer:
             elif vectors == "jamiolkowski":
                 self.gen.jamiolkowski = True
                 vector_pairs = self.simulator.simulate_jamiolkowski()
-            elif vectors == "custom":
+            else:  # custom, with a circuit
                 vector_pairs = self.simulator.simulate_custom(input_vectors)
             
             stats = self.simulator.circuit_stats()

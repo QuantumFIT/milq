@@ -26,6 +26,9 @@ import time
 from logger import Logger
 import numpy as np
 
+# the largest increase of k (FiveTuple) caused by one layer: sx, sxdg, csx and sqrtswap add 2, h and ch add 1
+MAX_K_INCREMENT = 2
+
 def rus_recovery_pairs(output_vectors, vector_pairs, measured_qubits):
     # (input, output) pairs for the RUS recovery operation: it maps the state after a failed
     # attempt (measured qubits projected to 1) back to the original input state
@@ -52,6 +55,7 @@ class Synthesizer:
         self.q = None
         self.d = None
         self.max_k = 0
+        self.pair_k = []
         self.encoding_method = None
         self.curr_depth = 0
         self.v = 0
@@ -788,7 +792,11 @@ class Synthesizer:
                     if self.gen.mode == "milp" or self.gen.mode == "gurobi":
                         self.gen.add_milp_rescaling(rescaled1, rescaled2, vec1, vec_target, pair_idx, self.max_k)
                     else:
-                        self.gen.add_rescaling(rescaled1, rescaled2, vec1, vec_target, pair_idx, self.max_k)
+                        # after `depth` layers, k lies in [k_in, k_in + MAX_K_INCREMENT*depth]; cover every possible
+                        # floor(|k - k_target| / 2) (self.max_k is fixed from the input and too small past its depth)
+                        k_in, k_target = self.pair_k[pair_idx]
+                        max_gap = max(k_in + MAX_K_INCREMENT * depth - k_target, k_target - k_in)
+                        self.gen.add_rescaling(rescaled1, rescaled2, vec1, vec_target, pair_idx, max_gap // 2 + 1)
                     for i in range(2**self.q):
                         self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
                     
@@ -1043,6 +1051,8 @@ class Synthesizer:
         # encode vector bounds
         inter_states = []
         target_states = []
+        # k of every (input, target) pair, used to bound the FiveTuple rescaling
+        self.pair_k = [(input_state.k, output_state.k) for input_state, output_state in vector_pairs]
         bounds = [1] * (self.d + 1)
         if self.complex_representation != Complex:
             for d in range(self.d + 1):

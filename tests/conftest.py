@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 
 import numpy as np
 import pytest
@@ -33,3 +34,35 @@ def workdir(tmp_path, monkeypatch):
     # the synthesizer writes logs and formulae into the working directory
     monkeypatch.chdir(tmp_path)
     return tmp_path
+
+
+def child_processes(marker):
+    # processes started by this test process whose command line contains marker (bytes) and that still
+    # exist (running, or exited but not reaped)
+    children = []
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmdline = f.read()
+        except (OSError, IndexError, ValueError):
+            continue
+        if ppid == os.getpid() and marker in cmdline:
+            children.append(int(pid))
+    return children
+
+
+def process_gone(pid, seconds=3):
+    # true once the process no longer runs (gone, or a zombie waiting to be reaped by init)
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                if f.read().rsplit(")", 1)[1].split()[0] == "Z":
+                    return True
+        except (FileNotFoundError, ProcessLookupError):  # gone, possibly while reading
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)

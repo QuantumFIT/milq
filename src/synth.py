@@ -78,9 +78,19 @@ class Synthesizer:
         self.stats['encoding'] = 0
         self.stats['solving'] = 0
         
-    def __exit__(self) -> None:
-        if self.gen.mode == "pysmt":
-            self.gen.solver.exit() # portfolio is still alive
+    def __enter__(self) -> "Synthesizer":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
+
+    def close(self) -> None:
+        # stops the solver processes of the last synthesis; synthesis() calls it too when it ends, however it ends
+        solver = self.gen.solver
+        if isinstance(solver, (SMTSolver, PortfolioSMTSolver)):
+            solver.close()
+        elif self.gen.mode == "pysmt" and hasattr(solver, "exit"):  # pySMT's Solver or Portfolio
+            solver.exit()
             
     def add_solvers(self, incremental_mode : bool = False) -> None:
         # register custom solvers for pySMT portfolio solving
@@ -972,9 +982,6 @@ class Synthesizer:
                 self.gen.solver = PortfolioSMTSolver(new_dict, logic=self.gen.logic)
             else:
                 self.gen.solver = new_dict[solver]
-                if incremental_mode:
-                    self.gen.solver.create_process()
-                    self.gen.set_incremental_mode()
 
         elif solving == "pysmt":
             if solver not in ["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "portfolio"]:
@@ -1008,17 +1015,22 @@ class Synthesizer:
             self.gen.mode = "gurobi"
             self.gen.solver = solver
         
-        self.gen.declare_helpers()
-        self.gen.q = self.q
-        if d is not None:
-            self.d = d
-        self.gen.d = self.d
-        self.gen.num_of_vectors = len(vector_pairs)
-        # start synthesis
-        res, circuit, vectors = self._synth(vector_pairs, output_qasm)
-        
-        if solving == "pysmt":
-            self.gen.solver.exit()
+        # the solver processes live until the synthesis ends, also when it ends with an exception
+        try:
+            if solving == "smt" and incremental_mode:
+                self.gen.solver.create_process()
+                self.gen.set_incremental_mode()
+            self.gen.declare_helpers()
+            self.gen.q = self.q
+            if d is not None:
+                self.d = d
+            self.gen.d = self.d
+            self.gen.num_of_vectors = len(vector_pairs)
+            # start synthesis
+            res, circuit, vectors = self._synth(vector_pairs, output_qasm)
+        finally:
+            self.close()
+
         self.logger.log("INFO", f"Circuit: {circuit}")
         for pair_idx, (vector) in enumerate(vectors or []):
             self.logger.log("INFO", f"Vector {pair_idx}: {vector}")

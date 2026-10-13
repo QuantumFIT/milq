@@ -8,7 +8,7 @@ import time
 import pytest
 
 from conftest import BENCHMARKS, child_processes, process_gone
-from solvers import PortfolioSMTSolver, SMTSolver
+from solvers import PortfolioSMTSolver, SMTSolver, SolverError
 from synth import Synthesizer
 
 FAKE = os.path.join(os.path.dirname(__file__), "fake_solver.py")
@@ -38,6 +38,17 @@ def test_close_does_not_wait_for_a_check_in_progress():
     solver.close()
     assert time.monotonic() - start < 5
     assert child_processes(b"fake_solver.py") == []
+
+
+def test_close_after_the_solver_died_during_a_write():
+    # the statement that could not be sent stays in the input buffer, and closing the input tries to send it again
+    solver = incremental_fake("exit")
+    solver.create_process()
+    solver.process.wait()  # the solver is gone before it read anything
+    with pytest.raises(SolverError):
+        solver.write_incremental("(declare-fun x () Int)")
+    solver.close()
+    assert solver.process is None
 
 
 def test_close_stops_a_solver_that_a_wrapper_runs_as_a_child(tmp_path):
@@ -109,6 +120,22 @@ def test_synthesis_stops_its_solver_on_an_exception(workdir, monkeypatch):
     with pytest.raises(RuntimeError, match="encoding failed"):
         synthesize(Synthesizer())
     assert child_processes(YICES) == []
+
+
+def test_close_exits_the_pysmt_solver(workdir):
+    # pySMT's Solver and Portfolio are stopped with exit(); a stand-in, as a second pySMT synthesis in one process
+    # fails (#90)
+    class PySMTSolver:
+        exits = 0
+
+        def exit(self):
+            self.exits += 1
+
+    synthesizer = Synthesizer()
+    synthesizer.gen.mode = "pysmt"
+    synthesizer.gen.solver = PySMTSolver()
+    synthesizer.close()
+    assert synthesizer.gen.solver.exits == 1
 
 
 def test_synthesizer_is_a_context_manager(workdir):

@@ -30,6 +30,12 @@ import numpy as np
 # the largest increase of k (FiveTuple) caused by one layer: sx, sxdg, csx and sqrtswap add 2, h and ch add 1
 MAX_K_INCREMENT = 2
 
+def integral_k(k):
+    # a FiveTuple vector is divided by sqrt(2)^k, k has to be an integer (4.0 is accepted)
+    if k is None or int(k) != k:
+        raise ValueError(f"k of a FiveTuple vector must be an integer, got {k!r}")
+    return int(k)
+
 def rus_recovery_pairs(output_vectors, vector_pairs, measured_qubits):
     # (input, output) pairs for the RUS recovery operation: it maps the state after a failed
     # attempt (measured qubits projected to 1) back to the original input state
@@ -1014,7 +1020,8 @@ class Synthesizer:
         inter_states = []
         target_states = []
         # k of every (input, target) pair, used to bound the FiveTuple rescaling
-        self.pair_k = [(input_state.k, output_state.k) for input_state, output_state in vector_pairs]
+        if self.complex_representation != Complex:
+            self.pair_k = [(integral_k(input_state.k), integral_k(output_state.k)) for input_state, output_state in vector_pairs]
         bounds = [1] * (self.d + 1)
         if self.complex_representation != Complex:
             for d in range(self.d + 1):

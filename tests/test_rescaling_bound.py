@@ -61,14 +61,26 @@ def test_restricted_gate_set_gives_an_exact_circuit(workdir):
     np.testing.assert_allclose(operator(gates), operator(["z"]), atol=1e-9)
 
 
-@pytest.mark.parametrize("mode", ["basic", "incremental"])
-def test_custom_target_with_a_large_k(workdir, mode):
-    # |0> -> |1>, with the target written as 4/sqrt(2)^4: the old bound only covered the gap of the input depth
+def zero_to_one(k_target):
+    # |0> -> |1>, with the target written as 4/sqrt(2)^k_target
     inp = Vector(q=2, element_representation=FiveTuple, k=0)
-    out = Vector(q=2, element_representation=FiveTuple, k=4)
+    out = Vector(q=2, element_representation=FiveTuple, k=k_target)
     inp[0] = FiveTuple(a=1, b=0, c=0, d=0)
     out[1] = FiveTuple(a=4, b=0, c=0, d=0)
-    res, circuit, _ = Synthesizer().synthesis(vectors="custom", vector_pairs=[(inp, out)], q=1, d=1,
+    return [(inp, out)]
+
+
+@pytest.mark.parametrize("k_target", [4, 4.0])
+@pytest.mark.parametrize("mode", ["basic", "incremental"])
+def test_custom_target_with_a_large_k(workdir, mode, k_target):
+    # the old bound only covered the gap of the input depth, and the empty circuit was accepted
+    res, circuit, _ = Synthesizer().synthesis(vectors="custom", vector_pairs=zero_to_one(k_target), q=1, d=1,
                                               gate_set=GateSet(["x", "h"]), mode=mode, output_qasm="out.qasm", **SMT)
     assert res
     assert synthesized_gates(circuit) == ["x"]
+
+
+def test_custom_target_with_a_fractional_k(workdir):
+    with pytest.raises(ValueError, match="k of a FiveTuple vector must be an integer, got 4.5"):
+        Synthesizer().synthesis(vectors="custom", vector_pairs=zero_to_one(4.5), q=1, d=1, gate_set=GateSet(["x", "h"]),
+                                mode="incremental", output_qasm="out.qasm", **SMT)

@@ -8,6 +8,7 @@ import time
 
 import pytest
 
+from conftest import child_processes, process_gone
 from solvers import PortfolioSMTSolver, SMTSolver
 
 FAKE = os.path.join(os.path.dirname(__file__), "fake_solver.py")
@@ -30,22 +31,6 @@ def solve_within(portfolio, formula, seconds=10):
         pool.shutdown(wait=False)
 
 
-def fake_solver_children():
-    # fake solver processes started by this test process that still exist (running or not reaped)
-    children = []
-    for pid in filter(str.isdigit, os.listdir("/proc")):
-        try:
-            with open(f"/proc/{pid}/stat") as f:
-                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
-            with open(f"/proc/{pid}/cmdline", "rb") as f:
-                cmdline = f.read()
-        except (OSError, IndexError, ValueError):
-            continue
-        if ppid == os.getpid() and b"fake_solver.py" in cmdline:
-            children.append(int(pid))
-    return children
-
-
 @pytest.fixture
 def formula(tmp_path):
     path = tmp_path / "formula.smt2"
@@ -66,7 +51,7 @@ def test_losing_solvers_are_killed_and_reaped(formula):
     start = time.monotonic()
     assert "define-fun x" in solve_within(portfolio(("sat", 0.2), ("hang", 0), ("hang", 0)), formula)
     assert time.monotonic() - start < 5
-    assert fake_solver_children() == []
+    assert child_processes(b"fake_solver.py") == []
 
 
 def test_waiting_does_not_spin(formula):
@@ -74,21 +59,6 @@ def test_waiting_does_not_spin(formula):
     assert solve_within(portfolio(("unsat", 1.0)), formula) == "unsat"
     # the solver runs for 1 s; a polling loop would burn about that much CPU in this process
     assert time.process_time() - cpu < 0.3
-
-
-def process_gone(pid, seconds=3):
-    # true once the process no longer runs (gone, or a zombie waiting to be reaped by init)
-    deadline = time.monotonic() + seconds
-    while True:
-        try:
-            with open(f"/proc/{pid}/stat") as f:
-                if f.read().rsplit(")", 1)[1].split()[0] == "Z":
-                    return True
-        except (FileNotFoundError, ProcessLookupError):  # gone, possibly while reading
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.05)
 
 
 def test_processes_started_by_a_losing_solver_are_killed(formula, tmp_path):

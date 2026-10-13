@@ -68,6 +68,23 @@ class SMTSolver:
             text=True,
         )
 
+    def close(self) -> None:
+        # stops the solver process of the incremental mode and reaps it; it is killed instead of sent (exit), as it
+        # may be in the middle of a (check-sat) that nobody waits for anymore. The solver stays in MILQ's process
+        # group (no start_new_session), so that a signal to the group (Ctrl-C, timeout) stops it even when MILQ
+        # dies without calling this. A solver that a wrapper script runs as a child (java in SMTInterpol's script)
+        # ends when its input is closed here.
+        if self.process is None:
+            return
+        process, self.process = self.process, None
+        process.kill()  # does nothing if the solver has already exited
+        for pipe in (process.stdin, process.stdout, process.stderr):
+            try:
+                pipe.close()
+            except OSError:  # flushing the input of a solver that is gone
+                pass
+        process.wait()
+
     def solve(self, formula_file : str = None) -> str:
         # returns "sat" (incremental) or the solver output with the model (file mode), "unsat" or "unknown";
         # raises SolverError when the solver fails instead of answering
@@ -139,6 +156,10 @@ class PortfolioSMTSolver:
     def create_process(self):
         for solver in self.solvers.values():
             solver.create_process()
+
+    def close(self) -> None:
+        for solver in self.solvers.values():
+            solver.close()
     
     def write_incremental(self, statement : str):
         for solver in self.solvers.values():

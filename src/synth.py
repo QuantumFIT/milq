@@ -65,6 +65,9 @@ class Synthesizer:
         self.solvers = {}
         self.qubits_to_measure = None
         self.post_measurement = False
+        # written to the synthesized circuit: (qubit, classical bit) and the classical declarations of the input
+        self.output_measurements = []
+        self.classical_declarations = []
         self.approx = False
         self.max_depth = None
         self.basis = "cb"
@@ -928,6 +931,10 @@ class Synthesizer:
             if self.qubits_to_measure is None:
                 self.qubits_to_measure = stats['measured_qubits']
                 self.post_measurement = len(self.qubits_to_measure) > 0
+                # with -nm, the input's measurements are not simulated and not written either
+                if self.post_measurement:
+                    self.output_measurements = stats['measurements']
+                    self.classical_declarations = stats['classical_declarations']
             self.max_k = 2*self.d if self.d > stats['max_k'] else 2*stats['max_k']
         else:
             self.q = q
@@ -1388,8 +1395,9 @@ class Synthesizer:
                 empty_layers = [d for d, gate in enumerate(circuit.gates) if gate is None]
                 if empty_layers:
                     raise RuntimeError(f"the solver model selects no gate in layer(s) {empty_layers}; it is incomplete or was not parsed correctly")
-                # before writing: the output file needs the input circuit's end-of-circuit measurements too
-                circuit.add_measurement(self.qubits_to_measure or [])
+                # before writing: the output file needs the input circuit's end-of-circuit measurements too, into the
+                # same classical bits
+                circuit.add_measurements(self.output_measurements, self.classical_declarations)
                 if write_to_file:
                     circuit.write_to_file(output_qasm)
                 if draw_circuit:

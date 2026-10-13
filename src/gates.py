@@ -198,7 +198,9 @@ class Circuit:
         self.gates = gates
         self.bool_variables = []
         self.cost = 0
-        self.measured_qubits = set()
+        # end-of-circuit measurements as (qubit, classical bit or None) and the declarations of the classical bits
+        self.measurements = []
+        self.classical_declarations = []
         if len(gates) == 0:
             self.gates = [None] * d
             self.bool_variables = [None] * d
@@ -221,11 +223,13 @@ class Circuit:
             if gate.name in nonstandard_gate_definitions and gate.name not in defined:
                 circuit_str += f"{nonstandard_gate_definitions[gate.name]}\n"
                 defined.add(gate.name)
-        circuit_str += f"qubit[{self.q}] q;\nbit[{self.q}] c;\n"
+        circuit_str += f"qubit[{self.q}] q;\n"
+        for declaration in self.classical_declarations or [f"bit[{self.q}] c"]:
+            circuit_str += f"{declaration};\n"
         for gate in gates:
             circuit_str += f"{gate}\n"
-        for qubit in sorted(self.measured_qubits):
-            circuit_str += f"c[{qubit}] = measure q[{qubit}];\n"
+        for qubit, bit in self.measurements:
+            circuit_str += f"measure q[{qubit}];\n" if bit is None else f"{bit} = measure q[{qubit}];\n"
         return circuit_str
     
     def __repr__(self) -> str:
@@ -256,8 +260,11 @@ class Circuit:
                 getattr(circuit, gate.name)(*gate.qubits)
         circuit.draw(output="mpl", filename=output_file, reverse_bits=True)
         
-    def add_measurement(self, qubits: list[int]) -> None:
-        self.measured_qubits.update(qubits)
+    def add_measurements(self, measurements: list[tuple[int, str]], classical_declarations: list[str]) -> None:
+        # measurements as (qubit, classical bit or None for a plain `measure q[i]`); bit[q] c is declared if there are
+        # no classical declarations
+        self.measurements += measurements
+        self.classical_declarations += classical_declarations
             
     def append(self, gate: Gate) -> None:
         self.gates.append(gate)

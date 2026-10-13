@@ -14,6 +14,12 @@ from gates import GateSet
 import numpy as np
 
 
+def classical_declaration(line: str) -> str:
+    # OpenQASM 2 `creg c[n]` is `bit[n] c` in OpenQASM 3, the output format
+    creg = re.fullmatch(r'creg (\w+) ?\[ ?(\d+) ?\]', line)
+    return f"bit[{creg.group(2)}] {creg.group(1)}" if creg else line
+
+
 class Simulator:
     """
     simulate quantum circuit using the representation for synthesis - complex, fivetuples
@@ -37,6 +43,10 @@ class Simulator:
         self.stats['max_k'] = 0
         self.stats['input_circuit'] = []
         self.stats['measured_qubits'] = []
+        # end-of-circuit measurements as (qubit, classical bit or None) and the classical declarations, both in the
+        # input's order and OpenQASM 3 syntax, to write them to the synthesized circuit as they are in the input
+        self.stats['measurements'] = []
+        self.stats['classical_declarations'] = []
         self.measurement_outcome = meas
         self.basis = basis
         self.no_measurement = no_measurement
@@ -100,6 +110,7 @@ class Simulator:
             
             # classical declarations; `bit c = measure q[0]` is a measurement and is parsed below
             if re.match(r'(creg|bit)\b', line) and 'measure' not in line:
+                self.stats['classical_declarations'].append(classical_declaration(line))
                 continue
 
             # every complete definition was removed above, so this one has no closing brace
@@ -109,9 +120,11 @@ class Simulator:
             qreg_name = self.stats['qreg']
             # whole-register measurement (measure q -> c, c = measure q) -> measure every qubit
             if re.fullmatch(rf'(?:[^=]*=\s*)?measure {re.escape(qreg_name)}(?: ?->.*)?', line):
+                register = self.measurement_target(line)
                 for i in range(self.stats['q']):
                     gates.append(('measure', [i]))
                     self.stats['input_circuit'].append(('measure', [i]))
+                    self.stats['measurements'].append((i, None if register is None else f"{register}[{i}]"))
                 continue
             # find gates using the register name
             qreg_pattern = re.compile(rf'{re.escape(f"{qreg_name}")}\s*\[')
@@ -133,6 +146,8 @@ class Simulator:
                         qubits.append(int(part.split('[')[1].split(']')[0]))
                 gates.append((gate, qubits))
                 self.stats['input_circuit'].append((gate, qubits))
+                if gate == 'measure':
+                    self.stats['measurements'].append((qubits[0], self.measurement_target(line)))
                 self.stats['d'] += 1 if gate != 'measure' and gate != 'meas' else 0
                 if gate not in self.stats['gate_set'] and (gate != 'measure' and gate != 'meas'):
                     self.stats['gate_set'].append(gate, qubits=len(qubits))
@@ -141,6 +156,19 @@ class Simulator:
             raise Exception(f"input file parsing failed")
         return gates, vectors
             
+    def measurement_target(self, line: str) -> str:
+        # the classical bit (or register) of `c = measure q`, `bit c = measure q` or `measure q -> c`, None for a plain
+        # `measure q`; a declaration in the statement is moved to the classical declarations
+        if '=' in line:
+            target = line.split('=')[0].strip()
+            if re.match(r'bit\b', target):
+                self.stats['classical_declarations'].append(target)
+                target = target.split()[-1]
+            return target
+        if '->' in line:
+            return line.split('->')[1].strip()
+        return None
+
     """
     simulate the parsed circuit by modifying all input vectors by applying the gates
     """

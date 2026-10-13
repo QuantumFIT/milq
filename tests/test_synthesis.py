@@ -8,6 +8,7 @@ import pytest
 from conftest import BENCHMARKS, unitary
 from synth import Synthesizer
 from gates import GateSet
+from sim import Simulator
 
 GHZ = [("ghz/2.qasm", 2), ("ghz/3.qasm", 3)]
 
@@ -112,3 +113,55 @@ def test_output_file_keeps_end_of_circuit_measurements(workdir, mode):
         written = f.read()
     assert "c[0] = measure q[0];" in written
     assert written == str(circuit)
+
+
+BELL_2 = "OPENQASM 2.0;\nqreg q[2];\n{}h q[0];\ncx q[0], q[1];\n{}"
+BELL_3 = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\n{}h q[0];\ncx q[0], q[1];\n{}"
+# (input, classical declarations, measurements as (qubit, classical bit)) of the input and the output
+MEASUREMENTS = [
+    (BELL_2.format("creg c[2];\n", "measure q[0] -> c[1];\n"), ["bit[2] c"], [(0, "c[1]")]),
+    (BELL_2.format("creg a[1];\ncreg b[1];\n", "measure q[0] -> b[0];\nmeasure q[1] -> a[0];\n"),
+     ["bit[1] a", "bit[1] b"], [(0, "b[0]"), (1, "a[0]")]),
+    (BELL_2.format("creg c[2];\n", "measure q -> c;\n"), ["bit[2] c"], [(0, "c[0]"), (1, "c[1]")]),
+    (BELL_3.format("bit[2] bits;\n", "bits[1] = measure q[0];\n"), ["bit[2] bits"], [(0, "bits[1]")]),
+    (BELL_3.format("", "bit m = measure q[1];\n"), ["bit m"], [(1, "m")]),
+    (BELL_3.format("", "bit[2] c = measure q;\n"), ["bit[2] c"], [(0, "c[0]"), (1, "c[1]")]),
+    (BELL_3.format('bit[2] c = "00";\n', "c[1] = measure q[1];\n"), ['bit[2] c = "00"'], [(1, "c[1]")]),
+    (BELL_3.format("", "measure q[1];\n"), [], [(1, None)]),
+]
+
+
+def parsed_measurements(path):
+    simulator = Simulator(path)
+    simulator.parse_file()
+    stats = simulator.circuit_stats()
+    return stats["classical_declarations"], stats["measurements"]
+
+
+@pytest.mark.parametrize("qasm, declarations, measurements", MEASUREMENTS)
+def test_input_measurements_are_parsed_with_their_classical_bits(workdir, qasm, declarations, measurements):
+    with open("in.qasm", "w") as f:
+        f.write(qasm)
+    assert parsed_measurements("in.qasm") == (declarations, measurements)
+
+
+@pytest.mark.parametrize("qasm, declarations, measurements", MEASUREMENTS)
+def test_output_measures_into_the_input_classical_bits(workdir, qasm, declarations, measurements):
+    # #57: measure q[0] -> c[1] was written as c[0] = measure q[0]
+    with open("in.qasm", "w") as f:
+        f.write(qasm)
+    res, circuit, _ = Synthesizer().synthesis(qasm_file="in.qasm", vectors="zero", solving="smt", solver="yices2",
+                                              mode="incremental", complex_representation="Classic", output_qasm="out.qasm")
+    assert res
+    # read back by MILQ's parser, the output declares and measures the same classical bits (bit[2] c if none)
+    assert parsed_measurements("out.qasm") == (declarations or ["bit[2] c"], measurements)
+
+
+def test_no_measurement_writes_no_measurements(workdir):
+    with open("in.qasm", "w") as f:
+        f.write(BELL_2.format("creg out[2];\n", "measure q[0] -> out[1];\n"))
+    res, circuit, _ = Synthesizer().synthesis(qasm_file="in.qasm", vectors="zero", solving="smt", solver="yices2",
+                                              mode="incremental", complex_representation="Classic", output_qasm="out.qasm",
+                                              no_measurement=True)
+    assert res
+    assert parsed_measurements("out.qasm") == (["bit[2] c"], [])

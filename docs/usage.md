@@ -141,7 +141,7 @@ The following files are written:
 
 **Note:** The directory of the `-o` path must already exist.
 
-The circuit file uses `include "stdgates.inc";`. If it uses gates that are not in the standard library (e.g. `sxdg`, `dcx`, `ccz`), their definitions are added at the top. Measured qubits are written as `c[i] = measure q[i];`. The file can be loaded by other tools, for example with `qiskit.qasm3.loads`.
+The circuit file uses `include "stdgates.inc";`. If it uses gates that are not in the standard library (e.g. `sxdg`, `dcx`, `ccz`), their definitions are added at the top. End-of-circuit measurements are written at the end, into the same classical bits as in the input (e.g. `measure q[0] -> c[1];` becomes `c[1] = measure q[0];`), with the classical declarations of the input (`creg c[2];` is declared as `bit[2] c;`). The file can be loaded by other tools, for example with `qiskit.qasm3.loads`.
 
 ## Known limitations
 

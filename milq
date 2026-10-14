@@ -7,6 +7,7 @@
 """
 
 import argparse
+import logging
 import sys
 import os
 import time
@@ -22,7 +23,7 @@ parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for t
 parser.add_argument('-s', '--solving', type=str, help='solving method to use', choices=["smt", "milp", "gurobi"], default="gurobi")
 parser.add_argument('-m', '--mode', type=str, help='solving mode to use', choices=["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"], default="incremental")
 parser.add_argument('-a', '--solver', type=str, help='solver to use', required=False, choices=["z3", "cvc5", "yices2", "opensmt", "smtinterpol", "dreal", "gurobi", "cbc", "portfolio"], default="gurobi")
-parser.add_argument('-o', '--output_qasm', type=str, help='output qasm file', required=False, default="circuit.qasm")
+parser.add_argument('-o', '--output_qasm', type=str, help='also write the synthesized circuit to this qasm file', required=False, default=None)
 parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "Classic"], default="FiveTuple")
 parser.add_argument('-f', '--fidelity_threshold', type=float, help='fidelity threshold (use with dreal solver)', required=False, default=1.0)
 parser.add_argument('-ap', '--approx', action='store_true', help='approximate equivalence', default=False)
@@ -34,7 +35,28 @@ parser.add_argument('-d', '--depth', type=int, help='number of allowed gates', r
 parser.add_argument('-nm', '--no_measurement', action='store_true', help='do not measure the output qubits', default=False)
 parser.add_argument('--max-depth', type=int, help='incremental modes: give up when no circuit with at most this many gates exists (default: no limit)', required=False, default=None)
 parser.add_argument('-pt', '--pareto_timeout', type=float, help='time limit in seconds for the pareto-incremental mode', required=False, default=10*60*60)
+parser.add_argument('--log', type=str, nargs='?', const='synth.log', help='write a detailed log of the run to this file (default: synth.log)', required=False, default=None)
+parser.add_argument('--verbose', action='store_true', help='print the detailed log, with debug messages (e.g. every Gurobi model variable), to stdout, or to the --log file', default=False)
 args = parser.parse_args()
+
+if args.log is not None:
+    handlers = [logging.FileHandler(args.log, mode="w")]
+elif args.verbose:
+    handlers = [logging.StreamHandler(sys.stdout)]
+else:
+    handlers = []
+if args.log is not None or not args.verbose:
+    console = logging.StreamHandler()  # stderr
+    console.setLevel(logging.WARNING)
+    console.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    handlers.append(console)
+logging.basicConfig(
+    level=logging.DEBUG if args.verbose else logging.INFO if args.log is not None else logging.WARNING,
+    format="[%(asctime)s][%(relativeCreated)9.0fms][%(levelname)s][%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=handlers,
+)
+
 synthesizer = Synthesizer()
 try:
     res, circuit, _ = synthesizer.synthesis(qasm_file=args.qasm_file, 
@@ -61,10 +83,10 @@ if res:
 else:
     print("synthesis failed")
     
-print(f"Full time: {synthesizer.logger.get_times()['full']} seconds")
-print(f"Parsing time: {synthesizer.logger.get_times()['parsing']} seconds")
-print(f"Encoding time: {synthesizer.logger.get_times()['encoding']} seconds")
-print(f"Solving time: {synthesizer.logger.get_times()['solving']} seconds")
-print(f"Updating time: {synthesizer.logger.get_times()['updating']} seconds")
+print(f"Full time: {synthesizer.times['full']} seconds")
+print(f"Parsing time: {synthesizer.times['parsing']} seconds")
+print(f"Encoding time: {synthesizer.times['encoding']} seconds")
+print(f"Solving time: {synthesizer.times['solving']} seconds")
+print(f"Updating time: {synthesizer.times['updating']} seconds")
 if circuit is not None:
     print(circuit)

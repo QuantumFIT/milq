@@ -11,5 +11,7 @@ gurobipy>=12.0.0
 matplotlib>=3.7.3
 # 4.12.3 and older import importlib_resources without requiring it
 z3-solver>=4.12.4.0
-qiskit>=0.44.1
+# 0.44.1-0.46 pass as well, but they are metapackages over qiskit-terra, and upgrading such an environment to
+# qiskit 1.0+ leaves qiskit-terra behind, which makes qiskit refuse to import
+qiskit>=1.0.0
 pylatexenc>=1.2

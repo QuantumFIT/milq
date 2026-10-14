@@ -1,5 +1,5 @@
-# The lower bounds are the oldest releases that pass the tests on Python 3.11; CI tests them (except gurobipy, see
-# .github/workflows/ci.yml) next to the newest releases.
+# The lower bounds are the oldest releases that pass the tests on Python 3.11; CI tests them next to the newest
+# releases.
 numpy>=1.23.2
 # 0.9.0 fails to import on Python 3.12+ (it bundles an old six), 0.9.5 crashes in the pysmt mode
 PySMT>=0.9.6

@@ -9,7 +9,7 @@ title: Installation
 ## Requirements
 
 - **Linux on x86-64.** The bundled solver binaries are Linux x86-64 executables.
-- **Python 3.11 or newer.** CI tests Python 3.11 with the lowest versions of the dependencies that `requirements.txt` allows (except gurobipy, see [Gurobi license](#gurobi-license)), and Python 3.12 and 3.14 with the newest.
+- **Python 3.11 or newer.** CI tests Python 3.11 with the lowest versions of the dependencies that `requirements.txt` allows, and Python 3.12 and 3.14 with the newest.
 
 ## Get MILQ and its Python dependencies
 

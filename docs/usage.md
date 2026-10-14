@@ -132,13 +132,18 @@ OPENQASM 3.0;
 ...
 ```
 
-The following files are written:
+The circuit is written to a file only with `-o`. The following files are written:
 
 | File | Content |
 |---|---|
-| `-o` path (default `circuit.qasm`) | the synthesized circuit in OpenQASM 3.0 |
-| the same name with `.smt2` or `.lp` | the last formula given to the solver |
-| `synth.log` in the current directory | a detailed log of the run |
+| with `-o`: that path | the synthesized circuit in OpenQASM 3.0 |
+| with `-o`: the same name with `.smt2` or `.lp` | the last formula given to the solver |
+| with `-o` and `-v rus -m pareto-incremental`: the same name with `_recovery.qasm` | the recovery circuit of the returned circuit (without `-o`, it is only in `pareto_front/`) |
+| with `--log`: `synth.log` in the current directory (`--log PATH` for another file) | a detailed log of the run, including Gurobi's output (`--verbose` adds debug messages) |
+
+Without `--log`, `--verbose` prints that log, with the debug messages, to stdout before the result.
+
+Warnings, e.g. that Gurobi stopped early and the cost is not proven minimal, are also printed to stderr.
 
 **Note:** The directory of the `-o` path must already exist.
 

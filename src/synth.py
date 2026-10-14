@@ -9,10 +9,11 @@ from complex.classic import Complex
 from complex.vector import Vector
 from complex.fivetuple import FiveTuple
 from complex.matrix import Matrix
-from generator import Generator
+from generator import Generator, quiet_gurobi_env
 from parser import ModelParser
 import os
 import copy
+import tempfile
 import subprocess
 from sim import Simulator
 from pysmt.logics import QF_NRA, QF_LIA, QF_NIA, QF_LRA
@@ -24,8 +25,11 @@ from pulp import *
 from gurobipy import GRB
 from solvers import PortfolioSMTSolver, SMTSolver
 import time
-from logger import Logger
+import logging
+from timing import run, timed, times
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 def rus_recovery_pairs(output_vectors, vector_pairs, measured_qubits):
     # (input, output) pairs for the RUS recovery operation: it maps the state after a failed
@@ -39,9 +43,8 @@ def rus_recovery_pairs(output_vectors, vector_pairs, measured_qubits):
 
 class Synthesizer:
     def __init__(self) -> None:
-        self.logger = Logger(verbosity=1, filename="synth.log")
-        self.gen = Generator(logger=self.logger)
-        self.parser = ModelParser(logger=self.logger)
+        self.gen = Generator()
+        self.parser = ModelParser()
         self.gate_set = GateSet()
         self.simulator = None
         self.complex_representation = None
@@ -74,11 +77,8 @@ class Synthesizer:
         self.max_depth = None
         self.basis = "cb"
         self.ref_dot = None
-        self.stats = {}
-        # times taken
-        self.stats['parsing'] = 0
-        self.stats['encoding'] = 0
-        self.stats['solving'] = 0
+        # seconds per phase of this synthesizer's last synthesis() run
+        self.times = {}
         
     def __enter__(self) -> "Synthesizer":
         return self
@@ -731,7 +731,7 @@ class Synthesizer:
         success = sum(p for i, p in enumerate(probabilities) if not any(i >> q & 1 for q in self.qubits_to_measure))
         prob_success = float(success / sum(probabilities))
         recovery_cost = recovery_circuit.cost if recovery_circuit is not None else 0
-        self.logger.log("INFO", f"RUS circuit T count: {circuit.cost}, recovery T count: {recovery_cost}, probability of success: {prob_success}")
+        log.info("RUS circuit T count: %s, recovery T count: %s, probability of success: %s", circuit.cost, recovery_cost, prob_success)
         return circuit.cost + recovery_cost, prob_success
         
     def circuit_cost(self, circuit) -> tuple[int, int]:
@@ -746,7 +746,8 @@ class Synthesizer:
             bool_var = self.gen.declare_bool(bool_var_str)
             bool_var.setInitialValue(1)
     
-    def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="gurobi", solver=None, mode="incremental", output_qasm="circuit.qasm", 
+    @run()
+    def synthesis(self, qasm_file=None, matrix=None, vectors=None, vector_pairs=None, solving="gurobi", solver=None, mode="incremental", output_qasm=None, 
                 complex_representation="FiveTuple", gate_set=None, q=None, d=None, fidelity_threshold=1.0, targets=1, ancillas=1, 
                 up_to_global_phase=False, basis="cb", approx=False, no_measurement=False, max_depth=None, pareto_timeout=10*60*60,
                 input_vectors=None) -> tuple[bool, Circuit, list[Vector]]:
@@ -759,7 +760,7 @@ class Synthesizer:
             solving -> smt, pysmt, milp (these need a solver) or gurobi
             solver -> specify specific solver or portfolio of solvers
             mode -> specify solving method (basic -> create whole formula and get the best model, incremental -> incrementally generate the formula, binary, topdown, bottomup -> searches to optimize cost function)
-            output_qasm -> file to write the output circuit to
+            output_qasm -> file to write the output circuit to (and the last formula, with .smt2 or .lp); None writes no files
             complex_representation -> specify the complex representation ["FiveTuple", "Classic"]
             gate_set -> specify the gate set to use using the GateSet class, otherwise, the gate set is taken from the input qasm file
             q -> number of qubits of the output circuit (has to correspond to the vector_pairs size)
@@ -774,7 +775,9 @@ class Synthesizer:
             max_depth -> incremental modes only: give up (return False) when no circuit with at most max_depth gates exists; None = no limit
             pareto_timeout -> overall time limit in seconds for mode=pareto-incremental
         """
-        start_time = time.time()
+        start_time = time.perf_counter()
+        # empty, unless this run is nested in another one in this process
+        times_before = dict(times)
         if vectors is None:
             raise ValueError("provide vectors to select vector-mode")
         if vectors not in ["zero", "all", "rus", "jamiolkowski", "custom"]:
@@ -943,7 +946,7 @@ class Synthesizer:
                 if self.gen.logic != "QF_NRA":
                     solvers = ["z3", "cvc5", "yices2", "opensmt", "smtinterpol"]
                 else:
-                    self.logger.log("WARNING", "pySMT parser does not support some outputs from solvers that support NRA even though LIA works just fine.")
+                    log.warning("pySMT parser does not support some outputs from solvers that support NRA even though LIA works just fine.")
                     solvers = ["z3", "cvc5","yices2", "smtinterpol"]
                 self.gen.solver = Portfolio(solvers, logic=self.gen.logic, incremental=incremental_mode, generate_models=True)
             else:
@@ -955,7 +958,8 @@ class Synthesizer:
             # a factory, not a solver object: PuLP's GUROBI keeps one Gurobi model and adds the
             # whole problem to it again on every solve(), so each solve needs a fresh solver
             if solver == "gurobi":
-                self.gen.solver = lambda: GUROBI(msg=False, FeasibilityTol=1e-9, MIPGap=1e-9)
+                env = quiet_gurobi_env()
+                self.gen.solver = lambda: GUROBI(msg=False, env=env, FeasibilityTol=1e-9, MIPGap=1e-9)
             else:
                 # CBC ships with PuLP; gapRel=0 proves optimality like MIPGap above
                 self.gen.solver = lambda: PULP_CBC_CMD(msg=False, gapRel=0)
@@ -965,6 +969,9 @@ class Synthesizer:
             self.gen.mode = "gurobi"
             self.gen.solver = solver
         
+        scratch = tempfile.TemporaryDirectory() if output_qasm is None else None
+        if scratch is not None:
+            output_qasm = os.path.join(scratch.name, "circuit.qasm")
         # the solver processes live until the synthesis ends, also when it ends with an exception
         try:
             if solving == "smt" and incremental_mode:
@@ -980,19 +987,28 @@ class Synthesizer:
             res, circuit, vectors = self._synth(vector_pairs, output_qasm)
         finally:
             self.close()
+            if scratch is not None:
+                scratch.cleanup()
 
-        self.logger.log("INFO", f"Circuit: {circuit}")
+        log.info("Circuit: %s", circuit)
         for pair_idx, (vector) in enumerate(vectors or []):
-            self.logger.log("INFO", f"Vector {pair_idx}: {vector}")
-        self.logger.log("INFO", f"Result: {res}")
-        self.logger.update_time("full", time.time() - start_time)
+            log.info("Vector %d: %s", pair_idx, vector)
+        log.info("Result: %s", res)
+        full = time.perf_counter() - start_time
+        # assigned, not added: a nested synthesis (in this process or a pareto worker) sets its own "full"
+        times["full"] = full
+        # this run's own share; the five phases are always there
+        self.times = {phase: 0.0 for phase in ["full", "parsing", "encoding", "solving", "updating"]}
+        self.times.update({name: seconds - times_before.get(name, 0.0) for name, seconds in times.items()})
+        self.times["full"] = full
         return res, circuit, vectors
     
     
     
     def _synth(self, vector_pairs, output_qasm="circuit.qasm") -> bool:
         # encode weights
-        encoding_start = time.time()
+        # every encoding interval is closed before a solve and reopened after it
+        encoding_start = time.perf_counter()
         weights = []
         weight_bound = 0
         max_weight = self.gate_set.max_weight()
@@ -1080,6 +1096,7 @@ class Synthesizer:
             # fully encoded (except for the weight bound), save the formula
             self.gen.add_objective(weights[self.d])
             formula_file = self.gen.write_formula(output_qasm)
+            times["encoding"] += time.perf_counter() - encoding_start
             
             if self.encoding_method == "basic":
                 res, circuit, vectors = self.solve_and_extract_circuit(output_qasm=output_qasm, formula_file=formula_file, write_to_file=True)
@@ -1092,10 +1109,7 @@ class Synthesizer:
         
         elif self.encoding_method == "incremental" or self.encoding_method == "pareto-incremental":
             # incrementally generate circuit and equivalence
-            encoding_end = time.time()
-            self.stats['encoding'] += encoding_end - encoding_start
-            self.logger.update_time("encoding", encoding_end - encoding_start)
-            encoding_start = time.time()
+            times["encoding"] += time.perf_counter() - encoding_start
             if self.encoding_method == "pareto-incremental":
                 if self.vector_mode == "rus":
                     self.pareto_front = Pareto(timeout=self.pareto_timeout, maximize_y=True,
@@ -1106,14 +1120,15 @@ class Synthesizer:
             self.curr_depth = 0
             circuit, vectors = None, None
             while not res:
+                encoding_start = time.perf_counter()
                 if self.max_depth is not None and self.curr_depth > self.max_depth:
-                    self.logger.log("INFO", f"No circuit with at most {self.max_depth} gates exists")
+                    log.info("No circuit with at most %d gates exists", self.max_depth)
                     break
-                self.logger.log("INFO", f"Trying depth: {self.curr_depth}")
+                log.info("Trying depth: %d", self.curr_depth)
                 self.gen.d = self.curr_depth
                 # depth 0 has no layer: the empty circuit is checked first, as basic and binary do
                 if self.curr_depth > 0:
-                    self.logger.log("INFO", f"Encoding new layer")
+                    log.info("Encoding new layer")
                     # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
                     # pareto-incremental enumerates every circuit once, at the depth equal to its gate count: with empty
                     # (id) layers, each circuit would come back with ids in every position, on every qubit, at every depth
@@ -1140,28 +1155,31 @@ class Synthesizer:
                         # encode the layer
                         self.encode_layer(inter_states[pair_idx][self.curr_depth-1], inter_states[pair_idx][self.curr_depth], self.curr_depth-1, weights[self.curr_depth-1], weights[self.curr_depth], selection_variables, bool_variables)
                 
-                    self.logger.log("INFO", f"Encoded layer {self.curr_depth-1}")
+                    log.info("Encoded layer %d", self.curr_depth-1)
 
                         # constraints do not have any effect on incremental synthesis
                         #self.gen.add_constraints(self.gate_set, self.curr_depth-1, self.circuit_q)
                     if self.complex_representation != Complex:
                         self.bound = self.bound * 2
                     
-                self.logger.log("INFO", f"Pushing depth {self.curr_depth}")
+                log.info("Pushing depth %d", self.curr_depth)
                 self.gen.push()
-                self.logger.log("INFO", f"Pushed depth {self.curr_depth}")
+                log.info("Pushed depth %d", self.curr_depth)
                 
                 if self.encoding_method == "pareto-incremental":
-                    self.logger.log("INFO", f"Encoding equivalence for depth {self.curr_depth}")
+                    log.info("Encoding equivalence for depth %d", self.curr_depth)
                     self.encode_equivalence(inter_states, target_states, self.curr_depth)
-                    self.logger.log("INFO", f"Encoded equivalence for depth {self.curr_depth}")
+                    log.info("Encoded equivalence for depth %d", self.curr_depth)
+
+                    times["encoding"] += time.perf_counter() - encoding_start
 
                     # enumerate models for this depth
                     sat = True
-                    self.logger.log("INFO", f"Enumerating models for depth {self.curr_depth}")
+                    log.info("Enumerating models for depth %d", self.curr_depth)
                     while sat:
                         # rewritten for every model, the previous ones are filtered out by then
-                        formula_file = self.gen.write_formula(output_qasm)
+                        with timed("encoding"):
+                            formula_file = self.gen.write_formula(output_qasm)
                         result, circuit, vectors = self.pareto_front.start(
                             lambda: self.solve_and_extract_circuit(
                                 formula_file=formula_file,
@@ -1220,7 +1238,8 @@ class Synthesizer:
                             self.pareto_front.add_point(cost_x, cost_y, self.curr_depth, circuit, recovery_circuit)
                             if self.curr_depth == 0:
                                 break  # the empty circuit is the only one, and it has no gates to filter
-                            self.gen.filter_model(circuit.bool_variables, self.curr_depth)
+                            with timed("encoding"):
+                                self.gen.filter_model(circuit.bool_variables, self.curr_depth)
                     self.gen.pop()
                     self.restart_after_empty_circuit()
                     self.curr_depth += 1
@@ -1228,24 +1247,23 @@ class Synthesizer:
                         break
                             
                 else:
-                    self.logger.log("INFO", f"Encoding equivalence for depth {self.curr_depth}")
+                    log.info("Encoding equivalence for depth %d", self.curr_depth)
                     self.encode_equivalence(inter_states, target_states, self.curr_depth)
-                    self.logger.log("INFO", f"Encoded equivalence for depth {self.curr_depth}")
+                    log.info("Encoded equivalence for depth %d", self.curr_depth)
 
                     # without objective
-                    self.logger.log("INFO", f"Writing formula for depth {self.curr_depth}")
+                    log.info("Writing formula for depth %d", self.curr_depth)
                     formula_file = self.gen.write_formula(output_qasm)
-                    self.logger.log("INFO", f"Formula written for depth {self.curr_depth}")
-                    encoding_end = time.time()
-                    self.logger.update_time("encoding", encoding_end - encoding_start)
+                    log.info("Formula written for depth %d", self.curr_depth)
+                    times["encoding"] += time.perf_counter() - encoding_start
                     result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)
                     if result:
                         res = True
                     else:
                         # remove rescaled_... variables from the problem
-                        self.logger.log("INFO", f"Popping depth {self.curr_depth}")
+                        log.info("Popping depth %d", self.curr_depth)
                         self.gen.pop()
-                        self.logger.log("INFO", f"Popped depth {self.curr_depth}")
+                        log.info("Popped depth %d", self.curr_depth)
                         self.restart_after_empty_circuit()
                         self.curr_depth += 1
             if self.encoding_method == "pareto-incremental":
@@ -1284,8 +1302,9 @@ class Synthesizer:
                 else:
                     break
             self.gen.push()
-            self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(middle)))
-            formula_file = self.gen.write_formula(output_qasm)          
+            with timed("encoding"):
+                self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(middle)))
+                formula_file = self.gen.write_formula(output_qasm)          
             result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)                
             if result:
                 upper_bound = middle
@@ -1307,8 +1326,9 @@ class Synthesizer:
         i = 0
         while i < self.d+2:
             self.gen.push()
-            self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(i)))
-            formula_file = self.gen.write_formula(output_qasm)
+            with timed("encoding"):
+                self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(i)))
+                formula_file = self.gen.write_formula(output_qasm)
                  
             result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)                
             if result:
@@ -1324,8 +1344,9 @@ class Synthesizer:
         best_vectors = None
         while i >= 0:
             self.gen.push()
-            self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(i)))
-            formula_file = self.gen.write_formula(output_qasm)
+            with timed("encoding"):
+                self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(i)))
+                formula_file = self.gen.write_formula(output_qasm)
             result, circuit, vectors = self.solve_and_extract_circuit(formula_file=formula_file, output_qasm=output_qasm, write_to_file=True)
             self.gen.pop()
             if not result:
@@ -1343,7 +1364,7 @@ class Synthesizer:
         # the deeper circuits are searched by a solver process that has not seen the depth-0 check: with it, yices2
         # took minutes instead of a second for depth 2 of an approximate GHZ synthesis (QF_NRA)
         if self.curr_depth == 0 and self.gen.mode == "smtlib" and self.gen.incremental_mode:
-            self.logger.log("INFO", "Restarting the solver after the empty circuit")
+            log.info("Restarting the solver after the empty circuit")
             self.gen.restart_incremental()
 
     def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", write_to_file = True, draw_circuit = False) -> bool:
@@ -1352,21 +1373,17 @@ class Synthesizer:
             output_qasm: Output filename for QASM circuit
             solver: z3, z3alpha, cvc5, opensmt, smtinterpol, yices2, dreal (experimental)
         """
-        solving_start = time.time()
-        self.logger.log("INFO", f"Solving formula")
-        result = self.gen.check_sat(formula_file)
-        self.logger.log("INFO", f"Solving finished")
-        solving_end = time.time()
-        self.logger.update_time("solving", solving_end - solving_start)
+        log.info("Solving formula")
+        with timed("solving"):
+            result = self.gen.check_sat(formula_file)
+        log.info("Solving finished")
         if result:
-            parsing_start = time.time()
-            self.logger.log("INFO", f"Parsing model")
-            model = self.gen.get_model()
-            res = self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=False, draw_circuit=False, v=self.v,
-                                    circuit_qubits=self.circuit_q)
-            parsing_end = time.time()
-            self.logger.update_time("parsing", parsing_end - parsing_start)
-            self.logger.log("INFO", f"Parsing finished")
+            log.info("Parsing model")
+            with timed("parsing"):
+                model = self.gen.get_model()
+                res = self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=False, draw_circuit=False, v=self.v,
+                                        circuit_qubits=self.circuit_q)
+            log.info("Parsing finished")
             if isinstance(res, tuple) and res[0]:
                 circuit = res[1]
                 # every layer selects exactly one gate (possibly id), so an empty layer means the model is incomplete

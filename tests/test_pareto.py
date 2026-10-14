@@ -68,7 +68,7 @@ def test_rus_cost(workdir, representation):
 
 
 def test_filter_model_pysmt_excludes_model():
-    gen = Generator(mode="pysmt", logger=None)
+    gen = Generator(mode="pysmt")
     gen.solver = Solver(name="z3")
     names = ["L0_h_q0", "L1_cx_q0_q1"]
     for name in names:

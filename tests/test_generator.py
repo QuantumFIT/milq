@@ -6,7 +6,6 @@ from pysmt.shortcuts import Solver
 
 from gates import GateSet
 from generator import Generator
-from logger import Logger
 
 
 @pytest.mark.parametrize("mode", ["pysmt", "milp", "gurobi"])
@@ -20,7 +19,7 @@ from logger import Logger
     ("cx_q0_q1", "cx_q1_q0", True),   # different wire order is a different gate
 ])
 def test_add_constraints_forbids_only_adjoint_pairs(tmp_path, mode, first, second, allowed):
-    gen = Generator(mode=mode, logger=Logger(verbosity=0, filename=str(tmp_path / "log")))
+    gen = Generator(mode=mode)
     if mode == "pysmt":
         gen.solver = Solver(name="z3")
     elif mode == "milp":

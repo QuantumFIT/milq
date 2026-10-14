@@ -11,14 +11,15 @@ from fractions import Fraction
 from generator import Generator
 from gates import Circuit, Gate
 from complex.vector import Vector
-from logger import Logger
+import logging
+
+log = logging.getLogger(__name__)
 
 class ModelParser:
     """
     class that converts model from any solver to QASM file
     """
-    def __init__(self, logger : Logger) -> None:
-        self.logger = logger
+    def __init__(self) -> None:
         self.stats = {}
         self.stats['gate_counts'] = {} # gate name -> count
         self.stats['cost'] = 0 # total cost of the circuit
@@ -169,7 +170,7 @@ class ModelParser:
             try:
                 items = self.expand_milp_model(model)
             except Exception as e:
-                print(f"Error expanding MILP model: {e}")
+                log.warning("Error expanding MILP model: %s", e)
                 return False, None, None
         elif isinstance(model, str): # pasrsing smt model
             items = self.parse_model_to_items(model)

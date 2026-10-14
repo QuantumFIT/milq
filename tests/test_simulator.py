@@ -113,8 +113,7 @@ def test_vector_rescale_with_keeps_values(k1, k2):
 def test_vector_rescale_with_rejects_generator(tmp_path):
     from complex.vector import Vector
     from generator import Generator
-    from logger import Logger
-    gen = Generator(mode="smtlib", logger=Logger(verbosity=0, filename=str(tmp_path / "log")))
+    gen = Generator(mode="smtlib")
     v1 = Vector(q=1, generator=gen, element_representation=FiveTuple, k=9)
     v2 = Vector(q=1, element_representation=FiveTuple, k=10)
     with pytest.raises(NotImplementedError):
@@ -131,8 +130,7 @@ def test_vector_to_real_with_generator(tmp_path, name, k, element, expected):
     from pysmt.shortcuts import Not, Solver
     from complex.vector import Vector
     from generator import Generator
-    from logger import Logger
-    gen = Generator(mode="pysmt", logic="QF_NRA", logger=Logger(verbosity=0, filename=str(tmp_path / "log")))
+    gen = Generator(mode="pysmt", logic="QF_NRA")
     gen.solver = Solver(name="z3")
     vec = Vector(q=1, name=name, generator=gen, element_representation=FiveTuple, k=k, k_bound=4)
     if name is None:

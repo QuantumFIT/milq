@@ -5,8 +5,9 @@ numpy>=1.23.2
 PySMT>=0.9.6
 # 2.7 fails with Gurobi through PuLP; 4.0 removed PULP_CBC_CMD
 PuLP>=2.8.0,<4
-# 12.0 added the nonlinear expressions of the gurobi mode (2 ** x, division by a variable)
-gurobipy>=12.0.0
+# 12.0 added the nonlinear expressions of the gurobi mode (2 ** x, division by a variable), but the size-limited
+# license bundled with 12.x expires on 2026-11-23
+gurobipy>=13.0.0
 # 3.7.2 and older allow numpy 2, but their wheels were built for numpy 1
 matplotlib>=3.7.3
 # 4.12.3 and older import importlib_resources without requiring it

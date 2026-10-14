@@ -40,13 +40,14 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      # lowest: every `>=x` lower bound of requirements.txt pinned to `==x`, except gurobipy's. The size-limited
-      # license that comes with gurobipy expires about two years after its major release (12.x on 2026-11-23,
-      # 13.x on 2027-11-29), and CI has no other license, so gurobipy stays at its newest release.
+      # lowest: every `>=x` lower bound of requirements.txt pinned to `==x`. The size-limited license that comes
+      # with gurobipy expires about two years after its major release (12.x on 2026-11-23, 13.x on 2027-11-29) and
+      # CI has no other license, so from then on the Gurobi tests of this job fail with "License expired" until the
+      # gurobipy floor is raised.
       - name: Install dependencies
         run: |
           if [ "${{ matrix.versions }}" = lowest ]; then
-            sed -E '/^gurobipy/!s/>=([^,;[:space:]]+).*/==\1/' requirements.txt > requirements-lowest.txt
+            sed -E 's/>=([^,;[:space:]]+).*/==\1/' requirements.txt > requirements-lowest.txt
             cat requirements-lowest.txt
             pip install -r requirements-lowest.txt pytest pytest-cov
           else

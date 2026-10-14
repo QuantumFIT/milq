@@ -13,12 +13,11 @@ from complex.vector import Vector
 from conftest import BENCHMARKS, unitary
 from gates import GateSet
 from generator import Generator
-from logger import Logger
 from synth import Synthesizer
 
 
 def gurobi_generator(model):
-    gen = Generator(mode="gurobi", logger=Logger())
+    gen = Generator(mode="gurobi")
     model.Params.OutputFlag = 0
     gen.lp_problem = model
     return gen
@@ -59,7 +58,7 @@ def test_gurobi_limit_without_solution_raises():
         gurobi_generator(model).check_sat()
 
 
-def test_gurobi_limit_with_solution_is_sat():
+def test_gurobi_limit_with_solution_is_sat(caplog):
     model, xs = knapsack()
     for i in range(30):
         xs[i].Start = 1 if i < 15 else 0  # feasible but not optimal
@@ -67,12 +66,14 @@ def test_gurobi_limit_with_solution_is_sat():
     gen = gurobi_generator(model)
     assert gen.check_sat() is True
     assert model.Status == GRB.SOLUTION_LIMIT
+    # a warning, so the CLI shows it on the console (#86, F75)
+    assert any(r.levelname == "WARNING" and "not proven minimal" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.parametrize("make_solver", [lambda: PULP_CBC_CMD(msg=False), lambda: GUROBI(msg=False)], ids=["cbc", "gurobi"])
 @pytest.mark.parametrize("feasible", [True, False])
 def test_pulp_status(make_solver, feasible):
-    gen = Generator(mode="milp", logger=Logger())
+    gen = Generator(mode="milp")
     gen.solver = make_solver
     gen.lp_problem = LpProblem("status", LpMinimize)
     x = LpVariable("x", lowBound=0, upBound=1, cat="Integer")
@@ -133,7 +134,7 @@ class StoppedSolver:
 
 
 def test_pulp_without_solution_raises():
-    gen = Generator(mode="milp", logger=Logger())
+    gen = Generator(mode="milp")
     gen.solver = StoppedSolver
     gen.lp_problem = LpProblem("stopped", LpMinimize)
     x = LpVariable("x", lowBound=0, upBound=1, cat="Integer")

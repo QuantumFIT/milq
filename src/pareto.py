@@ -11,18 +11,19 @@ import time
 import os
 import traceback
 from gates import Circuit
+from timing import times
 
 
 def _pareto_worker(conn, fn):
-    # runs in the forked process; an exception is sent back and raised again by Pareto.start
+    times.clear()
     try:
         result = ("ok", fn(), None)
     except Exception as e:
         result = ("err", e, traceback.format_exc())
     try:
-        conn.send(result)
+        conn.send(result + (dict(times),))
     except Exception as e:  # the result or the exception cannot be pickled
-        conn.send(("err", RuntimeError(f"the pareto worker could not send its result back: {e}"), traceback.format_exc()))
+        conn.send(("err", RuntimeError(f"the pareto worker could not send its result back: {e}"), traceback.format_exc(), dict(times)))
     finally:
         conn.close()
 
@@ -62,7 +63,7 @@ class Pareto:
                 self.tmout_met = True
                 return False, None, None
             try:
-                status, value, details = receiver.recv()
+                status, value, details, child_times = receiver.recv()
             except EOFError:
                 proc.join()
                 raise RuntimeError(f"the pareto worker exited (exit code {proc.exitcode}) without a result")
@@ -70,6 +71,9 @@ class Pareto:
             proc.join(timeout=10)
             receiver.close()
 
+        # a worker killed on timeout sends nothing, its time is only in "full"
+        for name, seconds in child_times.items():
+            times[name] += seconds
         self.tmout_met = False
         if status == "err":
             value.add_note(f"raised in the pareto worker:\n{details}")

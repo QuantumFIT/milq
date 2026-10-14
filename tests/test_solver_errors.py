@@ -1,5 +1,6 @@
 """Solver answers vs. solver failures (#4), using tests/fake_solver.py instead of real solvers."""
 
+import logging
 import os
 import sys
 
@@ -115,8 +116,24 @@ def test_portfolio_all_failed_raises(formula):
 
 # the generator must not turn a failure into "no circuit at this depth"
 
+@pytest.mark.parametrize("answer", ["unknown", "unsat"])
+@pytest.mark.parametrize("incremental", [False, True])
+def test_generator_logs_unknown_and_unsat_apart(formula, caplog, answer, incremental):
+    caplog.set_level(logging.INFO)
+    gen = Generator(mode="smtlib")
+    gen.solver = fake(answer, incremental=incremental)
+    if incremental:
+        gen.solver.create_process()
+        gen.set_incremental_mode()
+    try:
+        assert gen.check_sat(formula) is False
+    finally:
+        gen.solver.close()
+    assert f"Solver returned {answer.upper()}" in caplog.messages
+
+
 def test_generator_check_sat_propagates_failure(formula):
-    gen = Generator(mode="smtlib", logger=None)
+    gen = Generator(mode="smtlib")
     gen.solver = fake("error")
     with pytest.raises(SolverError, match="boom"):
         gen.check_sat(formula)

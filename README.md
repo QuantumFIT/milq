@@ -96,10 +96,10 @@ The tests use the bundled yices2/cvc5 binaries and the size-limited license ship
 | | - vector.py (vector abstraction)
 | - gates.py (Gate-Set, Circuit, and Gates abstractions)
 | - generator.py (generating of SMT formulae or MILP programs)
-| - logger.py (logging)
 | - pareto.py (pareto front)
 | - parser.py (parsing of solver outputs)
 | - sim.py (simulator module)
 | - solvers.py (abstraction over SMT solvers and Portfolio solver)
 | - synth.py (main synthesis module)
+| - timing.py (phase timings)
 ```

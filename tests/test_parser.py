@@ -6,7 +6,6 @@ import pytest
 from conftest import to_complex
 from complex.classic import Complex
 from generator import Generator
-from logger import Logger
 from parser import ModelParser
 from sim import Simulator
 from synth import Synthesizer
@@ -87,7 +86,7 @@ INT_RESPONSE = """sat
 
 
 def parse(text):
-    return ModelParser(Logger()).parse_model_to_items(text)
+    return ModelParser().parse_model_to_items(text)
 
 
 @pytest.mark.parametrize("solver", REAL_RESPONSES)
@@ -148,10 +147,13 @@ def test_unbalanced_input():
     assert parse("((x 1) (y (- 2)") == [("x", 1), ("y", -2)]
 
 
-def test_parse_returns_failure_triple_on_milp_error():
-    generator = Generator(logger=Logger())
+def test_parse_returns_failure_triple_on_milp_error(caplog, capsys):
+    generator = Generator()
     generator.bool_variables = {"L0_h_q0": "not a solver variable"}
-    assert ModelParser(Logger()).parse(generator, qubits=1, depth=1, write_to_file=False) == (False, None, None)
+    assert ModelParser().parse(generator, qubits=1, depth=1, write_to_file=False) == (False, None, None)
+    # logged as a warning, not printed to stdout
+    assert [r.levelname for r in caplog.records if "Error expanding MILP model" in r.getMessage()] == ["WARNING"]
+    assert capsys.readouterr().out == ""
 
 
 def test_negative_amplitude_end_to_end(workdir):

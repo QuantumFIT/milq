@@ -29,7 +29,9 @@ $ ./milq [options] <qasm_file>
 | `-nm`, `--no_measurement` | flag | off | Ignore end-of-circuit measurements in the input. |
 | `--max-depth` | integer | no limit | Incremental modes: give up (`synthesis failed`) when no circuit with at most this many gates exists. |
 | `-pt`, `--pareto_timeout` | seconds | `36000` | Time limit for `-m pareto-incremental`. |
-| `-o`, `--output_qasm` | path | `circuit.qasm` | Where to write the synthesized circuit. |
+| `--log` | path (optional) | no log | Write a detailed log of the run to this file; `--log` alone writes `synth.log`. |
+| `--verbose` | flag | off | Print the detailed log, with debug messages (e.g. every Gurobi model variable), to stdout, or to the `--log` file if given. |
+| `-o`, `--output_qasm` | path | none (printed only) | Also write the synthesized circuit to this file. |
 | `-b`, `--basis` | `cb` | `cb` | Basis of the encoding; only the computational basis is available. |
 
 ## `cli/simulator.py`: simulation
@@ -72,8 +74,12 @@ ok, circuit, _ = synthesizer.synthesis(
 )
 print(ok)                               # True
 print(circuit)                          # the circuit as OpenQASM 3.0
-print(synthesizer.logger.get_times())   # time per phase, in seconds
+print(synthesizer.times)                # time per phase of the last synthesis, in seconds
 ```
+
+Without `output_qasm`, no files are written: the circuit and the last formula go to a temporary directory that is removed when `synthesis()` returns.
+
+The synthesizer logs through the standard `logging` module (loggers `synth`, `generator`, `parser`) and writes no log file of its own. To see its progress, configure logging, e.g. `logging.basicConfig(level=logging.INFO)`.
 
 The keyword arguments mirror the command-line options (`vectors` ↔ `-v`, `solving` ↔ `-s`, `solver` ↔ `-a`, `mode` ↔ `-m`, `complex_representation` ↔ `-c`, `d` ↔ `-d`, `up_to_global_phase` ↔ `-u`, `approx` ↔ `-ap`, `fidelity_threshold` ↔ `-f`, `targets` ↔ `-T`, `ancillas` ↔ `-A`, `no_measurement` ↔ `-nm`, `max_depth` ↔ `--max-depth`, `pareto_timeout` ↔ `-pt`). Three more are available only from Python:
 

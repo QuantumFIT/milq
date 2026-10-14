@@ -1,5 +1,6 @@
 """The SMT solver configuration (solvers.toml) and how synthesis uses it."""
 
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -163,7 +164,12 @@ def test_portfolio_without_a_solver_for_the_logic(workdir):
         synthesize("portfolio", config, representation="Classic")
 
 
-@pytest.mark.parametrize("solver", ["yices2", "portfolio"])
+# pySMT's portfolio creates its solvers in child processes, which see the generic solvers only when forked (#93)
+PORTFOLIO_NOT_FORKED = pytest.mark.xfail(multiprocessing.get_start_method() != "fork", strict=True,
+                                         reason="#93: the configured solvers are missing in pySMT's portfolio processes")
+
+
+@pytest.mark.parametrize("solver", ["yices2", pytest.param("portfolio", marks=PORTFOLIO_NOT_FORKED)])
 def test_pysmt_solving(workdir, solver):
     # the pySMT backend registers the configured solvers as pySMT generic solvers
     res, circuit, _ = Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="pysmt", solver=solver, mode="basic",

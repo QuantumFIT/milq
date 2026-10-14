@@ -30,7 +30,7 @@ You need at least one solver. **yices2 and cvc5 work out of the box** and are en
 |---|---|---|
 | yices2, cvc5, OpenSMT | bundled in `solvers/` | Ready to use |
 | SMTInterpol | bundled in `solvers/` | Needs Java 21 (`sudo apt install openjdk-21-jdk`) |
-| z3 | `sudo apt install z3` | Must be on `PATH` as `z3`; the `z3-solver` pip package provides only the Python library |
+| z3 | `z3-solver` (installed by `requirements.txt`), or `sudo apt install z3` | Must be on `PATH` as `z3`; `z3-solver` puts it into the virtual environment's `bin`, which is on `PATH` while the environment is active |
 | dReal | [dReal 4.21.06.2](https://github.com/dreal/dreal4) | Expected at `/opt/dreal/4.21.06.2/bin/dreal` |
 | Gurobi | `gurobipy` (installed by `requirements.txt`) | See below |
 

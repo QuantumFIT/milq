@@ -15,7 +15,7 @@ dReal, z3, cvc5, opensmt, yices2, smtinterpol, Gurobi
 ## Installation Guide
 **Dependencies:**
 - dReal solver 4.21.06.2 -- Refer to the [Installation Guide](https://github.com/dreal/dreal4)
-- z3 solver -- `sudo apt install z3`
+- z3 solver -- comes with `z3-solver` from `requirements.txt` (on `PATH` while the virtual environment is active), or `sudo apt install z3`
 - to use `smtinterpol`, Java 21.0.10 is required (`sudo apt install openjdk-21-jdk`)
 - Python 3.11 or newer, with the dependencies in `requirements.txt`
 ```

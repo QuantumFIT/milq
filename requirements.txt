@@ -1,9 +1,15 @@
-numpy==2.3.5
-PySMT==0.9.6
-PuLP==3.3.0
-gurobipy==13.0.0
-matplotlib==3.10.7
-matplotlib-inline==0.2.1
-z3-solver==4.15.4.0
-qiskit==2.2.3
-pylatexenc==2.10
+# The lower bounds are the oldest releases that pass the tests on Python 3.11; CI tests them (except gurobipy, see
+# .github/workflows/ci.yml) next to the newest releases.
+numpy>=1.23.2
+# 0.9.0 fails to import on Python 3.12+ (it bundles an old six), 0.9.5 crashes in the pysmt mode
+PySMT>=0.9.6
+# 2.7 fails with Gurobi through PuLP; 4.0 removed PULP_CBC_CMD
+PuLP>=2.8.0,<4
+# 12.0 added the nonlinear expressions of the gurobi mode (2 ** x, division by a variable)
+gurobipy>=12.0.0
+# 3.7.2 and older allow numpy 2, but their wheels were built for numpy 1
+matplotlib>=3.7.3
+# 4.12.3 and older import importlib_resources without requiring it
+z3-solver>=4.12.4.0
+qiskit>=0.44.1
+pylatexenc>=1.2

@@ -15,19 +15,44 @@ permissions:
 
 jobs:
   test:
+    name: test (Python ${{ matrix.python }}, ${{ matrix.versions }} dependencies)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the newest releases allowed by requirements.txt; this job reports coverage
+          - python: "3.12"
+            versions: newest
+            coverage: true
+          # the oldest supported Python with the lowest releases allowed by requirements.txt
+          - python: "3.11"
+            versions: lowest
+          - python: "3.14"
+            versions: newest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: requirements.txt
 
+      # lowest: every `>=x` lower bound of requirements.txt pinned to `==x`, except gurobipy's. The size-limited
+      # license that comes with gurobipy expires about two years after its major release (12.x on 2026-11-23,
+      # 13.x on 2027-11-29), and CI has no other license, so gurobipy stays at its newest release.
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-cov
+        run: |
+          if [ "${{ matrix.versions }}" = lowest ]; then
+            sed -E '/^gurobipy/!s/>=([^,;[:space:]]+).*/==\1/' requirements.txt > requirements-lowest.txt
+            cat requirements-lowest.txt
+            pip install -r requirements-lowest.txt pytest pytest-cov
+          else
+            pip install -r requirements.txt pytest pytest-cov
+          fi
+          pip freeze
 
       # yices2 and cvc5 are used from solvers/; gurobipy ships a size-limited license
       - name: Run tests with coverage
@@ -35,12 +60,13 @@ jobs:
 
       # keeps the numbers visible on the run page even without Codecov
       - name: Coverage summary
-        if: always()
+        if: always() && matrix.coverage
         run: coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
       # best-effort until the repository is activated on Codecov and CODECOV_TOKEN
       # is set; flip fail_ci_if_error to true once uploads are expected to work
       - name: Upload to Codecov
+        if: matrix.coverage
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml

@@ -30,9 +30,11 @@ You need at least one solver. **yices2 and cvc5 work out of the box** and are en
 |---|---|---|
 | yices2, cvc5, OpenSMT | bundled in `solvers/` | Ready to use |
 | SMTInterpol | bundled in `solvers/` | Needs Java 21 (`sudo apt install openjdk-21-jdk`) |
-| z3 | `z3-solver` (installed by `requirements.txt`), or `sudo apt install z3` | Must be on `PATH` as `z3`; `z3-solver` puts it into the virtual environment's `bin`, which is on `PATH` while the environment is active |
+| z3 | `z3-solver` (installed by `requirements.txt`), or `sudo apt install z3` | Looked up on `PATH` as `z3`; `z3-solver` puts it into the virtual environment's `bin`, which is on `PATH` while the environment is active |
 | dReal | [dReal 4.21.06.2](https://github.com/dreal/dreal4) | Expected at `/opt/dreal/4.21.06.2/bin/dreal` |
 | Gurobi | `gurobipy` (installed by `requirements.txt`) | See below |
+
+Where the SMT solvers are and how they are called is set in [`solvers.toml`](#solver-configuration).
 
 The `portfolio` option runs every compatible SMT solver. Solvers that are not installed or that fail (e.g. SMTInterpol without Java) are skipped, so it works with just the bundled ones.
 
@@ -41,6 +43,28 @@ If the bundled binaries lost their executable bit (e.g. after copying the reposi
 ```console
 $ chmod +x solvers/cvc5/cvc5 solvers/opensmt/opensmt solvers/yices2/yices_smt2 solvers/smtinterpol/smtinterpol
 ```
+
+### Solver configuration
+
+The SMT solvers are defined in `solvers.toml` in the repository root. Each `[solvers.NAME]` table defines one solver, and `-a NAME` selects it:
+
+```toml
+[solvers.cvc5]
+path = "solvers/cvc5/cvc5"            # relative to solvers.toml; a bare name is looked up on PATH
+args = ["--produce-models"]           # always passed
+incremental_args = ["--incremental"]  # added in the incremental modes, which send the formula through stdin
+logics = ["QF_LIA", "QF_NIA", "QF_NRA"]
+```
+
+| Key | Required | Meaning |
+|---|---|---|
+| `path` | yes | The executable. A relative path is relative to the configuration file, a bare name (e.g. `"z3"`) is looked up on `PATH`, and `~` and `$VARIABLES` are expanded. |
+| `logics` | yes | SMT-LIB logics the solver supports, from `QF_LIA`, `QF_LRA`, `QF_NIA`, `QF_NRA`. FiveTuple formulas are `QF_LIA`, Classic ones `QF_NRA`. |
+| `args` | no | Arguments always passed to the solver. |
+| `incremental_args` | no | Extra arguments for the incremental modes. |
+| `portfolio` | no | `false` keeps `-a portfolio` from running the solver (default `true`). |
+
+To install a solver somewhere else, change its `path`. To add a solver, add a table; the names `portfolio`, `gurobi` and `cbc` are reserved. To keep your own settings outside the repository, copy the file and pass it with `--solver-config FILE`, or set the `MILQ_SOLVER_CONFIG` environment variable (`--solver-config` takes precedence).
 
 ### Gurobi license
 

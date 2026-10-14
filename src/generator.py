@@ -70,8 +70,6 @@ class Generator:
         self.num_of_vectors = 0
         self.model = None
         self.jamiolkowski = False
-        if self.solver == "dreal":
-            self.logic = "QF_NRA"
 
     def _gp_params(self):
         # set Gurobi parameters for the LP problem (increase precision)

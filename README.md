@@ -12,6 +12,8 @@
 Supported solvers:
 dReal, z3, cvc5, opensmt, yices2, smtinterpol, Gurobi
 
+Paths and command-line arguments of the SMT solvers are set in [`solvers.toml`](solvers.toml); see the [solver configuration](https://quantum.fit.vut.cz/milq/installation#solver-configuration) docs.
+
 ## Installation Guide
 **Dependencies:**
 - dReal solver 4.21.06.2 -- Refer to the [Installation Guide](https://github.com/dreal/dreal4)
@@ -78,6 +80,7 @@ The tests use the bundled yices2/cvc5 binaries and the size-limited license ship
 - README.md
 - milq (CLI for synthesis)
 - requirements.txt
+- solvers.toml (paths and arguments of the SMT solvers)
 - benchmarks/
 | - ghz (GHZ circuits)
 | - bernstein-vazirani (BV circuits)
@@ -100,6 +103,7 @@ The tests use the bundled yices2/cvc5 binaries and the size-limited license ship
 | - pareto.py (pareto front)
 | - parser.py (parsing of solver outputs)
 | - sim.py (simulator module)
+| - solver_config.py (loading of solvers.toml)
 | - solvers.py (abstraction over SMT solvers and Portfolio solver)
 | - synth.py (main synthesis module)
 ```

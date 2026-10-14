@@ -17,7 +17,8 @@ $ ./milq [options] <qasm_file>
 | `qasm_file` | path | *(required)* | Input circuit ([format](usage#input-circuits)). |
 | `-v`, `--vectors` | `all`, `zero`, `jamiolkowski`, `rus` | `all` | Input states the circuits must agree on ([details](usage#1-pick-what-must-be-preserved--v)). |
 | `-s`, `--solving` | `smt`, `gurobi`, `milp` | `gurobi` | Solving method ([details](usage#2-pick-a-backend--s--a--c)). |
-| `-a`, `--solver` | `yices2`, `cvc5`, `opensmt`, `smtinterpol`, `z3`, `dreal`, `portfolio`, `gurobi`, `cbc` | `gurobi` | Solver; SMT solvers require `-s smt`, and `cbc` requires `-s milp`. |
+| `-a`, `--solver` | a solver from the [solver configuration](installation#solver-configuration) (`yices2`, `cvc5`, `opensmt`, `smtinterpol`, `z3`, `dreal` by default), `portfolio`, `gurobi`, `cbc` | `gurobi` | Solver; SMT solvers and `portfolio` require `-s smt`, and `cbc` requires `-s milp`. |
+| `--solver-config` | path | `$MILQ_SOLVER_CONFIG`, else `solvers.toml` in the repository root | [Solver configuration](installation#solver-configuration) file. |
 | `-c`, `--complex_representation` | `FiveTuple`, `Classic` | `FiveTuple` | Representation of amplitudes. |
 | `-m`, `--mode` | `incremental`, `basic`, `bottomup`, `topdown`, `binary`, `pareto-incremental` | `incremental` | Search mode ([details](usage#3-pick-a-search-mode--m)). |
 | `-d`, `--depth` | integer | input gate count | Number of layers for the fixed-depth modes. |
@@ -75,7 +76,7 @@ print(circuit)                          # the circuit as OpenQASM 3.0
 print(synthesizer.logger.get_times())   # time per phase, in seconds
 ```
 
-The keyword arguments mirror the command-line options (`vectors` ↔ `-v`, `solving` ↔ `-s`, `solver` ↔ `-a`, `mode` ↔ `-m`, `complex_representation` ↔ `-c`, `d` ↔ `-d`, `up_to_global_phase` ↔ `-u`, `approx` ↔ `-ap`, `fidelity_threshold` ↔ `-f`, `targets` ↔ `-T`, `ancillas` ↔ `-A`, `no_measurement` ↔ `-nm`, `max_depth` ↔ `--max-depth`, `pareto_timeout` ↔ `-pt`). Three more are available only from Python:
+The keyword arguments mirror the command-line options (`vectors` ↔ `-v`, `solving` ↔ `-s`, `solver` ↔ `-a`, `mode` ↔ `-m`, `complex_representation` ↔ `-c`, `d` ↔ `-d`, `up_to_global_phase` ↔ `-u`, `approx` ↔ `-ap`, `fidelity_threshold` ↔ `-f`, `targets` ↔ `-T`, `ancillas` ↔ `-A`, `no_measurement` ↔ `-nm`, `max_depth` ↔ `--max-depth`, `pareto_timeout` ↔ `-pt`, `solver_config` ↔ `--solver-config`). Three more are available only from Python:
 
 - `gate_set=GateSet([...])` (from `gates`) restricts the gates the synthesized circuit may use.
 - `vectors="custom"` with `input_vectors` and a `qasm_file` (or `matrix`, which requires `complex_representation="Classic"`) synthesizes a circuit that agrees with the input circuit only on the given input states. The expected outputs are simulated from the circuit, and `q`, `d`, the gate set and the measured qubits are taken from it unless passed explicitly. Each input state is a `Vector` (from `complex.vector`) with 2<sup>q</sup> amplitudes in the chosen representation:

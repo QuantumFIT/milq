@@ -297,7 +297,7 @@ def test_cli_without_o_only_prints_the_circuit(workdir, solver):
     assert os.listdir(workdir) == []  # no circuit, formula or log file
 
 
-@pytest.mark.parametrize("solver", [["-s", "smt", "-a", "yices2"], ["-s", "gurobi"], ["-s", "milp", "-a", "gurobi"]],
+@pytest.mark.parametrize("solver", [["-s", "smt", "-a", "yices2"], ["-s", "gurobi"], ["-s", "milp", "-a", "gurobi", "-c", "Classic"]],
                          ids=["yices2", "gurobi", "pulp-gurobi"])
 def test_cli_prints_the_result_times_and_circuit(workdir, solver):
     run = cli(*solver, "--log")

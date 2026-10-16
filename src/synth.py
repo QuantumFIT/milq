@@ -845,6 +845,8 @@ class Synthesizer:
             gate_set = GateSet(gate_set)  # a list of gate names
         if max_depth is not None and max_depth < 0:
             raise ValueError("max_depth cannot be negative")
+        if d is not None and d < 0:
+            raise ValueError("d must be at least 0")
 
         self.vec_mode = vectors
         self.q = q

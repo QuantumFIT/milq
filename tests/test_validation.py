@@ -121,3 +121,8 @@ def test_solver_without_nra_is_rejected_for_classic(workdir, solver):
     config.write_text(render([Detection(known, solver)]))
     with pytest.raises(ValueError, match=f"{solver} does not support QF_NRA"):
         synthesize(solver=solver, complex_representation="Classic", solver_config=str(config))
+
+
+def test_negative_depth_is_rejected(workdir):
+    with pytest.raises(ValueError, match="d must be at least 0"):
+        synthesize(mode="basic", d=-1)

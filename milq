@@ -17,29 +17,76 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'sr
 from synth import Synthesizer
 from solvers import SolverError
 from solver_config import SolverConfigError
+from gurobipy import GurobiError
+
+
+def bounded(cast, check, requirement):
+    # argparse type: cast the value and reject it unless check(value) holds
+    def parse(value):
+        number = cast(value)
+        if not check(number):
+            raise argparse.ArgumentTypeError(f"must be {requirement}, got {value}")
+        return number
+    parse.__name__ = cast.__name__  # argparse names the type in "invalid int value: ..."
+    return parse
+
+
+non_negative = bounded(int, lambda n: n >= 0, "at least 0")
+positive = bounded(int, lambda n: n >= 1, "at least 1")
+fraction = bounded(float, lambda n: 0 <= n <= 1, "in [0, 1]")
+positive_seconds = bounded(float, lambda n: n > 0, "greater than 0")
+
+
+# -a with -s milp and -s gurobi; with -s smt, -a is a solver from the solver configuration (checked by the
+# synthesis) or portfolio
+MILP_SOLVERS = {"milp": ["cbc", "gurobi"], "gurobi": ["gurobi"]}
+DEFAULT_SOLVERS = {"smt": "yices2", "milp": "cbc", "gurobi": "gurobi"}
+INCREMENTAL_MODES = ["incremental", "pareto-incremental"]
 
 parser = argparse.ArgumentParser(description='CLI for the synthesis tool')
 parser.add_argument('qasm_file', type=str, help='qasm file to synthesize')
 parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for the synthesis', choices=["zero", "all", "rus", "jamiolkowski"], default="all")
 parser.add_argument('-s', '--solving', type=str, help='solving method to use', choices=["smt", "milp", "gurobi"], default="gurobi")
 parser.add_argument('-m', '--mode', type=str, help='solving mode to use', choices=["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"], default="incremental")
-parser.add_argument('-a', '--solver', type=str, help='solver to use: with -s smt a solver from the solver configuration or portfolio, with -s milp gurobi or cbc', required=False, default="gurobi")
+parser.add_argument('-a', '--solver', type=str, help='solver to use: with -s smt a solver from the solver configuration or portfolio (default: yices2), with -s milp cbc (default) or gurobi, with -s gurobi gurobi', required=False, default=None)
 parser.add_argument('--solver-config', type=str, help='SMT solver configuration file (default: $MILQ_SOLVER_CONFIG, else solvers.toml next to this script)', required=False, default=None)
 parser.add_argument('-o', '--output_qasm', type=str, help='also write the synthesized circuit to this qasm file', required=False, default=None)
 parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "Classic"], default="FiveTuple")
-parser.add_argument('-f', '--fidelity_threshold', type=float, help='minimum average fidelity for approximate synthesis (-ap)', required=False, default=1.0)
+parser.add_argument('-f', '--fidelity_threshold', type=fraction, help='minimum average fidelity for -ap (default: 1.0)', required=False, default=None)
 parser.add_argument('-ap', '--approx', action='store_true', help='approximate equivalence', default=False)
-parser.add_argument('-T', '--targets', type=int, help='number of target qubits', required=False, default=1)
-parser.add_argument('-A', '--ancillas', type=int, help='number of ancilla qubits', required=False, default=1)
+parser.add_argument('-T', '--targets', type=positive, help='number of target qubits for -v rus (default: 1)', required=False, default=None)
+parser.add_argument('-A', '--ancillas', type=non_negative, help='number of ancilla qubits for -v rus (default: 1)', required=False, default=None)
 parser.add_argument('-u', '--up_to_global_phase', action='store_true', help='up to global phase', default=False)
 parser.add_argument('-b', '--basis', type=str, help='basis to use', required=False, choices=["cb"], default="cb")
-parser.add_argument('-d', '--depth', type=int, help='number of allowed gates', required=False, default=None)
+parser.add_argument('-d', '--depth', type=non_negative, help='number of layers for basic/binary/topdown/bottomup (default: gate count of the input)', required=False, default=None)
 parser.add_argument('-nm', '--no_measurement', action='store_true', help='do not measure the output qubits', default=False)
-parser.add_argument('--max-depth', type=int, help='incremental modes: give up when no circuit with at most this many gates exists (default: no limit)', required=False, default=None)
-parser.add_argument('-pt', '--pareto_timeout', type=float, help='time limit in seconds for the pareto-incremental mode', required=False, default=10*60*60)
+parser.add_argument('--max-depth', type=non_negative, help='incremental modes: give up when no circuit with at most this many gates exists (default: no limit)', required=False, default=None)
+parser.add_argument('-pt', '--pareto_timeout', type=positive_seconds, help='time limit in seconds for the pareto-incremental mode (default: 36000)', required=False, default=None)
 parser.add_argument('--log', type=str, nargs='?', const='synth.log', help='write a detailed log of the run to this file (default: synth.log)', required=False, default=None)
 parser.add_argument('--verbose', action='store_true', help='print the detailed log, with debug messages (e.g. every Gurobi model variable), to stdout, or to the --log file', default=False)
 args = parser.parse_args()
+if args.solver is None:
+    args.solver = DEFAULT_SOLVERS[args.solving]
+elif args.solving == "smt" and args.solver in MILP_SOLVERS["milp"]:
+    parser.error(f"-a {args.solver} cannot be used with -s smt (choose a solver from the solver configuration, or portfolio)")
+elif args.solving != "smt" and args.solver not in MILP_SOLVERS[args.solving]:
+    parser.error(f"-a {args.solver} cannot be used with -s {args.solving} (choose from {', '.join(MILP_SOLVERS[args.solving])})")
+if args.depth is not None and args.mode in INCREMENTAL_MODES:
+    parser.error(f"-d applies only to basic/binary/topdown/bottomup; to bound -m {args.mode}, use --max-depth")
+if args.max_depth is not None and args.mode not in INCREMENTAL_MODES:
+    parser.error(f"--max-depth applies only to incremental/pareto-incremental; to set the layers of -m {args.mode}, use -d")
+for flag, value, applies, needs in [("--solver-config", args.solver_config, args.solving == "smt", "-s smt"),
+                                    ("-f", args.fidelity_threshold, args.approx, "-ap"),
+                                    ("-pt", args.pareto_timeout, args.mode == "pareto-incremental", "-m pareto-incremental"),
+                                    ("-T", args.targets, args.vectors == "rus", "-v rus"),
+                                    ("-A", args.ancillas, args.vectors == "rus", "-v rus")]:
+    if value is not None and not applies:
+        parser.error(f"{flag} applies only with {needs}")
+# defaults of the options above; None only marked them as not given
+args.fidelity_threshold = 1.0 if args.fidelity_threshold is None else args.fidelity_threshold
+args.pareto_timeout = 10*60*60 if args.pareto_timeout is None else args.pareto_timeout
+args.targets = 1 if args.targets is None else args.targets
+args.ancillas = 1 if args.ancillas is None else args.ancillas
 
 if args.log is not None:
     handlers = [logging.FileHandler(args.log, mode="w")]
@@ -84,10 +131,13 @@ except SolverConfigError as e:
 except SolverError as e:
     print(f"synthesis failed: {e}", file=sys.stderr)
     sys.exit(1)
+except (ValueError, OSError, RuntimeError, GurobiError) as e:
+    print(f"milq: error: {e}", file=sys.stderr)
+    sys.exit(1)
 if res:
     print("synthesis successful")
 else:
-    print("synthesis failed")
+    print("synthesis failed", file=sys.stderr)
     
 print(f"Full time: {synthesizer.times['full']} seconds")
 print(f"Parsing time: {synthesizer.times['parsing']} seconds")
@@ -96,3 +146,5 @@ print(f"Solving time: {synthesizer.times['solving']} seconds")
 print(f"Updating time: {synthesizer.times['updating']} seconds")
 if circuit is not None:
     print(circuit)
+if not res:
+    sys.exit(3)  # no circuit found within the bounds

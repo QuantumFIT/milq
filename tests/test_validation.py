@@ -39,3 +39,8 @@ def test_unknown_vectors_are_rejected(workdir):
 def test_some_input_is_required(workdir):
     with pytest.raises(ValueError, match="qasm_file, matrix, or vector_pairs is required"):
         synthesize(qasm_file=None)
+
+
+def test_negative_depth_is_rejected(workdir):
+    with pytest.raises(ValueError, match="d must be at least 0"):
+        synthesize(mode="basic", d=-1)

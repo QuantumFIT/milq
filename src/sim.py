@@ -115,7 +115,7 @@ class Simulator:
 
             # every complete definition was removed above, so this one has no closing brace
             if line.startswith('gate '):
-                raise Exception("gate definition not closed, not a valid qasm file")
+                raise ValueError("gate definition not closed, not a valid qasm file")
 
             qreg_name = self.stats['qreg']
             # whole-register measurement (measure q -> c, c = measure q) -> measure every qubit
@@ -153,7 +153,7 @@ class Simulator:
                     self.stats['gate_set'].append(gate, qubits=len(qubits))
                 continue
 
-            raise Exception(f"input file parsing failed")
+            raise ValueError(f"input file parsing failed at: {line}")
         return gates, vectors
             
     def measurement_target(self, line: str) -> str:
@@ -408,6 +408,10 @@ class Simulator:
     """
     def simulate_rus(self, targets: int = 1, ancillas: int = 1) -> list[tuple[Vector, Vector]]:
         gates, vectors = self.parse_file()
+        if targets < 1:
+            raise ValueError("rus needs at least 1 target qubit")
+        if self.matrix is None and self.stats['q'] > targets + ancillas:
+            raise ValueError(f"the circuit has {self.stats['q']} qubits, more than targets + ancillas = {targets + ancillas}")
         
         if self.stats['q'] != targets + ancillas:
             if self.matrix is not None:

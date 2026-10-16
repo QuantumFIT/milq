@@ -118,7 +118,7 @@ $ ./milq -v rus -T 1 -A 1 -c Classic -s gurobi benchmarks/rus/2/spec.qasm
 
 ## Output
 
-On success, `milq` prints the timing of each phase and the synthesized circuit:
+On success, `milq` prints the timing of each phase and the synthesized circuit (the exit statuses are listed in the [reference](reference#milq-synthesis)):
 
 ```console
 synthesis successful

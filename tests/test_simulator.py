@@ -1,5 +1,7 @@
 """Gate semantics of the simulator against Qiskit reference matrices."""
 
+import os
+
 import numpy as np
 import pytest
 from qiskit import QuantumCircuit
@@ -8,7 +10,7 @@ from qiskit.quantum_info import Operator
 
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
-from conftest import to_complex, unitary
+from conftest import BENCHMARKS, to_complex, unitary
 from gates import supported_gates
 from sim import Simulator
 
@@ -147,3 +149,16 @@ def test_vector_to_real_with_generator(tmp_path, name, k, element, expected):
     assert gen.check_sat()
     gen.add_assertion(Not(matches))
     assert not gen.check_sat()
+
+
+def test_unparsable_line_is_a_value_error(tmp_path):
+    qasm = tmp_path / "bad.qasm"
+    qasm.write_text("OPENQASM 2.0;\nqreg q[1];\nfoo bar;\n")
+    with pytest.raises(ValueError, match="parsing failed at: foo bar"):
+        Simulator(str(qasm)).simulate_circuit()
+
+
+@pytest.mark.parametrize("targets, ancillas, message", [(0, 2, "at least 1 target"), (1, 0, "more than targets")])
+def test_rus_rejects_too_few_qubits(targets, ancillas, message):
+    with pytest.raises(ValueError, match=message):
+        Simulator(os.path.join(BENCHMARKS, "ghz/2.qasm")).simulate_rus(targets, ancillas)

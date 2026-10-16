@@ -17,20 +17,31 @@ $ ./milq [options] <qasm_file>
 | `qasm_file` | path | *(required)* | Input circuit ([format](usage#input-circuits)). |
 | `-v`, `--vectors` | `all`, `zero`, `jamiolkowski`, `rus` | `all` | Input states the circuits must agree on ([details](usage#1-pick-what-must-be-preserved--v)). |
 | `-s`, `--solving` | `smt`, `gurobi`, `milp` | `gurobi` | Solving method ([details](usage#2-pick-a-backend--s--a--c)). |
-| `-a`, `--solver` | `yices2`, `cvc5`, `opensmt`, `smtinterpol`, `z3`, `dreal`, `portfolio`, `gurobi`, `cbc` | `gurobi` | Solver; SMT solvers require `-s smt`, and `cbc` requires `-s milp`. |
+| `-a`, `--solver` | `yices2`, `cvc5`, `opensmt`, `smtinterpol`, `z3`, `dreal`, `portfolio`, `gurobi`, `cbc` | `yices2` for `-s smt`, `cbc` for `-s milp`, `gurobi` for `-s gurobi` | Solver; SMT solvers require `-s smt`, `cbc` requires `-s milp`, and `-s gurobi` takes only `gurobi`. |
 | `-c`, `--complex_representation` | `FiveTuple`, `Classic` | `FiveTuple` | Representation of amplitudes. |
 | `-m`, `--mode` | `incremental`, `basic`, `bottomup`, `topdown`, `binary`, `pareto-incremental` | `incremental` | Search mode ([details](usage#3-pick-a-search-mode--m)). |
-| `-d`, `--depth` | integer | input gate count | Number of layers for the fixed-depth modes. |
+| `-d`, `--depth` | integer ≥ 0 | input gate count | Number of layers for the fixed-depth modes (`basic`, `binary`, `topdown`, `bottomup`); rejected in the incremental modes. |
 | `-u`, `--up_to_global_phase` | flag | off | Allow a global phase difference. |
 | `-ap`, `--approx` | flag | off | Approximate synthesis. |
-| `-f`, `--fidelity_threshold` | number in [0, 1] | `1.0` | Minimum average fidelity for `-ap`. |
-| `-T`, `--targets` | integer | `1` | Number of target qubits for `-v rus`. |
-| `-A`, `--ancillas` | integer | `1` | Number of ancilla qubits for `-v rus`. |
+| `-f`, `--fidelity_threshold` | number in [0, 1] | `1.0` | Minimum average fidelity; requires `-ap`. |
+| `-T`, `--targets` | integer ≥ 1 | `1` | Number of target qubits; requires `-v rus`. |
+| `-A`, `--ancillas` | integer ≥ 0 | `1` | Number of ancilla qubits; requires `-v rus`. Targets and ancillas together need at least as many qubits as the input circuit. |
 | `-nm`, `--no_measurement` | flag | off | Ignore end-of-circuit measurements in the input. |
-| `--max-depth` | integer | no limit | Incremental modes: give up (`synthesis failed`) when no circuit with at most this many gates exists. |
-| `-pt`, `--pareto_timeout` | seconds | `36000` | Time limit for `-m pareto-incremental`. |
+| `--max-depth` | integer ≥ 1 | no limit | Incremental modes: give up (`synthesis failed`, exit status 3) when no circuit with at most this many gates exists; rejected in the other modes. |
+| `-pt`, `--pareto_timeout` | seconds > 0 | `36000` | Time limit; requires `-m pareto-incremental`. |
 | `-o`, `--output_qasm` | path | `circuit.qasm` | Where to write the synthesized circuit. |
 | `-b`, `--basis` | `cb` | `cb` | Basis of the encoding; only the computational basis is available. |
+
+An option given outside the mode it applies to (`-d`, `--max-depth`, `-f`, `-pt`, `-T`, `-A`) is rejected instead of ignored.
+
+Exit status:
+
+| Status | Meaning |
+|---|---|
+| `0` | a circuit was synthesized |
+| `1` | error: missing input file, solver failure, license limit, ... (`milq: error: ...` on stderr) |
+| `2` | invalid options (usage message on stderr) |
+| `3` | no circuit found: unsat, or none within `--max-depth` or `-pt` (`synthesis failed` on stderr) |
 
 ## `cli/simulator.py`: simulation
 
@@ -48,8 +59,8 @@ $ python3 cli/simulator.py -v zero -c Classic benchmarks/ghz/2.qasm
 | `qasm_file` | path | *(required)* | Input circuit. |
 | `-v`, `--vectors` | `all`, `zero`, `jamiolkowski`, `rus`, `matrix` | `all` | Input states to simulate, or `matrix` for the whole unitary. |
 | `-c`, `--complex_representation` | `FiveTuple`, `Classic` | `FiveTuple` | Representation of amplitudes. FiveTuple vectors are printed as tuples with the exponent `k`. |
-| `-T`, `--targets` | integer | `1` | Target qubits for `-v rus`. |
-| `-A`, `--ancillas` | integer | `1` | Ancilla qubits for `-v rus`. |
+| `-T`, `--targets` | integer ≥ 1 | `1` | Target qubits; requires `-v rus`. |
+| `-A`, `--ancillas` | integer ≥ 0 | `1` | Ancilla qubits; requires `-v rus`. |
 | `-m`, `--meas` | `0` or `1` | `0` | Outcome assumed for measurements in the circuit. |
 
 ## Python API

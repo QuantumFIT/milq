@@ -8,22 +8,31 @@
 import argparse
 import sys
 import os
-import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src/'))
+# realpath: also works when called through a symlink
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '../src/'))
 from sim import Simulator
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
-from gates import GateSet
 
-parser = argparse.ArgumentParser(description='CLI for the synthesis tool')
-parser.add_argument('qasm_file', type=str, help='qasm file to synthesize')
+
+def non_negative(value):
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be at least 0, got {value}")
+    return number
+
+
+parser = argparse.ArgumentParser(description='print the input and output vectors of a circuit in the representations used by the synthesis')
+parser.add_argument('qasm_file', type=str, help='qasm file to simulate')
 parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for the synthesis', choices=["zero", "all", "rus", "jamiolkowski", "matrix"], default="all")
 parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "Classic"], default="FiveTuple")
-parser.add_argument('-T', '--targets', type=int, help='number of target qubits', required=False, default=1)
-parser.add_argument('-A', '--ancillas', type=int, help='number of ancilla qubits', required=False, default=1)
-parser.add_argument('-m', '--meas', type=int, help='determine measurement outcome - if not set, default is 0 (|0>)', required=False, choices=[0, 1], default=0)
+parser.add_argument('-T', '--targets', type=non_negative, help='number of target qubits for -v rus (default: 1)', required=False, default=None)
+parser.add_argument('-A', '--ancillas', type=non_negative, help='number of ancilla qubits for -v rus (default: 1)', required=False, default=None)
+parser.add_argument('-m', '--meas', type=int, choices=[0, 1], help='determine measurement outcome - if not set, default is 0 (|0>)', required=False, default=0)
 args = parser.parse_args()
+if args.vectors != "rus" and (args.targets is not None or args.ancillas is not None):
+    parser.error("-T and -A apply only with -v rus")
 
 if args.complex_representation == "FiveTuple":
     complex_representation = FiveTuple
@@ -31,7 +40,6 @@ elif args.complex_representation == "Classic":
     complex_representation = Complex
 
 simulator = Simulator(qasm_file=args.qasm_file, complex_representation=complex_representation, meas=args.meas)
-start_time = time.time()
 
 def print_matrix(res):
     print(res)
@@ -42,15 +50,19 @@ def print_vectors(res):
         print("--------------------------------")
 
 print_func = print_matrix if args.vectors == "matrix" else print_vectors
-if args.vectors == "zero":
-    res = simulator.simulate_zero()
-elif args.vectors == "all":
-    res = simulator.simulate_circuit()
-elif args.vectors == "rus":
-    res = simulator.simulate_rus(args.targets, args.ancillas)
-elif args.vectors == "jamiolkowski":
-    res = simulator.simulate_jamiolkowski()
-elif args.vectors == "matrix":
-    res = simulator.simulate_matrix()
+try:
+    if args.vectors == "zero":
+        res = simulator.simulate_zero()
+    elif args.vectors == "all":
+        res = simulator.simulate_circuit()
+    elif args.vectors == "rus":
+        res = simulator.simulate_rus(1 if args.targets is None else args.targets, 1 if args.ancillas is None else args.ancillas)
+    elif args.vectors == "jamiolkowski":
+        res = simulator.simulate_jamiolkowski()
+    elif args.vectors == "matrix":
+        res = simulator.simulate_matrix()
+except (ValueError, OSError, RuntimeError) as e:
+    print(f"simulator: error: {e}", file=sys.stderr)
+    sys.exit(1)
     
 print_func(res)

@@ -183,3 +183,19 @@ def test_stale_recovery_file_is_removed(workdir):
                                         mode="pareto-incremental", output_qasm="out.qasm", pareto_timeout=60, max_depth=1)
     assert res
     assert not (workdir / "out_recovery.qasm").exists()
+
+
+def test_pareto_front_includes_the_empty_circuit(workdir, monkeypatch):
+    # #67: depth 0 was never encoded, so the front of an identity circuit held only circuits with gates
+    points = []
+    original_add_point = Pareto.add_point
+    monkeypatch.setattr(Pareto, "add_point", lambda self, x, y, *rest: (points.append((x, y)), original_add_point(self, x, y, *rest)))
+    (workdir / "in.qasm").write_text("OPENQASM 2.0;\nqreg q[1];\nh q[0];\nh q[0];\n")
+    res, circuit, _ = Synthesizer().synthesis(qasm_file="in.qasm", vectors="all", solving="smt", solver="yices2",
+                                              mode="pareto-incremental", complex_representation="FiveTuple",
+                                              gate_set=GateSet(["h", "t", "tdg"]), output_qasm="out.qasm",
+                                              pareto_timeout=60, max_depth=2)
+    assert res
+    assert circuit.operations() == []
+    assert (0, 0) in points
+    assert " q[0];" not in (workdir / "out.qasm").read_text()

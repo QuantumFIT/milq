@@ -18,10 +18,11 @@ All options are listed in the [command-line reference](reference). This page wal
 
 The input is an OpenQASM 2.0 or 3.0 file with a single quantum register. Examples are in `benchmarks/`.
 
-- **Registers:** `qreg q[n];` / `creg c[n];` (2.0), or `qubit[n] q;` / `bit[n] c;` (3.0).
-- **Gates without parameters,** one per statement, applied to qubits `q[i]`: `h`, `x`, `y`, `z`, `s`, `sdg`, `t`, `tdg`, `sx`, `sxdg`, `id`, `cx`, `cy`, `cz`, `ch`, `cs`, `csdg`, `csx`, `swap`, `iswap`, `sqrtswap`, `dcx`, `xcx` (a CX controlled on \|0⟩), `ccx`, `cswap` and `ccz`.
-- **Measurements at the end:** `measure q[i] -> c[i];` (2.0) or `c[i] = measure q[i];` (3.0). See [Measurements](#measurements).
-- Comments and `gate` definitions are skipped.
+- **Registers:** `qreg q[n];` / `creg c[n];` (2.0), or `qubit[n] q;` / `bit[n] c;` (3.0). A second quantum register is rejected.
+- **Gates without parameters,** one per statement, applied to distinct qubits `q[i]` of the register: `h`, `x`, `y`, `z`, `s`, `sdg`, `t`, `tdg`, `sx`, `sxdg`, `id`, `cx`, `cy`, `cz`, `ch`, `cs`, `csdg`, `csx`, `swap`, `iswap`, `sqrtswap`, `dcx`, `xcx` (a CX controlled on \|0⟩), `ccx`, `cswap` and `ccz`. A single-qubit gate on the whole register (`h q;`) applies to each qubit.
+- **Measurements at the end:** `measure q[i] -> c[i];` (2.0) or `c[i] = measure q[i];` (3.0). A gate on a qubit that was already measured is rejected. See [Measurements](#measurements).
+- Comments and `barrier` statements are skipped.
+- **`gate` definitions** of the gates above are accepted when they are MILQ's own or have the same unitary up to global phase (as Qiskit writes them); the gate is simulated natively. Other definitions are skipped, and using their gate is an error.
 
 ## 1. Pick what must be preserved (`-v`)
 

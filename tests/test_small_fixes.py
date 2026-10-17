@@ -4,6 +4,7 @@ import pytest
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
 from complex.matrix import Matrix
+from complex.vector import Vector
 from gates import GateSet, self_adjoints
 from generator import Generator
 from sim import Simulator
@@ -62,3 +63,30 @@ def test_unknown_complex_representation(tmp_path):
     with pytest.raises(ValueError, match="complex_representation can be only FiveTuple or Classic"):
         Synthesizer().synthesis(qasm_file=str(path), vectors="all", solving="smt", solver="yices2",
                                 mode="incremental", complex_representation="nTuple", output_qasm=str(tmp_path / "o.qasm"))
+
+
+def test_vector_copy_keeps_name_bound_and_n():
+    # #82, F61: copy dropped name and bound, so a dot product with the copy raised TypeError
+    vector = Vector(q=2, name="V", generator=Generator(mode='smtlib'), element_representation=FiveTuple, k=0, n=1, bound=4, k_bound=4)
+    copy = vector.copy()
+    assert (copy.name, copy.bound, copy.n, copy.k) == ("V", 4, 1, vector.k)
+    assert copy.vec is not vector.vec
+    Vector.dot(copy, vector)
+
+
+def test_division():
+    # #82, F62: Complex / Complex returned None and FiveTuple / int raised
+    quotient = Complex(1, 1) / Complex(1, 2)  # (1 + i)(1 - 2i) / 5
+    assert (quotient.real, quotient.imag) == pytest.approx((0.6, -0.2))
+    assert FiveTuple(2, 4, 0, -2) / 2 == FiveTuple(1, 2, 0, -1)
+
+
+def test_vector_equality_is_value_equality():
+    # #82, F63: the same state with k + 1 (numerators scaled by sqrt(2)) compared unequal
+    plus = Vector(q=2, element_representation=FiveTuple, k=1)
+    plus[0], plus[1] = FiveTuple.one(None), FiveTuple.one(None)
+    scaled = Vector(q=2, element_representation=FiveTuple, k=2)
+    scaled[0], scaled[1] = FiveTuple.one(None).increase_k(None), FiveTuple.one(None).increase_k(None)
+    assert plus == scaled and scaled == plus
+    scaled[1] = scaled[1].multiply_by_minus_one(None)
+    assert not plus == scaled

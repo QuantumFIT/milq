@@ -89,6 +89,35 @@ def test_scalar_operations():
     np.testing.assert_allclose(to_numpy(Matrix.x().__div__(4)), X / 4)
 
 
+def test_scalar_operations_return_a_new_matrix():
+    # #82, F60: H * 2 and S.conjugate() used to overwrite their operand
+    h, s = Matrix.h(), Matrix.s()
+    assert (h * 2) is not h and s.conjugate() is not s
+    np.testing.assert_allclose(to_numpy(h), H, atol=1e-9)
+    np.testing.assert_allclose(to_numpy(s), np.diag([1, 1j]), atol=1e-9)
+
+
+def test_five_tuple_scalar_operations():
+    # #82, F60: FiveTuple * int used to raise AttributeError
+    h = Matrix.h(FiveTuple)
+    np.testing.assert_allclose(to_numpy(h * 2), 2 * H, atol=1e-9)
+    np.testing.assert_allclose(to_numpy(h), H, atol=1e-9)
+    with pytest.raises(ValueError, match="only by an integer"):
+        h / 2
+
+
+def test_five_tuple_matrices_keep_k():
+    # #82, F26: transpose, dagger, + and - of a matrix with k = 2 used to return k = 0
+    u = Matrix.h(FiveTuple) * Matrix.t(FiveTuple) * Matrix.h(FiveTuple)
+    expected = H @ np.diag([1, OMEGA]) @ H
+    np.testing.assert_allclose(to_numpy(u.transpose()), expected.T, atol=1e-9)
+    np.testing.assert_allclose(to_numpy(u.dagger()), expected.conj().T, atol=1e-9)
+    np.testing.assert_allclose(to_numpy(u + u), 2 * expected, atol=1e-9)
+    np.testing.assert_allclose(to_numpy(u + u - u), expected, atol=1e-9)
+    with pytest.raises(ValueError, match="different k"):
+        u + Matrix.x(FiveTuple)
+
+
 def test_sum_and_difference():
     np.testing.assert_allclose(to_numpy(Matrix.x() + Matrix.z()), X + Z)
     np.testing.assert_allclose(to_numpy(Matrix.x() - Matrix.z()), X - Z)
@@ -137,6 +166,15 @@ def test_density_from_vector():
     np.testing.assert_allclose(to_numpy(Matrix.density_from_vector(plus)), np.full((2, 2), 0.5), atol=1e-9)
 
 
+def test_density_from_vector_keeps_fivetuple_scale():
+    # #82, F59: |+> = (1, 1) / sqrt(2)^1, so |+><+| = (1, 1; 1, 1) / sqrt(2)^2
+    plus = Vector(q=2, element_representation=FiveTuple, k=1)
+    plus[0], plus[1] = FiveTuple.one(None), FiveTuple.one(None)
+    density = Matrix.density_from_vector(plus)
+    assert density.k == 2
+    np.testing.assert_allclose(to_numpy(density), np.full((2, 2), 0.5), atol=1e-9)
+
+
 def test_five_tuple_helpers():
     matrix = Matrix.x(FiveTuple).multiply_by_omega()
     np.testing.assert_allclose(to_numpy(matrix), OMEGA * X, atol=1e-9)
@@ -148,7 +186,7 @@ def test_five_tuple_helpers():
 
 
 def test_repr():
-    assert repr(Matrix.x()) == "[(0 + 0j), (1 + 0j), ]\n[(1 + 0j), (0 + 0j), ]\n"
+    assert repr(Matrix.x()) == "[(0 + 0j), (1 + 0j), ]\n[(1 + 0j), (0 + 0j), ]\nk=0"
 
 
 def test_matrix_of_variables():

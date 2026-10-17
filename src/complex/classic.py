@@ -87,7 +87,8 @@ class Complex:
     def __div__(self, other):
         if self.gen is None:
             if isinstance(other, Complex):
-                pass # never used
+                c2_d2 = other.real**2 + other.imag**2
+                return Complex(a=(self.real * other.real + self.imag * other.imag) / c2_d2, b=(self.imag * other.real - self.real * other.imag) / c2_d2)
             elif isinstance(other, float) or isinstance(other, int):
                 return Complex(a=self.real / other, b=self.imag / other, generator=self.gen)
             else:

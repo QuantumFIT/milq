@@ -8,6 +8,7 @@ reads commands from stdin and answers every (check-sat) (incremental mode). The
 answer is chosen by MODE:
   sat, unsat, unknown, delta-sat    the corresponding answer (sat also prints a model)
   unsat-then-error                  "unsat", then an error for (get-model), exit code 1 (like z3)
+  partial-model                     "sat", then exits with code 4 partway through the model (incremental mode)
   error                             (error "boom"), exit code 1
   crash                             no answer, message on stderr, exit code 3
   hang                              never answers
@@ -37,6 +38,8 @@ def answer():
         return 1
     if mode == "delta-sat":
         print("delta-sat with delta = 0.001", flush=True)
+    elif mode == "partial-model":
+        print("sat", flush=True)
     elif mode == "unsat-then-error":
         print("unsat")
         print('(error "model is not available")', flush=True)
@@ -63,6 +66,9 @@ for line in sys.stdin:  # incremental mode
     if line == "(check-sat)":
         answer()
     elif line.startswith("(get-value"):
+        if mode == "partial-model":
+            print("((x 1)", flush=True)
+            sys.exit(4)
         print("((x 1))", flush=True)
     elif line and echo_success:
         print("success", flush=True)

@@ -69,7 +69,6 @@ class Generator:
         self.d = 0
         self.num_of_vectors = 0
         self.model = None
-        self.jamiolkowski = False
         if self.solver == "dreal":
             self.logic = "QF_NRA"
 
@@ -135,14 +134,9 @@ class Generator:
         self.stats['objectives'] += 1
         
     def add_selection_variables(self, layer, gate_set, qubits, include_identity=True) -> tuple[list, list]:
-        # add all selection variables for the given layer; the identity lets a layer stay empty
+        # add all selection variables for the given layer; the identity (if in the gate set) lets a layer stay empty
         selection_variables = []
         bool_variables = []
-        if include_identity:
-            gate_set.add_gate(gate="id", weight=0, qubits=1)
-        if self.jamiolkowski:
-            # here qubits is 2*q, the actual zone of interest is q
-            qubits = qubits // 2
         for n in (1, 2, 3):
             gates = [gate for gate in gate_set.get_gates(n) if include_identity or gate != "id"]
             for qs in permutations(range(qubits), n):
@@ -851,10 +845,6 @@ class Generator:
         # such as T Tdg ... not needed in incremental mode
         if last_encoded_layer < 1:
             return
-        if self.jamiolkowski:
-            # as in add_selection_variables: only the first half of the 2*q qubits gets gates
-            qubits = qubits // 2
-
         pairs = []
         self_adjoints_in_gate_set = set(gate_set).intersection(set(self_adjoints))
         others = set(gate_set) - self_adjoints_in_gate_set

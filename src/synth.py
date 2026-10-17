@@ -12,6 +12,7 @@ from complex.matrix import Matrix
 from generator import Generator
 from parser import ModelParser
 import os
+import copy
 import subprocess
 from sim import Simulator
 from pysmt.logics import QF_NRA, QF_LIA, QF_NIA, QF_LRA
@@ -49,7 +50,8 @@ class Synthesizer:
         self.bound = 1
         self.k_bound = (0, 1)
         self.layer_bigM = 1
-        self.q = None
+        self.q = None  # qubits of the encoded states
+        self.circuit_q = None  # qubits the synthesized circuit acts on, the first circuit_q of the q
         self.d = None
         self.max_k = 0
         self.encoding_method = None
@@ -913,7 +915,8 @@ class Synthesizer:
         if vectors in ["zero", "all", "rus", "jamiolkowski"] or (vectors == "custom" and from_circuit):
             # set circuit statistics to prepare synthesis
             self.simulator = Simulator(qasm_file, matrix, complex_representation=self.complex_representation, basis=basis, no_measurement=no_measurement)
-            self.gate_set = gate_set
+            # a copy: the encoding adds id, and the caller's gate set stays as it is
+            self.gate_set = copy.deepcopy(gate_set)
             if vectors == "zero":
                 vector_pairs = self.simulator.simulate_zero()
             elif vectors == "all":
@@ -922,7 +925,6 @@ class Synthesizer:
                 # simulate based on number of ancilas and targets!
                 vector_pairs = self.simulator.simulate_rus(targets, ancillas)
             elif vectors == "jamiolkowski":
-                self.gen.jamiolkowski = True
                 vector_pairs = self.simulator.simulate_jamiolkowski()
             else:  # custom, with a circuit
                 vector_pairs = self.simulator.simulate_custom(input_vectors)
@@ -950,8 +952,13 @@ class Synthesizer:
             self.q = q
             self.d = d
             self.max_k = 2*self.d
-            self.gate_set = gate_set
+            self.gate_set = copy.deepcopy(gate_set)
             self.qubits_to_measure = []
+        # the identity lets a layer stay empty, in every mode; pareto-incremental leaves it out of its layers
+        # (add_selection_variables, include_identity=False). A weight given for it is kept
+        if "id" not in self.gate_set:
+            self.gate_set.add_gate("id", weight=0, qubits=1)
+        self.circuit_q = self.q // 2 if vectors == "jamiolkowski" else self.q
         self.v = len(vector_pairs)
         self.curr_depth = self.d
         max = 0
@@ -1121,11 +1128,11 @@ class Synthesizer:
                     self.layer_bigM = self.layer_bigM
                 else:
                     self.layer_bigM = self.layer_bigM * 2
-                selection_variables, bool_variables = self.gen.add_selection_variables(d, self.gate_set, self.q)
+                selection_variables, bool_variables = self.gen.add_selection_variables(d, self.gate_set, self.circuit_q)
                 for pair_idx in range(len(vector_pairs)):
                     self.encode_layer(inter_states[pair_idx][d], inter_states[pair_idx][d+1], d, weights[d], weights[d+1], selection_variables, bool_variables)
                 # add constraining rules - no H H, Tdg T, ...
-                self.gen.add_constraints(self.gate_set, d, self.q)
+                self.gen.add_constraints(self.gate_set, d, self.circuit_q)
             
             self.encode_equivalence(inter_states, target_states, self.d)
             # fully encoded (except for the weight bound), save the formula
@@ -1166,7 +1173,7 @@ class Synthesizer:
                 # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
                 # pareto-incremental enumerates every circuit once, at the depth equal to its gate count: with empty
                 # (id) layers, each circuit would come back with ids in every position, on every qubit, at every depth
-                selection_variables, bool_variables = self.gen.add_selection_variables(self.curr_depth-1, self.gate_set, self.q,
+                selection_variables, bool_variables = self.gen.add_selection_variables(self.curr_depth-1, self.gate_set, self.circuit_q,
                                                                                        include_identity=self.encoding_method != "pareto-incremental")
                 if self.complex_representation == Complex:
                     if self.layer_bigM == 1:
@@ -1192,7 +1199,7 @@ class Synthesizer:
                 self.logger.log("INFO", f"Encoded layer {self.curr_depth-1}")
 
                     # constraints do not have any effect on incremental synthesis
-                    #self.gen.add_constraints(self.gate_set, self.curr_depth-1, self.q)
+                    #self.gen.add_constraints(self.gate_set, self.curr_depth-1, self.circuit_q)
                 if self.complex_representation != Complex:
                     self.bound = self.bound * 2
                     
@@ -1397,7 +1404,8 @@ class Synthesizer:
             parsing_start = time.time()
             self.logger.log("INFO", f"Parsing model")
             model = self.gen.get_model()
-            res = self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=False, draw_circuit=False, v=self.v)
+            res = self.parser.parse(model, self.q, self.curr_depth, output_qasm, self.complex_representation, write_to_file=False, draw_circuit=False, v=self.v,
+                                    circuit_qubits=self.circuit_q)
             parsing_end = time.time()
             self.logger.update_time("parsing", parsing_end - parsing_start)
             self.logger.log("INFO", f"Parsing finished")

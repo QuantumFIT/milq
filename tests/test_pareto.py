@@ -139,7 +139,7 @@ def test_non_rus_points_are_gate_count_and_weighted_cost(workdir, monkeypatch):
     qasm = workdir / "tt.qasm"
     qasm.write_text("OPENQASM 2.0;\nqreg q[1];\nt q[0];\nt q[0];\n")
     gate_set = GateSet(["t", "s"])
-    gate_set.set_gate("s", weight=0, qubits=1)
+    gate_set.add_gate("s", weight=0, qubits=1)
     points = []
     original_add_point = Pareto.add_point
     monkeypatch.setattr(Pareto, "add_point", lambda self, x, y, *rest: (points.append((x, y)), original_add_point(self, x, y, *rest)))

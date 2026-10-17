@@ -147,3 +147,14 @@ def test_vector_to_real_with_generator(tmp_path, name, k, element, expected):
     assert gen.check_sat()
     gen.add_assertion(Not(matches))
     assert not gen.check_sat()
+
+
+# simulate_jamiolkowski (#80, F22)
+
+def test_jamiolkowski_keeps_the_input_gate_set(tmp_path):
+    qasm = tmp_path / "t.qasm"
+    qasm.write_text("OPENQASM 2.0;\nqreg q[1];\nt q[0];\n")
+    simulator = Simulator(str(qasm), complex_representation=FiveTuple)
+    simulator.simulate_jamiolkowski()
+    stats = simulator.circuit_stats()
+    assert list(stats["gate_set"]) == ["t"] and stats["q"] == 2

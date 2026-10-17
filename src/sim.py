@@ -150,7 +150,7 @@ class Simulator:
                     self.stats['measurements'].append((qubits[0], self.measurement_target(line)))
                 self.stats['d'] += 1 if gate != 'measure' and gate != 'meas' else 0
                 if gate not in self.stats['gate_set'] and (gate != 'measure' and gate != 'meas'):
-                    self.stats['gate_set'].append(gate, qubits=len(qubits))
+                    self.stats['gate_set'].add_gate(gate, qubits=len(qubits))
                 continue
 
             raise Exception(f"input file parsing failed")
@@ -445,8 +445,7 @@ class Simulator:
         return self.simulate(vectors, gates)
     
     def simulate_jamiolkowski(self) -> list[tuple[Vector, Vector]]:
-        # expand the circuit to 2n qubits and using jamiolkowski isomporhism,
-        # prepare maximally entangled state and simulate the circuit on it
+        # expand the circuit to 2n qubits and using jamiolkowski isomorphism,
         gates, vectors = self.parse_file()
         # add new gates creating the maximally entangled state
         pre_gates = []
@@ -458,8 +457,6 @@ class Simulator:
             pre_gates.append(('cx', [i, j]))
         
         self.stats['q'] = 2 * self.stats['q']
-        self.stats['gate_set'].add_gate('h', qubits=1, weight=1)
-        self.stats['gate_set'].add_gate('cx', qubits=2, weight=1)
         
         # create new input state
         vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)

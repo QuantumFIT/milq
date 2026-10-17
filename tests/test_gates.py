@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from gates import Circuit, Gate, supported_gates
+from gates import Circuit, Gate, GateSet, supported_gates
 from synth import Synthesizer
 
 
@@ -60,3 +60,45 @@ def test_draw_every_supported_gate(tmp_path):
     output = tmp_path / "circuit.png"
     circuit.draw(str(output))
     assert output.stat().st_size > 0
+
+
+# GateSet, Gate and Circuit API traps (#83)
+
+
+def test_synthesis_leaves_the_callers_gate_set_alone(workdir):
+    # F50: id used to be added to the caller's gate set on every layer
+    with open("x.qasm", "w") as f:
+        f.write("OPENQASM 2.0;\nqreg q[1];\nx q[0];\n")
+    gate_set = GateSet()
+    gate_set.add_gate("x", weight=1, qubits=1)
+    res, circuit, _ = Synthesizer().synthesis(qasm_file="x.qasm", vectors="all", solving="smt", solver="yices2",
+                                              gate_set=gate_set)
+    assert res and [str(gate) for gate in circuit.operations()] == ["x q[0];"]
+    assert gate_set.gates == {"x": 1} and gate_set.qubits == {"x": 1}
+
+
+def test_circuit_append_extends_the_circuit():
+    # F68: gates[:d] is the circuit, so an appended gate used to be invisible
+    circuit = Circuit(gates=[], q=1, d=0)
+    circuit.append(Gate("h", [0]))
+    circuit.append(Gate("t", [0]))
+    assert circuit.d == 2 and circuit.gate_count() == 2
+    assert "h q[0];\nt q[0];" in str(circuit)
+    assert circuit.bool_variables == ["L0_h_q0", "L1_t_q0"]
+
+
+def test_gate_compares_with_anything_and_is_hashable():
+    assert Gate("h", [0]) != None and Gate("h", [0]) != "h q[0];"
+    assert Gate("cx", [0, 1]) == Gate("cx", [0, 1]) != Gate("cx", [1, 0])
+    assert len({Gate("h", [0]), Gate("h", [0]), Gate("h", [1])}) == 2
+
+
+def test_gate_set_with_both_gates_and_a_preset_is_rejected():
+    with pytest.raises(ValueError, match="either gate_set or preset"):
+        GateSet(["h"], preset="Clifford+T")
+
+
+def test_union_keeps_the_subclass():
+    class Weighted(GateSet):
+        pass
+    assert type(Weighted.union(GateSet(["h"]), GateSet(["t"]))) is Weighted

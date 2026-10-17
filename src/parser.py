@@ -84,7 +84,7 @@ class ModelParser:
         new_items = []
         costs = [None] * (self.d + 1)
         best_indice = 0
-        circ = Circuit(gates=[], q=self.q, d=self.d)
+        circ = Circuit(gates=[], q=self.circuit_q, d=self.d)
         out_vectors = [Vector(q=2**self.q, generator=None, element_representation=self.complex_representation, k=0) for _ in range(self.v)]
         for item in model:
             value_obj = None
@@ -158,11 +158,13 @@ class ModelParser:
         circ.set_cost(self.stats['cost'])
         return circ, out_vectors
 
-    def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm", complex_representation: any = None, write_to_file : bool = True, draw_circuit : bool = False, v : int = 0) -> tuple[bool, Circuit, list[Vector]]:
+    def parse(self, model : any, qubits : int, depth : int, output_qasm : str = "circuit.qasm", complex_representation: any = None, write_to_file : bool = True, draw_circuit : bool = False, v : int = 0, circuit_qubits : int = None) -> tuple[bool, Circuit, list[Vector]]:
+        # qubits: of the vectors; circuit_qubits: of the circuit, if fewer (the Choi states of Jamiolkowski mode)
         if complex_representation is not None:
             self.complex_representation = complex_representation
         self.v = v
         self.q = qubits
+        self.circuit_q = circuit_qubits if circuit_qubits is not None else qubits
         self.d = depth
         items = model
         if isinstance(model, Generator): # parsing milp model

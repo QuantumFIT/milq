@@ -65,6 +65,8 @@ def test_jamiolkowski_basic_mode(workdir):
                                               mode="basic", complex_representation="FiveTuple", gate_set=GateSet(["h", "t"]))
     assert res
     assert [str(gate) for gate in circuit.gates] == ["h q[0];", "t q[0];"]
+    # #80, F22: the circuit acts on the input's qubit, not on the 2 qubits of the Choi state
+    assert circuit.q == 1 and "qubit[1] q;\nbit[1] c;" in str(circuit)
 
 
 @pytest.mark.parametrize("solving, solver", [("smt", "yices2"), ("milp", "cbc")])

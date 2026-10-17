@@ -37,10 +37,7 @@ def gate_to_qubits(gate : str) -> int:
 
 # check if all gates from the gate set are supported by Synthesizer (synth.py)
 def check_supported(gate_set : 'GateSet') -> bool:
-    for gate in gate_set:
-        if gate not in supported_gates[0] and gate not in supported_gates[1] and gate not in supported_gates[2]:
-            return False
-    return True
+    return all(any(gate in gates for gates in supported_gates) for gate in gate_set)
 
 class GateSet:
     """
@@ -53,29 +50,31 @@ class GateSet:
         self.gates = {}
         self.qubits = {}
 
+        if gate_set is not None and preset is not None:
+            raise ValueError("give either gate_set or preset, not both")
         if gate_set is not None:
             for gate in gate_set:
                 if gate == 'id':
                     continue
-                self.set_gate(gate=gate, qubits=gate_to_qubits(gate), weight=1)
-            self.set_gate(gate='id', qubits=1, weight=0)
+                self.add_gate(gate=gate, qubits=gate_to_qubits(gate), weight=1)
+            self.add_gate(gate='id', qubits=1, weight=0)
         elif preset is not None:
             if preset == 'Clifford+T':
-                self.set_gate(gate='id', qubits=1, weight=0)
-                self.set_gate(gate='x', qubits=1, weight=1)
-                self.set_gate(gate='z', qubits=1, weight=1)
-                self.set_gate(gate='h', qubits=1, weight=1)
-                self.set_gate(gate='s', qubits=1, weight=1)
-                self.set_gate(gate='sdg', qubits=1, weight=1)
-                self.set_gate(gate='cx', qubits=2, weight=1)
-                self.set_gate(gate='t', qubits=1, weight=1)
-                self.set_gate(gate='tdg', qubits=1, weight=1)
+                self.add_gate(gate='id', qubits=1, weight=0)
+                self.add_gate(gate='x', qubits=1, weight=1)
+                self.add_gate(gate='z', qubits=1, weight=1)
+                self.add_gate(gate='h', qubits=1, weight=1)
+                self.add_gate(gate='s', qubits=1, weight=1)
+                self.add_gate(gate='sdg', qubits=1, weight=1)
+                self.add_gate(gate='cx', qubits=2, weight=1)
+                self.add_gate(gate='t', qubits=1, weight=1)
+                self.add_gate(gate='tdg', qubits=1, weight=1)
             elif preset == 'Clifford':
-                self.set_gate(gate='id', qubits=1, weight=0)
-                self.set_gate(gate='h', qubits=1, weight=1)
-                self.set_gate(gate='s', qubits=1, weight=1)
-                self.set_gate(gate='sdg', qubits=1, weight=1)
-                self.set_gate(gate='cx', qubits=2, weight=1)
+                self.add_gate(gate='id', qubits=1, weight=0)
+                self.add_gate(gate='h', qubits=1, weight=1)
+                self.add_gate(gate='s', qubits=1, weight=1)
+                self.add_gate(gate='sdg', qubits=1, weight=1)
+                self.add_gate(gate='cx', qubits=2, weight=1)
             else:
                 raise ValueError(f"Unknown preset: {preset}")
         # else empty gate set, will be filled later
@@ -85,12 +84,6 @@ class GateSet:
     def add_gate(self, gate : str, weight : int = 1, qubits : int = 1) -> None:
         self.gates[gate] = weight
         self.qubits[gate] = qubits
-    
-    def set_gate(self, gate : str, weight : int = 1, qubits : int = 1) -> None:
-        self.add_gate(gate, weight, qubits)
-
-    def append(self, gate : str, weight : int = 1, qubits : int = 1) -> None:
-        self.add_gate(gate, weight, qubits)
     
     # list all gates (names)
     def list_gates(self) -> list[str]:
@@ -140,7 +133,7 @@ class GateSet:
     @classmethod
     def union(cls, set1, set2) -> 'GateSet':
         # union of two gate sets
-        new_set = GateSet()
+        new_set = cls()
         for gate in set1:
             new_set.add_gate(gate, set1.gates[gate], set1.qubits[gate])
         for gate in set2:
@@ -188,7 +181,12 @@ class Gate:
         return self.__str__()
     
     def __eq__(self, other: 'Gate') -> bool:
+        if not isinstance(other, Gate):
+            return NotImplemented
         return self.name == other.name and self.qubits == other.qubits
+
+    def __hash__(self) -> int:
+        return hash((self.name, tuple(self.qubits)))
 
 class Circuit:
     # abstraction to represent quantum circuit for OPENQASM representation
@@ -267,7 +265,10 @@ class Circuit:
         self.classical_declarations += classical_declarations
             
     def append(self, gate: Gate) -> None:
-        self.gates.append(gate)
+        # gates[:d] is the circuit, so an appended gate extends it
+        self.gates = self.gates[:self.d] + [gate]
+        self.bool_variables = self.bool_variables[:self.d] + [f"L{self.d}_{gate.name}" + "".join(f"_q{q}" for q in gate.qubits)]
+        self.d += 1
         
     def __getitem__(self, d: int) -> Gate:
         return self.gates[d]

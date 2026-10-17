@@ -827,8 +827,8 @@ class Synthesizer:
             raise NotImplementedError("approximate equivalence not supported for milp mode (non-linear)")
         if gate_set is not None and not isinstance(gate_set, GateSet):
             gate_set = GateSet(gate_set)  # a list of gate names
-        if max_depth is not None and max_depth < 1:
-            raise ValueError("max_depth must be at least 1")
+        if max_depth is not None and max_depth < 0:
+            raise ValueError("max_depth cannot be negative")
 
         self.vec_mode = vectors
         self.q = q
@@ -1103,47 +1103,49 @@ class Synthesizer:
                 else:
                     self.pareto_front = Pareto(timeout=self.pareto_timeout, maximize_y=False,
                                                x_label="Gate count", y_label="Cost (gate weights)")
-            self.curr_depth = 1
+            self.curr_depth = 0
             circuit, vectors = None, None
             while not res:
                 if self.max_depth is not None and self.curr_depth > self.max_depth:
                     self.logger.log("INFO", f"No circuit with at most {self.max_depth} gates exists")
                     break
                 self.logger.log("INFO", f"Trying depth: {self.curr_depth}")
-                self.logger.log("INFO", f"Encoding new layer")
                 self.gen.d = self.curr_depth
-                # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
-                # pareto-incremental enumerates every circuit once, at the depth equal to its gate count: with empty
-                # (id) layers, each circuit would come back with ids in every position, on every qubit, at every depth
-                selection_variables, bool_variables = self.gen.add_selection_variables(self.curr_depth-1, self.gate_set, self.circuit_q,
-                                                                                       include_identity=self.encoding_method != "pareto-incremental")
-                if self.complex_representation == Complex:
-                    if self.layer_bigM == 1:
-                        self.layer_bigM = 4
-                    self.layer_bigM = self.layer_bigM
-                else:
-                    self.layer_bigM = self.layer_bigM * 2
-                if self.curr_depth > self.d:
-                    # beyond the preallocated depth: one new weight for the layer, one new state per pair
-                    weight_bound = weight_bound + max_weight
-                    weights.append(self.gen.declare_integer(f"W{self.curr_depth}", lb=0, ub=weight_bound))
-                for pair_idx in range(len(vector_pairs)):
+                # depth 0 has no layer: the empty circuit is checked first, as basic and binary do
+                if self.curr_depth > 0:
+                    self.logger.log("INFO", f"Encoding new layer")
+                    # encode new layer (depth-1) and connect inter[depth-1] to inter[depth]
+                    # pareto-incremental enumerates every circuit once, at the depth equal to its gate count: with empty
+                    # (id) layers, each circuit would come back with ids in every position, on every qubit, at every depth
+                    selection_variables, bool_variables = self.gen.add_selection_variables(self.curr_depth-1, self.gate_set, self.circuit_q,
+                                                                                           include_identity=self.encoding_method != "pareto-incremental")
+                    if self.complex_representation == Complex:
+                        if self.layer_bigM == 1:
+                            self.layer_bigM = 4
+                        self.layer_bigM = self.layer_bigM
+                    else:
+                        self.layer_bigM = self.layer_bigM * 2
                     if self.curr_depth > self.d:
-                        if self.complex_representation == FiveTuple:
-                            state = Vector(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = vector_pairs[pair_idx][0].n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
-                        else:
-                            state = Vector(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
-                        inter_states[pair_idx].append(state)
+                        # beyond the preallocated depth: one new weight for the layer, one new state per pair
+                        weight_bound = weight_bound + max_weight
+                        weights.append(self.gen.declare_integer(f"W{self.curr_depth}", lb=0, ub=weight_bound))
+                    for pair_idx in range(len(vector_pairs)):
+                        if self.curr_depth > self.d:
+                            if self.complex_representation == FiveTuple:
+                                state = Vector(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = vector_pairs[pair_idx][0].n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
+                            else:
+                                state = Vector(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
+                            inter_states[pair_idx].append(state)
 
-                    # encode the layer
-                    self.encode_layer(inter_states[pair_idx][self.curr_depth-1], inter_states[pair_idx][self.curr_depth], self.curr_depth-1, weights[self.curr_depth-1], weights[self.curr_depth], selection_variables, bool_variables)
+                        # encode the layer
+                        self.encode_layer(inter_states[pair_idx][self.curr_depth-1], inter_states[pair_idx][self.curr_depth], self.curr_depth-1, weights[self.curr_depth-1], weights[self.curr_depth], selection_variables, bool_variables)
                 
-                self.logger.log("INFO", f"Encoded layer {self.curr_depth-1}")
+                    self.logger.log("INFO", f"Encoded layer {self.curr_depth-1}")
 
-                    # constraints do not have any effect on incremental synthesis
-                    #self.gen.add_constraints(self.gate_set, self.curr_depth-1, self.circuit_q)
-                if self.complex_representation != Complex:
-                    self.bound = self.bound * 2
+                        # constraints do not have any effect on incremental synthesis
+                        #self.gen.add_constraints(self.gate_set, self.curr_depth-1, self.circuit_q)
+                    if self.complex_representation != Complex:
+                        self.bound = self.bound * 2
                     
                 self.logger.log("INFO", f"Pushing depth {self.curr_depth}")
                 self.gen.push()
@@ -1216,6 +1218,8 @@ class Synthesizer:
                                 cost_x, cost_y = self.circuit_cost(circuit)
                             # add the point to the pareto front and filter the model
                             self.pareto_front.add_point(cost_x, cost_y, self.curr_depth, circuit, recovery_circuit)
+                            if self.curr_depth == 0:
+                                break  # the empty circuit is the only one, and it has no gates to filter
                             self.gen.filter_model(circuit.bool_variables, self.curr_depth)
                     self.gen.pop()
                     self.curr_depth += 1

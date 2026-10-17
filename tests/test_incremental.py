@@ -40,6 +40,26 @@ def test_max_depth_stops_the_search(cx_qasm, backend, gates, max_depth):
     assert synthesize(cx_qasm, gates, backend, max_depth=max_depth) == (False, None, None)
 
 
-def test_max_depth_must_be_positive(cx_qasm):
+def test_max_depth_cannot_be_negative(cx_qasm):
     with pytest.raises(ValueError):
-        synthesize(cx_qasm, ["h", "cz"], BACKENDS[0].values[0], max_depth=0)
+        synthesize(cx_qasm, ["h", "cz"], BACKENDS[0].values[0], max_depth=-1)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_max_depth_zero_checks_only_the_empty_circuit(workdir, cx_qasm, backend):
+    # #67: depth 0 is searched too, so max_depth=0 asks whether the input is the identity
+    assert synthesize(cx_qasm, ["h", "cz"], backend, max_depth=0) == (False, None, None)
+    (workdir / "id.qasm").write_text("OPENQASM 2.0;\nqreg q[2];\nh q[0];\nh q[0];\n")
+    res, circuit, _ = synthesize("id.qasm", ["h", "cz"], backend, max_depth=0)
+    assert res and circuit.operations() == []
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("gates", ["cx q[0], q[1];", "h q[0];\nh q[0];"], ids=["cx", "h-h"])
+def test_empty_circuit_is_found(workdir, backend, gates):
+    # #67: the search started at depth 1, so a gate that fixes |00>, like this cx, came back instead of no gates
+    (workdir / "in.qasm").write_text(f"OPENQASM 2.0;\nqreg q[2];\n{gates}\n")
+    res, circuit, _ = Synthesizer().synthesis(qasm_file="in.qasm", vectors="zero", mode="incremental",
+                                              gate_set=GateSet(["h", "cx", "t"]), output_qasm="out.qasm", **backend)
+    assert res
+    assert circuit.operations() == []

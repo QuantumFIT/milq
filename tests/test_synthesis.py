@@ -87,7 +87,7 @@ def test_identity_without_id_gate_is_unsat(workdir, monkeypatch, solving, solver
 
 @pytest.mark.parametrize("solving, solver", [("smt", "yices2"), ("milp", "cbc")])
 @pytest.mark.parametrize("body, gates, expected", [
-    ("", ["h"], ["id q[0];"]),                # d = 0: the empty circuit
+    ("", ["h"], []),                          # d = 0: the empty circuit, at depth 0 (#67)
     ("s q[0];\n", ["t"], ["t q[0];"] * 2),    # d = 1, needs depth 2
     ("z q[0];\n", ["t"], ["t q[0];"] * 4),    # d = 1, needs depth 4
 ])

@@ -110,3 +110,9 @@ def test_custom_vectors_must_match_q(workdir, q):
 def test_custom_vectors_must_use_the_synthesis_representation(workdir):
     with pytest.raises(ValueError, match="uses Complex, the synthesis uses FiveTuple"):
         custom([(basis_state(2, 0, Complex), basis_state(2, 1, Complex))])
+
+
+@pytest.mark.parametrize("solver", ["smtinterpol", "opensmt"])
+def test_solver_without_nra_is_rejected_for_classic(workdir, solver):
+    with pytest.raises(ValueError, match=f"{solver} does not support QF_NRA"):
+        synthesize(solver=solver, complex_representation="Classic")

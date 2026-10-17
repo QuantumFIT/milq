@@ -120,8 +120,9 @@ class Synthesizer:
         path = [os.path.join(repo_root, "solvers", "yices2", "yices_smt2")]
         self.add_one_solver(name="yices2", args=path, logics=[qf_lia, qf_nra, qf_nia, qf_lra],smtlib_flags=smtlib_flags, incremental_mode=incremental_mode)
         
+        # no QF_NRA: SMTInterpol answers unknown to any nonlinear term (even x*y = 1 with x = 2)
         path = [os.path.join(repo_root, "solvers", "smtinterpol", "smtinterpol")]
-        self.add_one_solver(name="smtinterpol", args=path, logics=[qf_lia, qf_nra, qf_nia], incremental_mode=incremental_mode)
+        self.add_one_solver(name="smtinterpol", args=path, logics=[qf_lia, qf_nia], incremental_mode=incremental_mode)
         
         smtlib_flags = ["--produce-models"]
         smtlib_flags.append("--incremental") if incremental_mode else None
@@ -954,6 +955,8 @@ class Synthesizer:
             if solver == "portfolio":
                 self.gen.solver = PortfolioSMTSolver(new_dict, logic=self.gen.logic)
             else:
+                if solver not in new_dict:
+                    raise ValueError(f"{solver} does not support {self.gen.logic}")
                 self.gen.solver = new_dict[solver]
 
         elif solving == "pysmt":
@@ -967,7 +970,7 @@ class Synthesizer:
                     solvers = ["z3", "cvc5", "yices2", "opensmt", "smtinterpol"]
                 else:
                     log.warning("pySMT parser does not support some outputs from solvers that support NRA even though LIA works just fine.")
-                    solvers = ["z3", "cvc5","yices2", "smtinterpol"]
+                    solvers = ["z3", "cvc5", "yices2"]
                 self.gen.solver = Portfolio(solvers, logic=self.gen.logic, incremental=incremental_mode, generate_models=True)
             else:
                 self.gen.solver = Solver(name=solver, logic=self.gen.logic, incremental=incremental_mode, generate_models=True)

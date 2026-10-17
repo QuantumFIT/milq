@@ -172,3 +172,14 @@ def test_every_circuit_is_enumerated_once(workdir, monkeypatch):
     assert len({gates for _, gates in points}) == len(points)
     for point in os.listdir("pareto_front"):  # every enumerated circuit prepares the same state
         np.testing.assert_allclose(unitary(os.path.join("pareto_front", point))[:, 0], unitary(qasm_file)[:, 0], atol=1e-9)
+
+
+def test_stale_recovery_file_is_removed(workdir):
+    # #74, F52: <out>_recovery.qasm belongs to the best point; a point without recovery leaves none behind
+    qasm = workdir / "x.qasm"
+    qasm.write_text("OPENQASM 2.0;\nqreg q[1];\nx q[0];\n")
+    (workdir / "out_recovery.qasm").write_text("stale")
+    res, _, _ = Synthesizer().synthesis(qasm_file=str(qasm), vectors="all", solving="smt", solver="yices2",
+                                        mode="pareto-incremental", output_qasm="out.qasm", pareto_timeout=60, max_depth=1)
+    assert res
+    assert not (workdir / "out_recovery.qasm").exists()

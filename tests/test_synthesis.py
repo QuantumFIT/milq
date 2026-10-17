@@ -167,3 +167,23 @@ def test_no_measurement_writes_no_measurements(workdir):
                                               no_measurement=True)
     assert res
     assert parsed_measurements("out.qasm") == (["bit[2] c"], [])
+
+
+@pytest.mark.parametrize("given, gates, weights", [
+    # #79, F23: a given gate set is used as it is, also in RUS mode
+    (["h", "t", "tdg", "cx"], {"h", "t", "tdg", "cx", "id"}, {"h": 1, "t": 1, "tdg": 1, "cx": 1, "id": 0}),
+    # without one: the input's gates and Clifford+T, weighted by T-count
+    (None, {"id", "x", "z", "h", "s", "sdg", "cx", "t", "tdg"}, {"t": 1, "tdg": 1}),
+])
+def test_rus_gate_set(workdir, monkeypatch, given, gates, weights):
+    used = {}
+    def capture(self, vector_pairs, output_qasm):
+        used.update(self.gate_set.gates)
+        return False, None, None
+    monkeypatch.setattr(Synthesizer, "_synth", capture)
+    Synthesizer().synthesis(qasm_file=os.path.join(BENCHMARKS, "rus/2/spec.qasm"), vectors="rus", solving="smt",
+                            solver="yices2", complex_representation="Classic",
+                            gate_set=None if given is None else GateSet(given))
+    assert set(used) == gates
+    assert {gate: weight for gate, weight in used.items() if weight} == {g: w for g, w in weights.items() if w}
+

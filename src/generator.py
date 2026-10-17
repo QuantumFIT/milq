@@ -769,14 +769,15 @@ class Generator:
         else:
             raise ValueError("rescaling with wrong logic")
             
-    def add_milp_rescaling(self, r1, r2, v1, v2, pair_idx, d):
-        # first encode k as the result of the operation floor(abs(k1 - k2)/2)
+    def add_milp_rescaling(self, r1, r2, v1, v2, pair_idx, max_gap, value_bigM):
+        # first encode k as the result of the operation floor(abs(k1 - k2)/2), where abs(k1 - k2) <= max_gap
+        # value_bigM bounds |v - r| for every entry of v1, v2 and r1, r2
         complex_representation = v1.element_representation
         if self.mode == "milp":
-            k = self.declare_integer(f"k{pair_idx}", lb=0, ub=d)
+            d = max_gap // 2
+            k = self.declare_integer(f"k{pair_idx}", lb=0)
             q = self.declare_bool(f"q{pair_idx}")
-
-            bigM = 2*d + 1
+            bigM = 2*max_gap + 1
             sleq = self.declare_bool(f"sleq{pair_idx}")
             self.add_assertion((v1.k - v2.k) - (2*k + q) <= bigM * sleq)
             self.add_assertion((2*k + q) - (v1.k - v2.k) <= bigM * sleq)
@@ -790,7 +791,7 @@ class Generator:
                 self.add_assertion(k == self.Sum([constants[i] * i for i in range(d+1)]))
             # now sleq, si, even encode all case splits needed for the rescaling
             # encode all combinations to assign to r1, r2
-            bigM = (2**(d+1)) + 1
+            bigM = value_bigM
             # for every si, I,M is multiplied by 2^i
             for i in range(len(v1)):
                 for j, s in enumerate(constants):

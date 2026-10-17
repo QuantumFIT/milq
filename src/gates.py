@@ -15,6 +15,12 @@ supported_gates = [
 
 self_adjoints = ['h', 'x', 'y', 'z', 'cx', 'cz', 'cy', 'ch', 'swap', 'ccx', 'ccz']
 
+# FiveTuple: how much a gate raises k (the sqrt(2)^k denominator), the other gates keep it
+k_increments = {'h': 1, 'ch': 1, 'sx': 2, 'sxdg': 2, 'csx': 2, 'sqrtswap': 2}
+
+def max_k_increment(gate_set) -> int:
+    return max((k_increments.get(gate, 0) for gate in gate_set), default=0)
+
 # OpenQASM 3 definitions of supported gates that are not part of stdgates.inc
 nonstandard_gate_definitions = {
     'sxdg': "gate sxdg a { inv @ sx a; }",

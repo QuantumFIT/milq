@@ -1,12 +1,17 @@
 """Solver answers vs. solver failures (#4), using tests/fake_solver.py instead of real solvers."""
 
+import itertools
 import os
+import signal
 import sys
 
 import pytest
+from pysmt.exceptions import SolverReturnedUnknownResultError
 
 from generator import Generator
+from logger import Logger
 from solvers import PortfolioSMTSolver, SMTSolver, SolverError
+from synth import Synthesizer
 
 FAKE = os.path.join(os.path.dirname(__file__), "fake_solver.py")
 
@@ -120,3 +125,91 @@ def test_generator_check_sat_propagates_failure(formula):
     gen.solver = fake("error")
     with pytest.raises(SolverError, match="boom"):
         gen.check_sat(formula)
+
+
+def test_incremental_solver_exiting_mid_model_raises():
+    # used to spin at 100% CPU, waiting for the model's closing parenthesis (BUGS B3)
+    def hang(signum, frame):
+        raise TimeoutError("get_model did not return")
+    solver = fake("partial-model", incremental=True)
+    solver.create_process()
+    previous = signal.signal(signal.SIGALRM, hang)
+    signal.alarm(10)
+    try:
+        solver.write_incremental("(check-sat)")
+        assert solver.solve() == "sat"
+        solver.write_incremental("(get-value (x))")
+        with pytest.raises(SolverError, match=r"exit code 4.*while sending the model"):
+            solver.get_model()
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+        solver.close()
+
+
+# unknown is not UNSAT (#76): a search goes on, but synthesis() never presents it as a proof
+
+def test_generator_counts_unknown(formula):
+    gen = Generator(mode="smtlib", logger=Logger())
+    gen.solver = fake("unknown")
+    assert gen.check_sat(formula) is False
+    assert gen.unknowns == 1
+
+
+class RaisingSolver:
+    def __init__(self, error):
+        self.error = error
+
+    def solve(self):
+        raise self.error
+
+
+def test_pysmt_unknown_is_counted():
+    gen = Generator(mode="pysmt", logger=Logger())
+    gen.solver = RaisingSolver(SolverReturnedUnknownResultError())
+    assert gen.check_sat() is False
+    assert gen.unknowns == 1
+
+
+def test_pysmt_failure_raises():
+    # used to be logged as UNKNOWN/UNSAT and read as "no circuit" (BUGS N11)
+    gen = Generator(mode="pysmt", logger=Logger())
+    gen.solver = RaisingSolver(RuntimeError("parse error"))
+    with pytest.raises(SolverError, match="pySMT solver failed: RuntimeError: parse error"):
+        gen.check_sat()
+    assert gen.unknowns == 0
+
+
+def answer_unknown(monkeypatch, calls=None):
+    # the real solver runs, but the answers of the given calls (all if None) are replaced by unknown
+    original, count = SMTSolver.solve, itertools.count()
+
+    def solve(self, formula_file=None):
+        answer = original(self, formula_file)
+        return "unknown" if calls is None or next(count) in calls else answer
+    monkeypatch.setattr(SMTSolver, "solve", solve)
+
+
+def synthesize(workdir, mode, **kwargs):
+    qasm = workdir / "in.qasm"
+    qasm.write_text('OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nh q[0];\nt q[0];\n')
+    return Synthesizer().synthesis(qasm_file=str(qasm), vectors="all", mode=mode, solving="smt", solver="yices2",
+                                   output_qasm="out.qasm", **kwargs)
+
+
+def test_incremental_steps_past_unknown_and_warns(workdir, monkeypatch):
+    answer_unknown(monkeypatch, calls={0})  # depth 1
+    res, circuit, _ = synthesize(workdir, "incremental")
+    assert res
+    assert [gate.name for gate in circuit.gates] == ["h", "t"]
+    log = (workdir / "synth.log").read_text()
+    assert "[WARNING] : 1 solver call(s) answered unknown: the circuit is correct, but its optimality is not proven" in log
+
+
+@pytest.mark.parametrize("mode, kwargs", [("basic", {}), ("incremental", {"max_depth": 2}),
+                                          ("pareto-incremental", {"max_depth": 2})])
+def test_unknown_is_not_reported_as_no_circuit(workdir, monkeypatch, mode, kwargs):
+    # pareto solves in a forked worker, so this also checks that the count comes back from it
+    answer_unknown(monkeypatch)
+    with pytest.raises(SolverError, match="answered unknown: no circuit found, but none was proven not to exist"):
+        synthesize(workdir, mode, **kwargs)

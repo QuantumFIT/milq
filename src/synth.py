@@ -21,7 +21,7 @@ from pareto import Pareto
 from gates import GateSet, supported_gates, check_supported, Circuit
 from pulp import *
 from gurobipy import GRB
-from solvers import PortfolioSMTSolver, SMTSolver
+from solvers import PortfolioSMTSolver, SMTSolver, SolverError
 import time
 from logger import Logger
 import numpy as np
@@ -1031,6 +1031,12 @@ class Synthesizer:
         finally:
             self.close()
 
+        if self.gen.unknowns:
+            unproven = f"{self.gen.unknowns} solver call(s) answered unknown"
+            if not res:
+                raise SolverError(f"{unproven}: no circuit found, but none was proven not to exist")
+            what = "the front may be incomplete" if self.encoding_method == "pareto-incremental" else "its optimality is not proven"
+            self.logger.log("WARNING", f"{unproven}: the circuit is correct, but {what}")
         self.logger.log("INFO", f"Circuit: {circuit}")
         for pair_idx, (vector) in enumerate(vectors or []):
             self.logger.log("INFO", f"Vector {pair_idx}: {vector}")
@@ -1158,7 +1164,7 @@ class Synthesizer:
             circuit, vectors = None, None
             while not res:
                 if self.max_depth is not None and self.curr_depth > self.max_depth:
-                    self.logger.log("INFO", f"No circuit with at most {self.max_depth} gates exists")
+                    self.logger.log("INFO", f"No circuit with at most {self.max_depth} gates {'found' if self.gen.unknowns else 'exists'}")
                     break
                 self.logger.log("INFO", f"Trying depth: {self.curr_depth}")
                 self.logger.log("INFO", f"Encoding new layer")
@@ -1211,16 +1217,18 @@ class Synthesizer:
                     while sat:
                         # rewritten for every model, the previous ones are filtered out by then
                         formula_file = self.gen.write_formula(output_qasm)
-                        result, circuit, vectors = self.pareto_front.start(
-                            lambda: self.solve_and_extract_circuit(
+                        # the worker is a forked process: its count of unknown answers comes back with the result
+                        outcome = self.pareto_front.start(
+                            lambda: (self.solve_and_extract_circuit(
                                 formula_file=formula_file,
                                 output_qasm=output_qasm,
                                 write_to_file=False,  # every point goes to pareto_front/, the best one to output_qasm
                                 draw_circuit=False,
-                            )
+                            ), self.gen.unknowns)
                         )
                         if self.pareto_front.timeout_met():
                             break
+                        (result, circuit, vectors), self.gen.unknowns = outcome
                         if not result:
                             sat = False # last model found
                         else:

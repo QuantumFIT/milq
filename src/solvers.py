@@ -127,6 +127,10 @@ class SMTSolver:
         model = ""
         while True:
             result = self.process.stdout.readline()
+            if result == '':  # end of output: the solver exited partway through the model
+                self.process.wait()
+                failure = _describe_failure(self.name, "", self.process.stderr.read(), self.process.returncode)
+                raise SolverError(f"{failure} (while sending the model)")
             open_parentheses += result.count("(")
             open_parentheses -= result.count(")")
             model += result + "\n"

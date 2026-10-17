@@ -14,7 +14,8 @@ from pulp import *
 from gates import self_adjoints, gate_to_qubits
 import gurobipy as gp
 from gurobipy import GRB, quicksum
-from solvers import SMTSolver
+from solvers import SMTSolver, SolverError
+from pysmt.exceptions import SolverReturnedUnknownResultError
 from logger import Logger
 import time
 import os
@@ -55,6 +56,7 @@ class Generator:
         # incremental SMT: names declared since each (push 1), forgotten again on (pop 1)
         self.declaration_scopes = []
         self.objective_assertions = []
+        self.unknowns = 0
         # statistics for number of variables, numbers ...
         self.stats['reals'] = 0
         self.stats['integers'] = 0
@@ -1074,36 +1076,30 @@ class Generator:
                 # after check-sat, only one process remains in self.solver
                 # which then gets the model from self.solver.get_model()
                 self.solver.write_incremental("(check-sat)")
-                result = self.solver.solve(formula_file)
-                if result in ["unknown", "unsat"]:
-                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
-                    return False
-                else:
-                    self.logger.log(tag="Satisfiability", message="Solver returned SAT")
-                    return True
-            else:
-                # solving with non-incremental (not from stdin, but from file)
-                # also gets the model instantly
-                result = self.solver.solve(formula_file)
-                if result in ["unknown", "unsat"]:
-                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
-                    return False
-                else:
-                    self.model = result
-                    self.logger.log(tag="Satisfiability", message="Solver returned SAT")
-                    return True
-            if result in ["unknown", "unsat"]:
-                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
+            # without incremental mode the formula is solved from the file, which also gets the model at once
+            result = self.solver.solve(formula_file)
+            if result == "unknown":
+                return self._unknown()
+            if result == "unsat":
+                self.logger.log(tag="Satisfiability", message="Solver returned UNSAT")
                 return False
-            else:
-                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
-                return True
+            if not self.incremental_mode:
+                self.model = result
+            self.logger.log(tag="Satisfiability", message="Solver returned SAT")
+            return True
         elif self.mode == "pysmt":
             try:
-                return self.solver.solve()
+                result = self.solver.solve()
+            except SolverReturnedUnknownResultError:
+                return self._unknown()
             except Exception as e:
-                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
-                return False
-            else:
-                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
-                return True
+                # a crash or a parse error is a failure, not an answer
+                raise SolverError(f"pySMT solver failed: {type(e).__name__}: {e}") from e
+            self.logger.log(tag="Satisfiability", message=f"Solver returned {'SAT' if result else 'UNSAT'}")
+            return result
+
+    def _unknown(self) -> bool:
+        # unknown is not UNSAT: the caller searches on, and synthesis() reports what stayed unproven
+        self.unknowns += 1
+        self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
+        return False

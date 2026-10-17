@@ -7,7 +7,7 @@ from qiskit.quantum_info import Operator
 
 from complex.fivetuple import FiveTuple
 from complex.vector import Vector
-from gates import GateSet
+from gates import GateSet, max_k_increment
 from synth import Synthesizer
 
 SMT = dict(solving="smt", solver="yices2", complex_representation="FiveTuple")
@@ -93,3 +93,47 @@ def test_custom_target_with_a_fractional_k(workdir):
     with pytest.raises(ValueError, match="k of a FiveTuple vector must be an integer, got 4.5"):
         Synthesizer().synthesis(vectors="custom", vector_pairs=zero_to_one(4.5), q=1, d=1, gate_set=GateSet(["x", "h"]),
                                 mode="incremental", output_qasm="out.qasm", **SMT)
+
+
+MILP = dict(solving="milp", solver="cbc", complex_representation="FiveTuple")
+
+
+@pytest.mark.parametrize("target, gate_set, expected", [
+    # past the input's max_k, the stale k bound and big-M made the correct circuit infeasible (#65 F15)
+    (["x"], ["sx", "z"], ["sx", "sx"]),
+    (["z"], ["h", "sx"], ["h", "sx", "sx", "h"]),
+])
+def test_milp_finds_circuits_past_the_input_depth(workdir, target, gate_set, expected):
+    qasm_file = write_qasm(workdir / "in.qasm", target)
+    res, circuit, _ = Synthesizer().synthesis(qasm_file=qasm_file, vectors="all", mode="incremental",
+                                              gate_set=GateSet(gate_set), max_depth=6, output_qasm="out.qasm", **MILP)
+    assert res
+    gates = synthesized_gates(circuit)
+    assert len(gates) == len(expected)
+    np.testing.assert_allclose(operator(gates), operator(target), atol=1e-9)
+
+
+def test_milp_custom_target_with_a_large_k(workdir):
+    res, circuit, _ = Synthesizer().synthesis(vectors="custom", vector_pairs=zero_to_one(4), q=1, d=1,
+                                              gate_set=GateSet(["x", "h"]), mode="basic", output_qasm="out.qasm", **MILP)
+    assert res
+    assert synthesized_gates(circuit) == ["x"]
+
+
+@pytest.mark.parametrize("mode", ["basic", "incremental"])
+def test_milp_input_with_a_large_k(workdir, mode):
+    # the intermediate states' k was capped at 2*(depth+1), below the input's own k of 6
+    inp = Vector(q=2, element_representation=FiveTuple, k=6)
+    out = Vector(q=2, element_representation=FiveTuple, k=6)
+    inp[0] = FiveTuple(a=1, b=0, c=0, d=0)
+    out[1] = FiveTuple(a=1, b=0, c=0, d=0)
+    res, circuit, _ = Synthesizer().synthesis(vectors="custom", vector_pairs=[(inp, out)], q=1, d=1,
+                                              gate_set=GateSet(["x", "h"]), mode=mode, output_qasm="out.qasm", **MILP)
+    assert res
+    assert synthesized_gates(circuit) == ["x"]
+
+
+@pytest.mark.parametrize("gates, expected", [(["x", "z", "t"], 0), (["h", "t"], 1), (["h", "sx"], 2), (["cx", "csx"], 2)])
+def test_k_increment_follows_the_gate_set(gates, expected):
+    # the k bounds of the encoding come from this, a gate missing from k_increments would make them too small
+    assert max_k_increment(GateSet(gates)) == expected

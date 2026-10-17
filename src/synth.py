@@ -19,16 +19,13 @@ from pysmt.logics import QF_NRA, QF_LIA, QF_NIA, QF_LRA
 from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Minus, Div, Times, write_smtlib, Solver
 from pysmt.typing import REAL, INT
 from pareto import Pareto
-from gates import GateSet, supported_gates, check_supported, Circuit
+from gates import GateSet, check_supported, Circuit, k_increments, max_k_increment
 from pulp import *
 from gurobipy import GRB
 from solvers import PortfolioSMTSolver, SMTSolver
 import time
 from logger import Logger
 import numpy as np
-
-# the largest increase of k (FiveTuple) caused by one layer: sx, sxdg, csx and sqrtswap add 2, h and ch add 1
-MAX_K_INCREMENT = 2
 
 def integral_k(k):
     # a FiveTuple vector is divided by sqrt(2)^k, k has to be an integer (4.0 is accepted)
@@ -64,6 +61,7 @@ class Synthesizer:
         self.d = None
         self.max_k = 0
         self.pair_k = []
+        self.k_increment = 0
         self.encoding_method = None
         self.curr_depth = 0
         self.v = 0
@@ -195,7 +193,7 @@ class Synthesizer:
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
                     if self.complex_representation == FiveTuple:
-                        add_k_incr(bool_var, out.k, inp.k, 1)
+                        add_k_incr(bool_var, out.k, inp.k, k_increments[gate])
                 elif gate == 's':
                     for pos in range(size):
                         one_flag = (pos >> q) & 1
@@ -261,7 +259,7 @@ class Synthesizer:
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
                     if self.complex_representation == FiveTuple:
-                        add_k_incr(bool_var, out.k, inp.k, 2)
+                        add_k_incr(bool_var, out.k, inp.k, k_increments[gate])
                 elif gate == 'sxdg':
                     modified_positions = []
                     for pos in range(size):
@@ -274,7 +272,7 @@ class Synthesizer:
                         propagate_identities[pos].append(bool_var)
                         propagate_identities[other].append(bool_var)
                     if self.complex_representation == FiveTuple:
-                        add_k_incr(bool_var, out.k, inp.k, 2)
+                        add_k_incr(bool_var, out.k, inp.k, k_increments[gate])
                 elif gate == 'y':
                     modified_positions = []
                     for pos in range(size):
@@ -373,7 +371,7 @@ class Synthesizer:
                         elif cannot_propagate:
                             saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple:
-                        add_k_incr(bool_var, out.k, inp.k, 1)
+                        add_k_incr(bool_var, out.k, inp.k, k_increments[gate])
                 elif gate == 'csx':
                     modified_positions = []
                     for pos in range(size):
@@ -394,7 +392,7 @@ class Synthesizer:
                         elif cannot_propagate:
                             saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple:
-                        add_k_incr(bool_var, out.k, inp.k, 2)
+                        add_k_incr(bool_var, out.k, inp.k, k_increments[gate])
                 elif gate == 'cy':
                     modified_positions = []
                     for pos in range(2**self.q):
@@ -510,7 +508,7 @@ class Synthesizer:
                         elif cannot_propagate:
                             saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple:
-                        add_k_incr(bool_var, out.k, inp.k, 2)
+                        add_k_incr(bool_var, out.k, inp.k, k_increments[gate])
             elif len(rest) == 4: # three qubit
                 q1 = rest[1]
                 q2 = rest[2]
@@ -706,7 +704,7 @@ class Synthesizer:
                         for i in range(8):
                             selectors.append(self.gen.declare_bool(f"global_phase_sel_{i}"))
                         self.gen.ExactlyOne(*selectors)
-                        vec = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Multiplied_by_global_phase_{vec2.name}", bound=2**self.max_k)
+                        vec = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Multiplied_by_global_phase_{vec2.name}", bound=vec2.bound)
                         vec_copy = vec2.copy()
                         for i in range(8):
                             # add selection shift
@@ -724,15 +722,18 @@ class Synthesizer:
                         vec_target = vec
 
                     # fivetuple rescaling
-                    rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}", bound=2**self.max_k)
-                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}", bound=2**self.max_k)
+                    # after `depth` layers, k lies in [k_in, k_in + self.k_increment*depth], which bounds |k - k_target|
+                    # (self.max_k is fixed from the input and too small past its depth)
+                    k_in, k_target = self.pair_k[pair_idx]
+                    max_gap = max(k_in + self.k_increment * depth - k_target, k_target - k_in)
+                    # the rescaling multiplies by at most 2^(max_gap // 2), and an odd gap adds two components
+                    value_bound = max(vec1.bound, vec_target.bound)
+                    rescaled_bound = 2 * value_bound * 2**(max_gap // 2)
+                    rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}", bound=rescaled_bound)
+                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}", bound=rescaled_bound)
                     if self.gen.mode == "milp" or self.gen.mode == "gurobi":
-                        self.gen.add_milp_rescaling(rescaled1, rescaled2, vec1, vec_target, pair_idx, self.max_k)
+                        self.gen.add_milp_rescaling(rescaled1, rescaled2, vec1, vec_target, pair_idx, max_gap, value_bound + rescaled_bound)
                     else:
-                        # after `depth` layers, k lies in [k_in, k_in + MAX_K_INCREMENT*depth]; cover every possible
-                        # floor(|k - k_target| / 2) (self.max_k is fixed from the input and too small past its depth)
-                        k_in, k_target = self.pair_k[pair_idx]
-                        max_gap = max(k_in + MAX_K_INCREMENT * depth - k_target, k_target - k_in)
                         self.gen.add_rescaling(rescaled1, rescaled2, vec1, vec_target, pair_idx, max_gap // 2 + 1)
                     for i in range(2**self.q):
                         self.gen.add_assertion(self.gen.Equals(rescaled1[i], rescaled2[i]))
@@ -1022,9 +1023,10 @@ class Synthesizer:
         # encode vector bounds
         inter_states = []
         target_states = []
-        # k of every (input, target) pair, used to bound the FiveTuple rescaling
+        # k of every (input, target) pair and its largest increase per layer, used to bound the FiveTuple k
         if self.complex_representation != Complex:
             self.pair_k = [(input_state.k, output_state.k) for input_state, output_state in vector_pairs]
+            self.k_increment = max_k_increment(self.gate_set)
         bounds = [1] * (self.d + 1)
         if self.complex_representation != Complex:
             for d in range(self.d + 1):
@@ -1049,7 +1051,7 @@ class Synthesizer:
             for d in range(self.d + 1):
                 Inter = None
                 if self.complex_representation == FiveTuple:
-                    Inter = Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_state.k if d == 0 else 0, n = input_state.n, bound = bounds[d], k_bound = 2 * (d+1))
+                    Inter = Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_state.k if d == 0 else 0, n = input_state.n, bound = bounds[d], k_bound = input_state.k + self.k_increment * d)
                 else:
                     Inter = Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, bound = bounds[d], k_bound = 2 * (d+1))
                 
@@ -1152,7 +1154,7 @@ class Synthesizer:
                     for pair_idx in range(len(vector_pairs)):
                         if self.curr_depth > self.d:
                             if self.complex_representation == FiveTuple:
-                                state = Vector(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = vector_pairs[pair_idx][0].n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
+                                state = Vector(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = vector_pairs[pair_idx][0].n, bound = self.bound, k_bound = vector_pairs[pair_idx][0].k + self.k_increment * self.curr_depth)
                             else:
                                 state = Vector(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
                             inter_states[pair_idx].append(state)

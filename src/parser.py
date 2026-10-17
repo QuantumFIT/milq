@@ -169,11 +169,7 @@ class ModelParser:
         self.d = depth
         items = model
         if isinstance(model, Generator): # parsing milp model
-            try:
-                items = self.expand_milp_model(model)
-            except Exception as e:
-                log.warning("Error expanding MILP model: %s", e)
-                return False, None, None
+            items = self.expand_milp_model(model)
         elif isinstance(model, str): # pasrsing smt model
             items = self.parse_model_to_items(model)
 

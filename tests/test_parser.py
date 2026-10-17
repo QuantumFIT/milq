@@ -147,13 +147,12 @@ def test_unbalanced_input():
     assert parse("((x 1) (y (- 2)") == [("x", 1), ("y", -2)]
 
 
-def test_parse_returns_failure_triple_on_milp_error(caplog, capsys):
+def test_parse_raises_on_milp_error():
+    # a SAT model that can't be read used to come back as (False, None, None), i.e. "no circuit at this depth"
     generator = Generator()
     generator.bool_variables = {"L0_h_q0": "not a solver variable"}
-    assert ModelParser().parse(generator, qubits=1, depth=1, write_to_file=False) == (False, None, None)
-    # logged as a warning, not printed to stdout
-    assert [r.levelname for r in caplog.records if "Error expanding MILP model" in r.getMessage()] == ["WARNING"]
-    assert capsys.readouterr().out == ""
+    with pytest.raises(AttributeError):
+        ModelParser().parse(generator, qubits=1, depth=1, write_to_file=False)
 
 
 def test_negative_amplitude_end_to_end(workdir):

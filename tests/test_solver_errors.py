@@ -5,12 +5,13 @@ import logging
 import os
 import signal
 import sys
+import threading
 
 import pytest
 from pysmt.exceptions import SolverReturnedUnknownResultError
 
 from generator import Generator
-from solvers import PortfolioSMTSolver, SMTSolver, SolverError
+from solvers import PortfolioSMTSolver, SMTSolver, SolverError, _describe_failure
 from synth import Synthesizer
 
 FAKE = os.path.join(os.path.dirname(__file__), "fake_solver.py")
@@ -143,11 +144,11 @@ def test_generator_check_sat_propagates_failure(formula):
         gen.check_sat(formula)
 
 
-def test_incremental_solver_exiting_mid_model_raises():
-    # used to spin at 100% CPU, waiting for the model's closing parenthesis (BUGS B3)
+def read_model(mode):
+    # check-sat and get-value against the fake solver; the alarm turns a hang into a failure
     def hang(signum, frame):
         raise TimeoutError("get_model did not return")
-    solver = fake("partial-model", incremental=True)
+    solver = fake(mode, incremental=True)
     solver.create_process()
     previous = signal.signal(signal.SIGALRM, hang)
     signal.alarm(10)
@@ -155,12 +156,54 @@ def test_incremental_solver_exiting_mid_model_raises():
         solver.write_incremental("(check-sat)")
         assert solver.solve() == "sat"
         solver.write_incremental("(get-value (x))")
-        with pytest.raises(SolverError, match=r"exit code 4.*while sending the model"):
-            solver.get_model()
+        return solver.get_model()
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous)
         solver.close()
+
+
+def test_get_model_reads_the_values():
+    assert read_model("sat").strip() == "((x 1))"
+
+
+@pytest.mark.parametrize("mode, message", [
+    # used to spin at 100% CPU, waiting for the model's closing parenthesis (BUGS B3)
+    ("partial-model", r"exit code 4.*while sending the model"),
+    # used to be returned as the model; the "(" in the message used to hang (#76 G9)
+    ("error-model", r'failed: \(error "Parse Error: expected a term, got \( "\) \(instead of the model\)'),
+    ("unknown-model", r"failed: unknown \(instead of the model\)"),
+])
+def test_get_model_failure_raises(mode, message):
+    with pytest.raises(SolverError, match=message):
+        read_model(mode)
+
+
+def test_incremental_missing_binary_raises():
+    with pytest.raises(SolverError, match="missing could not be started"):
+        SMTSolver("missing", ["/nonexistent/solver"], ["QF_LIA"], incremental_mode=True).create_process()
+
+
+def test_failure_message_skips_success_lines():
+    # SMTInterpol acknowledges every command with "success"; the error comes after them (#76 F73)
+    stdout = 'success\nsuccess\n(error "Undeclared function symbol x")\n'
+    assert _describe_failure("smtinterpol", stdout, "", 1) == 'smtinterpol failed, exit code 1: (error "Undeclared function symbol x")'
+
+
+def test_output_that_is_not_utf8_is_a_failure(formula):
+    with pytest.raises(SolverError, match="garbage failed, exit code 134: \ufffd\ufffd garbage"):
+        fake("garbage").solve(formula)
+
+
+def test_portfolio_survives_output_that_is_not_utf8(formula):
+    # the reader thread used to die, and the portfolio waited for it forever (#76 F37)
+    portfolio = PortfolioSMTSolver({"garbage": fake("garbage"), "unknown": fake("unknown", 0.3)})
+    answers = []
+    reader = threading.Thread(target=lambda: answers.append(portfolio.solve(formula)), daemon=True)
+    reader.start()
+    reader.join(10)
+    assert answers == ["unknown"]
+    assert portfolio.failures == ["garbage failed, exit code 134: \ufffd\ufffd garbage"]
 
 
 # unknown is not UNSAT (#76): a search goes on, but synthesis() never presents it as a proof
@@ -170,6 +213,15 @@ def test_generator_counts_unknown(formula):
     gen.solver = fake("unknown")
     assert gen.check_sat(formula) is False
     assert gen.unknowns == 1
+
+
+def test_portfolio_unknown_reports_the_failed_solvers(formula, caplog):
+    # the crash used to be dropped when the other solver said unknown (#76 F14)
+    gen = Generator(mode="smtlib")
+    gen.solver = PortfolioSMTSolver({"crash": fake("crash"), "unknown": fake("unknown", 0.3)})
+    assert gen.check_sat(formula) is False
+    assert any(r.levelno == logging.WARNING and r.getMessage() == "crash failed, exit code 3: fake solver crashed"
+               for r in caplog.records)
 
 
 class RaisingSolver:

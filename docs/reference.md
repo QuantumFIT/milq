@@ -77,8 +77,8 @@ print(synthesizer.logger.get_times())   # time per phase, in seconds
 
 The keyword arguments mirror the command-line options (`vectors` ↔ `-v`, `solving` ↔ `-s`, `solver` ↔ `-a`, `mode` ↔ `-m`, `complex_representation` ↔ `-c`, `d` ↔ `-d`, `up_to_global_phase` ↔ `-u`, `approx` ↔ `-ap`, `fidelity_threshold` ↔ `-f`, `targets` ↔ `-T`, `ancillas` ↔ `-A`, `no_measurement` ↔ `-nm`, `max_depth` ↔ `--max-depth`, `pareto_timeout` ↔ `-pt`). Three more are available only from Python:
 
-- `gate_set=GateSet([...])` (from `gates`) restricts the gates the synthesized circuit may use.
-- `vectors="custom"` with `input_vectors` and a `qasm_file` (or `matrix`, which requires `complex_representation="Classic"`) synthesizes a circuit that agrees with the input circuit only on the given input states. The expected outputs are simulated from the circuit, and `q`, `d`, the gate set and the measured qubits are taken from it unless passed explicitly. Each input state is a `Vector` (from `complex.vector`) with 2<sup>q</sup> amplitudes in the chosen representation:
+- `gate_set=GateSet([...])` (from `gates`), or just a list of gate names, restricts the gates the synthesized circuit may use. It is used as it is, also with `vectors="rus"`: only without a `gate_set` does RUS mode add Clifford+T and weight by T-count (call `set_t_optimal()` on your gate set for that). The caller's object is not changed.
+- `vectors="custom"` with `input_vectors` and a `qasm_file` (or `matrix`, which requires `complex_representation="Classic"`) synthesizes a circuit that agrees with the input circuit only on the given input states. With a `matrix`, the fixed-depth modes need `d`, since a matrix has no gate count. The expected outputs are simulated from the circuit, and `q`, `d`, the gate set and the measured qubits are taken from it unless passed explicitly. Each input state is a `Vector` (from `complex.vector`) with 2<sup>q</sup> amplitudes in the chosen representation:
 
   ```python
   from complex.fivetuple import FiveTuple

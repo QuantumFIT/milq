@@ -32,6 +32,8 @@ class Simulator:
             raise ValueError("matrix or qasm_file has to be provided")
         if matrix is not None and complex_representation != Complex:
             raise ValueError("matrix can be provided only for Classic complex representation")
+        if basis != "cb":
+            raise ValueError("basis can be only cb (the computational basis)")
         if meas not in (0, 1):
             raise ValueError("the measurement outcome (meas) can be only 0 or 1")
         self.qasm_file = qasm_file
@@ -71,8 +73,6 @@ class Simulator:
             for i in range(2**self.stats['q']):
                 vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
                 vec[i] = self.complex_representation.one(None)
-                if self.basis == "pauli":
-                    vec = Matrix.density_from_vector(vec)
                 vectors.append(vec)
                 
             return [], vectors
@@ -111,8 +111,6 @@ class Simulator:
                     for i in range(2**self.stats['q']):
                         vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
                         vec[i] = self.complex_representation.one(None)
-                        if self.basis == "pauli":
-                            vec = Matrix.density_from_vector(vec)
                         vectors.append(vec)
                 continue
             
@@ -398,8 +396,6 @@ class Simulator:
         gates, vectors = self.parse_file()
         vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
         vec[0] = self.complex_representation.one(None)
-        if self.basis == "pauli":
-            vec = Matrix.density_from_vector(vec)
         vectors = [vec]
         return self.simulate(vectors, gates)
     
@@ -426,18 +422,23 @@ class Simulator:
     """
     def simulate_rus(self, targets: int = 1, ancillas: int = 1) -> list[tuple[Vector, Vector]]:
         gates, vectors = self.parse_file()
-        
-        if self.stats['q'] != targets + ancillas:
-            if self.matrix is not None:
-                # expand the matrix (only target matrix can be set, and ancillas are to be expanded)
-                # I \otimes I \otimes ... \otimes Target
-                new_matrix = Matrix.i()
-                for _ in range(1, ancillas):
-                    new_matrix = new_matrix.tensor(Matrix.i())
-                self.matrix = new_matrix.tensor(self.matrix)
-                
-            # else : just add new ancillae to the circuit, expand the vectors
-            self.stats['q'] = targets + ancillas
+
+        # targets are the lowest qubits, ancillas the highest; a narrower input is extended by ancillas, a wider one
+        # would act on qubits that are neither
+        width = targets + ancillas
+        if targets < 1:
+            raise ValueError("rus needs at least 1 target qubit")
+        if self.matrix is not None and self.stats['q'] not in (targets, width):
+            raise ValueError(f"the matrix acts on {self.stats['q']} qubit(s), but there are {targets} target(s) "
+                             f"and {targets} + {ancillas} = {width} target and ancilla qubits")
+        if self.matrix is None and self.stats['q'] > width:
+            raise ValueError(f"the circuit has {self.stats['q']} qubits, but targets + ancillas = {targets} + {ancillas} = {width}")
+        if self.matrix is not None and self.stats['q'] != width:
+            new_matrix = Matrix.i()
+            for _ in range(1, ancillas):
+                new_matrix = new_matrix.tensor(Matrix.i())
+            self.matrix = new_matrix.tensor(self.matrix)
+        self.stats['q'] = width
                 
         # initialize the basis_states |0>, |1>, |+>
         vectors = []
@@ -446,8 +447,6 @@ class Simulator:
         for i in range(2**targets):
             vector = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
             vector[i] = self.complex_representation.one(None)
-            if self.basis == "pauli":
-                vector = Matrix.density_from_vector(vector)
             vectors.append(vector)
             
         # |+>^targets, ancillas in |0>
@@ -457,8 +456,6 @@ class Simulator:
             for _ in range(targets):
                 amplitude = amplitude.divide_by_sqrt2(None)
             vector[i] = amplitude
-        if self.basis == "pauli":
-            vector = Matrix.density_from_vector(vector)
         vectors.append(vector)
         return self.simulate(vectors, gates)
     
@@ -479,8 +476,6 @@ class Simulator:
         # create new input state
         vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
         vec[0] = self.complex_representation.one(None)
-        if self.basis == "pauli":
-            vec = Matrix.density_from_vector(vec)
         vectors = [vec]
         res = self.simulate(vectors, pre_gates)
         input_state = res[0][1] # get output of the simulation

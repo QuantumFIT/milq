@@ -258,6 +258,39 @@ def test_matrix_repr_shows_k():
     assert repr(Matrix.h(FiveTuple)).endswith("k=1")
 
 
+# simulate_rus (#74, F21): targets + ancillas against the circuit's width
+
+def test_rus_rejects_a_circuit_wider_than_targets_and_ancillas(tmp_path):
+    qasm = tmp_path / "wide.qasm"
+    qasm.write_text("OPENQASM 2.0;\nqreg q[3];\nh q[0];\nt q[2];\n")
+    with pytest.raises(ValueError, match="the circuit has 3 qubits, but targets \\+ ancillas = 1 \\+ 1 = 2"):
+        Simulator(str(qasm), complex_representation=Complex).simulate_rus(1, 1)
+
+
+def test_rus_needs_a_target(tmp_path):
+    qasm = tmp_path / "two.qasm"
+    qasm.write_text("OPENQASM 2.0;\nqreg q[2];\nh q[0];\n")
+    with pytest.raises(ValueError, match="at least 1 target"):
+        Simulator(str(qasm), complex_representation=Complex).simulate_rus(0, 2)
+
+
+def test_rus_extends_a_narrower_circuit_by_ancillas(tmp_path):
+    qasm = tmp_path / "narrow.qasm"
+    qasm.write_text("OPENQASM 2.0;\nqreg q[1];\nh q[0];\n")
+    simulator = Simulator(str(qasm), complex_representation=Complex)
+    pairs = simulator.simulate_rus(1, 2)
+    assert simulator.circuit_stats()["q"] == 3 and all(len(out) == 8 for _, out in pairs)
+
+
+def test_rus_matrix_must_act_on_targets_or_targets_and_ancillas():
+    from complex.matrix import Matrix
+    with pytest.raises(ValueError, match="the matrix acts on 3 qubit"):
+        Simulator(matrix=Matrix.ccx(qubits=3), complex_representation=Complex).simulate_rus(1, 1)
+    # already including the ancillas: used as it is
+    pairs = Simulator(matrix=Matrix.cx(qubits=2), complex_representation=Complex).simulate_rus(1, 1)
+    assert all(len(out) == 4 for _, out in pairs)
+
+
 # simulate_jamiolkowski (#80, F22)
 
 def test_jamiolkowski_keeps_the_input_gate_set(tmp_path):
@@ -267,3 +300,10 @@ def test_jamiolkowski_keeps_the_input_gate_set(tmp_path):
     simulator.simulate_jamiolkowski()
     stats = simulator.circuit_stats()
     assert list(stats["gate_set"]) == ["t"] and stats["q"] == 2
+
+
+# basis (#79, F48)
+
+def test_only_the_computational_basis():
+    with pytest.raises(ValueError, match="basis can be only cb"):
+        Simulator(qasm_file="unused.qasm", basis="pauli")

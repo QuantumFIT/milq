@@ -153,7 +153,6 @@ class Synthesizer:
             raise ValueError("gate set contains an unsupported gate")
     
         size = 2**self.q
-        size = size if self.basis == 'cb' else size * size
         propagate_identities = []
         cannot_propagate = self.gen.mode == "milp" or self.gen.mode == "gurobi"
         # list of lists (for each index), each list contains pairs of (bool_var, operation)
@@ -176,460 +175,385 @@ class Synthesizer:
                         add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'h':
                     modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            other = pos ^ (1 << q)
-                            modified_positions.append(pos)
-                            modified_positions.append(other)
-                            saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_sqrt2(self.gen))))
-                            saved_operations[other].append((bool_var, ((inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen))))
-                            propagate_identities[pos].append(bool_var)
-                            propagate_identities[other].append(bool_var)
-                        if self.complex_representation == FiveTuple:
-                            add_k_incr(bool_var, out.k, inp.k, 1)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for H gate")
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        other = pos ^ (1 << q)
+                        modified_positions.append(pos)
+                        modified_positions.append(other)
+                        saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_sqrt2(self.gen))))
+                        saved_operations[other].append((bool_var, ((inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen))))
+                        propagate_identities[pos].append(bool_var)
+                        propagate_identities[other].append(bool_var)
+                    if self.complex_representation == FiveTuple:
+                        add_k_incr(bool_var, out.k, inp.k, 1)
                 elif gate == 's':
-                    if self.basis == "cb":  
-                        for pos in range(size):
-                            one_flag = (pos >> q) & 1
-                            if one_flag:
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_i(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for S gate")
+                    for pos in range(size):
+                        one_flag = (pos >> q) & 1
+                        if one_flag:
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_i(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'sdg':
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            one_flag = (pos >> q) & 1
-                            if one_flag:
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for SDG gate")
+                    for pos in range(size):
+                        one_flag = (pos >> q) & 1
+                        if one_flag:
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 't':
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            one_flag = (pos >> q) & 1
-                            if one_flag:
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_omega(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for T gate")
+                    for pos in range(size):
+                        one_flag = (pos >> q) & 1
+                        if one_flag:
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_omega(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'tdg':
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            one_flag = (pos >> q) & 1
-                            if one_flag:
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_omega_counter(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for TDG gate")
+                    for pos in range(size):
+                        one_flag = (pos >> q) & 1
+                        if one_flag:
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_omega_counter(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'x':
                     modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            other = pos ^ (1 << q)
-                            modified_positions.append(pos)
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        other = pos ^ (1 << q)
+                        modified_positions.append(pos)
+                        modified_positions.append(other)
+                        saved_operations[pos].append((bool_var, inp[other]))
+                        saved_operations[other].append((bool_var, inp[pos]))
+                        propagate_identities[pos].append(bool_var)
+                        propagate_identities[other].append(bool_var)
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
+                elif gate == 'sx':
+                    modified_positions = []
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        other = pos ^ (1 << q)
+                        modified_positions.append(pos)
+                        modified_positions.append(other)
+                        saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
+                        saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
+                        propagate_identities[pos].append(bool_var)
+                        propagate_identities[other].append(bool_var)
+                    if self.complex_representation == FiveTuple:
+                        add_k_incr(bool_var, out.k, inp.k, 2)
+                elif gate == 'sxdg':
+                    modified_positions = []
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        other = pos ^ (1 << q)
+                        modified_positions.append(pos)
+                        modified_positions.append(other)
+                        saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
+                        saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
+                        propagate_identities[pos].append(bool_var)
+                        propagate_identities[other].append(bool_var)
+                    if self.complex_representation == FiveTuple:
+                        add_k_incr(bool_var, out.k, inp.k, 2)
+                elif gate == 'y':
+                    modified_positions = []
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        other = pos ^ (1 << q)
+                        modified_positions.append(other)
+                        one_flag = (pos >> q) & 1
+                        if one_flag:
+                            saved_operations[pos].append((bool_var, inp[other].multiply_by_i(self.gen)))
+                            saved_operations[other].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                            propagate_identities[other].append(bool_var)
+                        else:
+                            saved_operations[pos].append((bool_var, inp[other].multiply_by_minus_i(self.gen)))
+                            saved_operations[other].append((bool_var, inp[pos].multiply_by_i(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                            propagate_identities[other].append(bool_var)
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
+                elif gate == 'z':
+                    for pos in range(size):
+                        one_flag = (pos >> q) & 1
+                        if one_flag:
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_one(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
+            elif len(rest) == 3: # two qubit
+                q1 = rest[1]
+                q2 = rest[2]
+                if gate == 'cx':
+                    modified_positions = []
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        control_flag = (pos >> q1) & 1
+                        if control_flag:
+                            other = pos ^ (1 << q2)
                             modified_positions.append(other)
                             saved_operations[pos].append((bool_var, inp[other]))
                             saved_operations[other].append((bool_var, inp[pos]))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
                     if self.complex_representation == FiveTuple:
                         add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for X gate")
-                elif gate == 'sx':
+                elif gate == 'xcx':
                     modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            other = pos ^ (1 << q)
-                            modified_positions.append(pos)
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        control_flag = (pos >> q1) & 1
+                        if not control_flag:
+                            other = pos ^ (1 << q2)
+                            modified_positions.append(other)
+                            saved_operations[pos].append((bool_var, inp[other]))
+                            saved_operations[other].append((bool_var, inp[pos]))
+                            propagate_identities[pos].append(bool_var)
+                            propagate_identities[other].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
+                elif gate == 'dcx':
+                    for pos in range(size):
+                        # dcx = cx(q1, q2) cx(q2, q1) permutes |a, b> -> |b, a xor b> (a 3-cycle)
+                        control_flag = (pos >> q1) & 1
+                        target_flag = (pos >> q2) & 1
+                        image = (pos & ~((1 << q1) | (1 << q2))) | (target_flag << q1) | ((control_flag ^ target_flag) << q2)
+                        if image == pos and not cannot_propagate: continue
+                        saved_operations[image].append((bool_var, inp[pos]))
+                        propagate_identities[image].append(bool_var)
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
+                elif gate == 'ch':
+                    modified_positions = []
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        control_flag = (pos >> q1) & 1
+                        if control_flag:
+                            other = pos ^ (1 << q2)
+                            modified_positions.append(other)
+                            saved_operations[pos].append((bool_var, (inp[pos] + inp[other]).divide_by_sqrt2(self.gen)))
+                            saved_operations[other].append((bool_var, (inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                            propagate_identities[other].append(bool_var)
+                        elif self.complex_representation == FiveTuple:
+                            # k increases by 1 for the whole vector, compensate the untouched amplitudes
+                            saved_operations[pos].append((bool_var, inp[pos].increase_k(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_incr(bool_var, out.k, inp.k, 1)
+                elif gate == 'csx':
+                    modified_positions = []
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        control_flag = (pos >> q1) & 1
+                        if control_flag:
+                            other = pos ^ (1 << q2)
                             modified_positions.append(other)
                             saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
                             saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
                             propagate_identities[pos].append(bool_var)
                             propagate_identities[other].append(bool_var)
-                        if self.complex_representation == FiveTuple:
-                            add_k_incr(bool_var, out.k, inp.k, 2)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for SX gate")
-                elif gate == 'sxdg':
-                    modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            other = pos ^ (1 << q)
-                            modified_positions.append(pos)
-                            modified_positions.append(other)
-                            saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
-                            saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
+                        elif self.complex_representation == FiveTuple:
+                            # k increases by 2 for the whole vector, compensate the untouched amplitudes
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_two(self.gen)))
                             propagate_identities[pos].append(bool_var)
-                            propagate_identities[other].append(bool_var)
-                        if self.complex_representation == FiveTuple:
-                            add_k_incr(bool_var, out.k, inp.k, 2)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for SXDG gate")
-                elif gate == 'y':
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_incr(bool_var, out.k, inp.k, 2)
+                elif gate == 'cy':
                     modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            other = pos ^ (1 << q)
+                    for pos in range(2**self.q):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        control_flag = (pos >> q1) & 1
+                        target_flag = (pos >> q2) & 1
+                        if control_flag:
+                            other = pos ^ (1 << q2)
                             modified_positions.append(other)
-                            one_flag = (pos >> q) & 1
-                            if one_flag:
-                                saved_operations[pos].append((bool_var, inp[other].multiply_by_i(self.gen)))
-                                saved_operations[other].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                                propagate_identities[other].append(bool_var)
-                            else:
+                            if control_flag and not target_flag:
                                 saved_operations[pos].append((bool_var, inp[other].multiply_by_minus_i(self.gen)))
                                 saved_operations[other].append((bool_var, inp[pos].multiply_by_i(self.gen)))
                                 propagate_identities[pos].append(bool_var)
                                 propagate_identities[other].append(bool_var)
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for Y gate")
-                elif gate == 'z':
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            one_flag = (pos >> q) & 1
-                            if one_flag:
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_one(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for Z gate")
-            elif len(rest) == 3: # two qubit
-                q1 = rest[1]
-                q2 = rest[2]
-                if gate == 'cx':
-                    if self.basis == "cb":
-                        modified_positions = []
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            control_flag = (pos >> q1) & 1
-                            if control_flag:
-                                other = pos ^ (1 << q2)
-                                modified_positions.append(other)
-                                saved_operations[pos].append((bool_var, inp[other]))
-                                saved_operations[other].append((bool_var, inp[pos]))
+                            else:
+                                saved_operations[pos].append((bool_var, inp[other].multiply_by_i(self.gen)))
+                                saved_operations[other].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
                                 propagate_identities[pos].append(bool_var)
                                 propagate_identities[other].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CX gate") 
-                elif gate == 'xcx':
-                    modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            control_flag = (pos >> q1) & 1
-                            if not control_flag:
-                                other = pos ^ (1 << q2)
-                                modified_positions.append(other)
-                                saved_operations[pos].append((bool_var, inp[other]))
-                                saved_operations[other].append((bool_var, inp[pos]))
-                                propagate_identities[pos].append(bool_var)
-                                propagate_identities[other].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for XCX gate")
-                elif gate == 'dcx':
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            # dcx = cx(q1, q2) cx(q2, q1) permutes |a, b> -> |b, a xor b> (a 3-cycle)
-                            control_flag = (pos >> q1) & 1
-                            target_flag = (pos >> q2) & 1
-                            image = (pos & ~((1 << q1) | (1 << q2))) | (target_flag << q1) | ((control_flag ^ target_flag) << q2)
-                            if image == pos and not cannot_propagate: continue
-                            saved_operations[image].append((bool_var, inp[pos]))
-                            propagate_identities[image].append(bool_var)
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for DCX gate")
-                elif gate == 'ch':
-                    modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            control_flag = (pos >> q1) & 1
-                            if control_flag:
-                                other = pos ^ (1 << q2)
-                                modified_positions.append(other)
-                                saved_operations[pos].append((bool_var, (inp[pos] + inp[other]).divide_by_sqrt2(self.gen)))
-                                saved_operations[other].append((bool_var, (inp[pos] + (inp[other].multiply_by_minus_one(self.gen))).divide_by_sqrt2(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                                propagate_identities[other].append(bool_var)
-                            elif self.complex_representation == FiveTuple:
-                                # k increases by 1 for the whole vector, compensate the untouched amplitudes
-                                saved_operations[pos].append((bool_var, inp[pos].increase_k(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_incr(bool_var, out.k, inp.k, 1)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CH gate")
-                elif gate == 'csx':
-                    modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            control_flag = (pos >> q1) & 1
-                            if control_flag:
-                                other = pos ^ (1 << q2)
-                                modified_positions.append(other)
-                                saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
-                                saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
-                                propagate_identities[pos].append(bool_var)
-                                propagate_identities[other].append(bool_var)
-                            elif self.complex_representation == FiveTuple:
-                                # k increases by 2 for the whole vector, compensate the untouched amplitudes
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_two(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_incr(bool_var, out.k, inp.k, 2)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CSX gate")
-                elif gate == 'cy':
-                    modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(2**self.q):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            control_flag = (pos >> q1) & 1
-                            target_flag = (pos >> q2) & 1
-                            if control_flag:
-                                other = pos ^ (1 << q2)
-                                modified_positions.append(other)
-                                if control_flag and not target_flag:
-                                    saved_operations[pos].append((bool_var, inp[other].multiply_by_minus_i(self.gen)))
-                                    saved_operations[other].append((bool_var, inp[pos].multiply_by_i(self.gen)))
-                                    propagate_identities[pos].append(bool_var)
-                                    propagate_identities[other].append(bool_var)
-                                else:
-                                    saved_operations[pos].append((bool_var, inp[other].multiply_by_i(self.gen)))
-                                    saved_operations[other].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
-                                    propagate_identities[pos].append(bool_var)
-                                    propagate_identities[other].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
                         
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CY gate")
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'cz':
-                    if self.basis == "cb":
-                        for pos in range(2**self.q):
-                            control_flag = (pos >> q1) & 1
-                            target_flag = (pos >> q2) & 1
-                            if control_flag and target_flag:
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_one(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CZ gate")
+                    for pos in range(2**self.q):
+                        control_flag = (pos >> q1) & 1
+                        target_flag = (pos >> q2) & 1
+                        if control_flag and target_flag:
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_one(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'cs':
-                    if self.basis == "cb":  
-                        for pos in range(size):
-                            control_flag = (pos >> q1) & 1
-                            target_flag = (pos >> q2) & 1
-                            if control_flag and target_flag:
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_i(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CS gate")
+                    for pos in range(size):
+                        control_flag = (pos >> q1) & 1
+                        target_flag = (pos >> q2) & 1
+                        if control_flag and target_flag:
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_i(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'csdg':
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            control_flag = (pos >> q1) & 1
-                            target_flag = (pos >> q2) & 1
-                            if control_flag and target_flag:
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CSDG gate")
+                    for pos in range(size):
+                        control_flag = (pos >> q1) & 1
+                        target_flag = (pos >> q2) & 1
+                        if control_flag and target_flag:
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_i(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'swap':
                     modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            q1_flag = (pos >> q1) & 1
-                            q2_flag = (pos >> q2) & 1
-                            if q1_flag != q2_flag:
-                                other = pos ^ ((1 << q1) | (1 << q2))
-                                modified_positions.append(other)
-                                saved_operations[pos].append((bool_var, inp[other]))
-                                saved_operations[other].append((bool_var, inp[pos]))
-                                propagate_identities[pos].append(bool_var)
-                                propagate_identities[other].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for SWAP gate")
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        q1_flag = (pos >> q1) & 1
+                        q2_flag = (pos >> q2) & 1
+                        if q1_flag != q2_flag:
+                            other = pos ^ ((1 << q1) | (1 << q2))
+                            modified_positions.append(other)
+                            saved_operations[pos].append((bool_var, inp[other]))
+                            saved_operations[other].append((bool_var, inp[pos]))
+                            propagate_identities[pos].append(bool_var)
+                            propagate_identities[other].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'iswap':
                     modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            q1_flag = (pos >> q1) & 1
-                            q2_flag = (pos >> q2) & 1
-                            if q1_flag != q2_flag:
-                                other = pos ^ ((1 << q1) | (1 << q2))
-                                modified_positions.append(other)
-                                saved_operations[pos].append((bool_var, inp[other].multiply_by_i(self.gen)))
-                                saved_operations[other].append((bool_var, inp[pos].multiply_by_i(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                                propagate_identities[other].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for ISWAP gate")
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        q1_flag = (pos >> q1) & 1
+                        q2_flag = (pos >> q2) & 1
+                        if q1_flag != q2_flag:
+                            other = pos ^ ((1 << q1) | (1 << q2))
+                            modified_positions.append(other)
+                            saved_operations[pos].append((bool_var, inp[other].multiply_by_i(self.gen)))
+                            saved_operations[other].append((bool_var, inp[pos].multiply_by_i(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                            propagate_identities[other].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'sqrtswap':
                     modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            q1_flag = (pos >> q1) & 1
-                            q2_flag = (pos >> q2) & 1
-                            if q1_flag != q2_flag:
-                                other = pos ^ ((1 << q1) | (1 << q2))
-                                modified_positions.append(other)
-                                saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
-                                saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
-                                propagate_identities[pos].append(bool_var)
-                                propagate_identities[other].append(bool_var)
-                            elif self.complex_representation == FiveTuple:
-                                # k increases by 2 for the whole vector, compensate the untouched amplitudes
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_two(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_incr(bool_var, out.k, inp.k, 2)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for SQRTSWAP gate")
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        q1_flag = (pos >> q1) & 1
+                        q2_flag = (pos >> q2) & 1
+                        if q1_flag != q2_flag:
+                            other = pos ^ ((1 << q1) | (1 << q2))
+                            modified_positions.append(other)
+                            saved_operations[pos].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[pos] - inp[other]).divide_by_two_i(self.gen))))
+                            saved_operations[other].append((bool_var, ((inp[pos] + inp[other]).divide_by_two(self.gen) + (inp[other] - inp[pos]).divide_by_two_i(self.gen))))
+                            propagate_identities[pos].append(bool_var)
+                            propagate_identities[other].append(bool_var)
+                        elif self.complex_representation == FiveTuple:
+                            # k increases by 2 for the whole vector, compensate the untouched amplitudes
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_two(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_incr(bool_var, out.k, inp.k, 2)
             elif len(rest) == 4: # three qubit
                 q1 = rest[1]
                 q2 = rest[2]
                 q3 = rest[3]
                 if gate == 'ccx':
                     modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(2**self.q):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            q1_flag = (pos >> q1) & 1
-                            q2_flag = (pos >> q2) & 1
-                            if q1_flag and q2_flag:
-                                other = pos ^ (1 << q3)
-                                modified_positions.append(other)
-                                saved_operations[pos].append((bool_var, inp[other]))
-                                saved_operations[other].append((bool_var, inp[pos]))
-                                propagate_identities[pos].append(bool_var)
-                                propagate_identities[other].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CCX gate")
+                    for pos in range(2**self.q):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        q1_flag = (pos >> q1) & 1
+                        q2_flag = (pos >> q2) & 1
+                        if q1_flag and q2_flag:
+                            other = pos ^ (1 << q3)
+                            modified_positions.append(other)
+                            saved_operations[pos].append((bool_var, inp[other]))
+                            saved_operations[other].append((bool_var, inp[pos]))
+                            propagate_identities[pos].append(bool_var)
+                            propagate_identities[other].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'cswap':
                     modified_positions = []
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            if pos in modified_positions: continue
-                            modified_positions.append(pos)
-                            q1_flag = (pos >> q1) & 1
-                            q2_flag = (pos >> q2) & 1
-                            q3_flag = (pos >> q3) & 1
-                            if q1_flag and (q2_flag != q3_flag):
-                                other = pos ^ ((1 << q2) | (1 << q3))
-                                modified_positions.append(other)
-                                propagate_identities[pos].append(bool_var)
-                                propagate_identities[other].append(bool_var)
-                                saved_operations[pos].append((bool_var, inp[other]))
-                                saved_operations[other].append((bool_var, inp[pos]))
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CSwap gate")
+                    for pos in range(size):
+                        if pos in modified_positions: continue
+                        modified_positions.append(pos)
+                        q1_flag = (pos >> q1) & 1
+                        q2_flag = (pos >> q2) & 1
+                        q3_flag = (pos >> q3) & 1
+                        if q1_flag and (q2_flag != q3_flag):
+                            other = pos ^ ((1 << q2) | (1 << q3))
+                            modified_positions.append(other)
+                            propagate_identities[pos].append(bool_var)
+                            propagate_identities[other].append(bool_var)
+                            saved_operations[pos].append((bool_var, inp[other]))
+                            saved_operations[other].append((bool_var, inp[pos]))
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
                 elif gate == 'ccz':
-                    if self.basis == "cb":
-                        for pos in range(size):
-                            q1_flag = (pos >> q1) & 1
-                            q2_flag = (pos >> q2) & 1
-                            q3_flag = (pos >> q3) & 1
-                            if q1_flag and q2_flag and q3_flag:
-                                saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_one(self.gen)))
-                                propagate_identities[pos].append(bool_var)
-                            elif cannot_propagate:
-                                saved_operations[pos].append((bool_var, inp[pos]))
-                        if self.complex_representation == FiveTuple:
-                            add_k_eq(bool_var, out.k, inp.k)
-                    elif self.basis == "pauli":
-                        raise NotImplementedError("Pauli basis not supported for CCZ gate")
+                    for pos in range(size):
+                        q1_flag = (pos >> q1) & 1
+                        q2_flag = (pos >> q2) & 1
+                        q3_flag = (pos >> q3) & 1
+                        if q1_flag and q2_flag and q3_flag:
+                            saved_operations[pos].append((bool_var, inp[pos].multiply_by_minus_one(self.gen)))
+                            propagate_identities[pos].append(bool_var)
+                        elif cannot_propagate:
+                            saved_operations[pos].append((bool_var, inp[pos]))
+                    if self.complex_representation == FiveTuple:
+                        add_k_eq(bool_var, out.k, inp.k)
         # propagate identities for positions that were not modified by the chosen gate
         # (notG1 and notG2 and ...) -> (out[pos] == inp[pos])
         for pos in range(size):
@@ -686,12 +610,7 @@ class Synthesizer:
     def encode_equivalence(self, vectors1, vectors2, depth, already_measured : bool = False):
         if self.approx:
             # APPROXIMATE EQUIVALENCE
-            # average gate fidelity
-            if self.gen.mode == "milp":
-                raise NotImplementedError("approximate equivalence not supported for milp mode (non-linear)")
-            if self.post_measurement:
-                raise NotImplementedError("post-measurement is not supported for approximate equivalence")
-            
+            # average gate fidelity (synthesis() rejects milp and post-measurement)
             fidelity_upper_bound = 1.1 # 1.0 was problematic since fidelity could be 1.00002 etc
             fidelity = self.gen.declare_real(f"fidelity", lb=0.0, ub=fidelity_upper_bound)
             d2 = len(vectors1) ** 2
@@ -837,7 +756,7 @@ class Synthesizer:
                        custom -> input_vectors with qasm_file or matrix, or else vector_pairs, q, d, gate_set)
             vector_pairs -> list of pairs (input_vector, output_vector) for input and its expected output.
             input_vectors -> with vectors=custom and a qasm_file or matrix: the input states; the expected outputs are simulated from the circuit
-            solving -> specify if smt (has to specify solver), pysmt, milp, gurobipy
+            solving -> smt, pysmt, milp (these need a solver) or gurobi
             solver -> specify specific solver or portfolio of solvers
             mode -> specify solving method (basic -> create whole formula and get the best model, incremental -> incrementally generate the formula, binary, topdown, bottomup -> searches to optimize cost function)
             output_qasm -> file to write the output circuit to
@@ -845,11 +764,11 @@ class Synthesizer:
             gate_set -> specify the gate set to use using the GateSet class, otherwise, the gate set is taken from the input qasm file
             q -> number of qubits of the output circuit (has to correspond to the vector_pairs size)
             d -> number of allowed gates in the output circuit
-            fidelity_threshold -> solver=dreal and mode=smtlib uses QF_NRA and fidelity instead of exact equivalence
+            fidelity_threshold -> with approx: the minimum average fidelity in [0.0, 1.0]
             targets -> number of target qubits (used for RUS -- targets are always the lowest indices)
             ancillas -> number of ancilla qubits (used for RUS -- ancillas are always the highest indices)
             up_to_global_phase -> if True, the synthesis will be done up to global phase (if the mode supports it)
-            basis -> basis to use for the synthesis ["pauli", "cb"] - pauli basis (density matrices) or computational basis (vectors)
+            basis -> basis of the encoding, only "cb" (the computational basis: states are vectors)
             approx -> if True, the synthesis will be done approximately (if the mode supports it)
             no_measurement -> if True, the output qubits will not be measured (ignores end-of-circuit measurement in the input circuit)
             max_depth -> incremental modes only: give up (return False) when no circuit with at most max_depth gates exists; None = no limit
@@ -880,6 +799,11 @@ class Synthesizer:
         
         if matrix is not None and vectors not in ["rus", "custom"]:
             raise ValueError("matrix can be provided only for rus and custom mode")
+        if matrix is not None and d is None and mode not in ["incremental", "pareto-incremental"]:
+            # the fixed-depth modes take d from the input's gate count, and a matrix has none
+            raise ValueError("d is required for a matrix input in basic, binary, topdown and bottomup mode")
+        if solving not in ["smt", "pysmt", "milp", "gurobi"]:
+            raise ValueError("solving can be only smt, pysmt, milp, or gurobi")
         if solving in ["smt", "milp", "pysmt"] and solver is None:
             raise ValueError("a solver is required for basic smt and milp solving")
         if mode not in ["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"]:
@@ -893,8 +817,16 @@ class Synthesizer:
             self.complex_representation = Complex
         if complex_representation == "FiveTuple" and approx:
             self.gen.logic = "QF_NRA"
+        if basis != "cb":
+            raise ValueError("basis can be only cb (the computational basis)")
         if fidelity_threshold > 1.0 or fidelity_threshold < 0.0:
             raise ValueError("fidelity_threshold must be in [0.0, 1.0]")
+        if fidelity_threshold != 1.0 and not approx:
+            raise ValueError("fidelity_threshold applies only with approx=True")
+        if approx and solving == "milp":
+            raise NotImplementedError("approximate equivalence not supported for milp mode (non-linear)")
+        if gate_set is not None and not isinstance(gate_set, GateSet):
+            gate_set = GateSet(gate_set)  # a list of gate names
         if max_depth is not None and max_depth < 1:
             raise ValueError("max_depth must be at least 1")
 
@@ -931,11 +863,10 @@ class Synthesizer:
             
             stats = self.simulator.circuit_stats()
             if self.gate_set is None:
-                self.gate_set = stats['gate_set']
-                self.gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
-            if vectors == "rus":
-                self.gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
-                self.gate_set.set_t_optimal()
+                # the input's gates and Clifford+T; for RUS, the cost is the T-count. A given gate set is used as it is
+                self.gate_set = GateSet.union(stats['gate_set'], GateSet(preset="Clifford+T"))
+                if vectors == "rus":
+                    self.gate_set.set_t_optimal()
             if self.q is None:
                 self.q = stats['q']
             if self.d is None:
@@ -949,6 +880,16 @@ class Synthesizer:
                     self.classical_declarations = stats['classical_declarations']
             self.max_k = 2*self.d if self.d > stats['max_k'] else 2*stats['max_k']
         else:
+            # nothing simulated these pairs, so check them as simulate_custom checks its input states
+            if not vector_pairs:
+                raise ValueError("vector_pairs must not be empty")
+            for i, pair in enumerate(vector_pairs):
+                for vector in pair:
+                    if len(vector) != 2**q:
+                        raise ValueError(f"vector pair {i} has a vector of {len(vector)} amplitudes, q={q} qubit(s) need {2**q}")
+                    if vector.element_representation != self.complex_representation:
+                        raise ValueError(f"vector pair {i} uses {vector.element_representation.__name__}, "
+                                         f"the synthesis uses {self.complex_representation.__name__}")
             self.q = q
             self.d = d
             self.max_k = 2*self.d
@@ -969,6 +910,8 @@ class Synthesizer:
         self.bound = max
         if len(self.qubits_to_measure) > 0 and self.complex_representation != Complex:
             raise ValueError("end circuit qubit measurement is only supported for a+bj complex representation")
+        if len(self.qubits_to_measure) > 0 and approx:
+            raise NotImplementedError("post-measurement is not supported for approximate equivalence")
         
         incremental_mode = False
         # set generator mode and solver
@@ -1071,8 +1014,7 @@ class Synthesizer:
         for pair_idx, (input_state, output_state) in enumerate(vector_pairs):
             # input vector
             max_value_in_input = input_state.max_value()
-            class_to_use = Vector if self.basis == "cb" else Matrix
-            In = class_to_use(q=2**self.q, name=f"In_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k=input_state.k, n=input_state.n, bound=max_value_in_input, k_bound = input_state.k)
+            In = Vector(q=2**self.q, name=f"In_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k=input_state.k, n=input_state.n, bound=max_value_in_input, k_bound = input_state.k)
             for i, val in enumerate(input_state):
                 if self.gen.mode == "smtlib":
                     for j in range(len(input_state[i])):
@@ -1087,9 +1029,9 @@ class Synthesizer:
             for d in range(self.d + 1):
                 Inter = None
                 if self.complex_representation == FiveTuple:
-                    Inter = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_state.k if d == 0 else 0, n = input_state.n, bound = bounds[d], k_bound = 2 * (d+1))
+                    Inter = Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, k=input_state.k if d == 0 else 0, n = input_state.n, bound = bounds[d], k_bound = 2 * (d+1))
                 else:
-                    Inter = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, bound = bounds[d], k_bound = 2 * (d+1))
+                    Inter = Vector(q=2**self.q, name=f"I_{pair_idx}_{d}", generator=self.gen, element_representation=self.complex_representation, bound = bounds[d], k_bound = 2 * (d+1))
                 
                 if d == 0:
                     if self.gen.mode == "milp" or self.gen.mode == "gurobi":
@@ -1104,7 +1046,7 @@ class Synthesizer:
                 
             # encode target vectors
             max_value_in_target = output_state.max_value()
-            Target = class_to_use(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_state.k, n = output_state.n, bound=max_value_in_target, k_bound = output_state.k)
+            Target = Vector(q=2**self.q, name=f"Target_{pair_idx}", generator=self.gen, element_representation=self.complex_representation, k = output_state.k, n = output_state.n, bound=max_value_in_target, k_bound = output_state.k)
             for i, val in enumerate(output_state):
                 if self.gen.mode == "smtlib":
                     for j in range(len(output_state[i])):
@@ -1188,9 +1130,9 @@ class Synthesizer:
                 for pair_idx in range(len(vector_pairs)):
                     if self.curr_depth > self.d:
                         if self.complex_representation == FiveTuple:
-                            state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = vector_pairs[pair_idx][0].n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
+                            state = Vector(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, k=0, n = vector_pairs[pair_idx][0].n, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
                         else:
-                            state = class_to_use(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
+                            state = Vector(q=2**self.q, name=f"I_{pair_idx}_{self.curr_depth}", generator=self.gen, element_representation=self.complex_representation, bound = self.bound, k_bound = 2 * (self.curr_depth+1))
                         inter_states[pair_idx].append(state)
 
                     # encode the layer
@@ -1242,8 +1184,7 @@ class Synthesizer:
                                     # attempt (ancilla measured to 1) back to the input state
                                     states_recovery = rus_recovery_pairs(vectors, vector_pairs, self.qubits_to_measure)
                                     synthesizer = Synthesizer()
-                                    gate_set = GateSet.union(self.gate_set, GateSet(preset="Clifford+T"))
-                                    gate_set.set_t_optimal()
+                                    gate_set = self.gate_set
                                     # errors (e.g. a failing solver) are raised again by start() and stop the run
                                     res_recovery, recovery_circuit, recovery_vectors = self.pareto_front.start(
                                         lambda: synthesizer.synthesis(
@@ -1304,12 +1245,16 @@ class Synthesizer:
             if self.encoding_method == "pareto-incremental":
                 self.pareto_front.cleanup()
                 res, circuit, vectors = self.pareto_front.best()
+                # the recovery synthesis wrote the recovery of every model here: keep only the best point's
+                recovery_qasm = os.path.splitext(output_qasm)[0] + "_recovery.qasm"
+                recovery_circuit = None
                 if res:
                     circuit.write_to_file(output_qasm)
                     recovery_circuit = next(point[4] for point in self.pareto_front.front if point[3] is circuit)
-                    if recovery_circuit is not None:
-                        # the recovery synthesis wrote the recovery of every model here, keep the best one's
-                        recovery_circuit.write_to_file(os.path.splitext(output_qasm)[0] + "_recovery.qasm")
+                if recovery_circuit is not None:
+                    recovery_circuit.write_to_file(recovery_qasm)
+                elif os.path.exists(recovery_qasm):
+                    os.remove(recovery_qasm)
         else:
             raise ValueError(f"Invalid encoding method: {self.encoding_method}")
 

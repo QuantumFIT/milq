@@ -10,7 +10,7 @@ from complex.vector import Vector
 from complex.fivetuple import FiveTuple
 from complex.classic import Complex
 from complex.matrix import Matrix
-from gates import GateSet
+from gates import GateSet, supported_gates, gate_to_qubits, nonstandard_gate_definitions
 import numpy as np
 
 
@@ -18,6 +18,10 @@ def classical_declaration(line: str) -> str:
     # OpenQASM 2 `creg c[n]` is `bit[n] c` in OpenQASM 3, the output format
     creg = re.fullmatch(r'creg (\w+) ?\[ ?(\d+) ?\]', line)
     return f"bit[{creg.group(2)}] {creg.group(1)}" if creg else line
+
+
+class QasmParseError(ValueError):
+    """an input circuit that milq cannot read; the message names the statement"""
 
 
 class Simulator:
@@ -79,49 +83,44 @@ class Simulator:
 
         with open(self.qasm_file, 'r') as f:
             qasm_content = f.read()
-        # drop comments, definitions of non-standard gates (they are simulated natively);
+        # drop comments and gate definitions (the gates are simulated natively, see check_gate_definition);
         # a definition can span lines and be followed by more statements on the line of its '}'
         qasm_content = re.sub(r'//[^\n]*|/\*.*?\*/', '', qasm_content, flags=re.S)
+        for definition in re.finditer(r'\bgate\s[^{]*\{[^}]*\}', qasm_content):
+            self.check_gate_definition(' '.join(definition.group(0).split()))
         qasm_content = re.sub(r'\bgate\s[^{]*\{[^}]*\}', '', qasm_content)
 
         gates = []
+        # qubits measured so far; a gate on one of them would make the measurement a mid-circuit one
+        measured = set()
         # one statement per ';', whitespace (tabs, newlines) collapsed to single spaces
         for line in qasm_content.split(';'):
             line = ' '.join(line.split())
             if not line or line.startswith('OPENQASM') or line.startswith('include'):
                 continue
-            # find quantum register to initialize vectors
-            if re.match(r'qreg\b', line):
-                # qreg name[n]
-                parts = line.split('[')
-                if len(parts) > 1:
-                    self.stats['q'] = int(parts[1].split(']')[0])
-                    self.stats['qreg'] = parts[0].split(' ')[1].strip()
-                    for i in range(2**self.stats['q']):
-                        vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
-                        vec[i] = self.complex_representation.one(None)
-                        vectors.append(vec)
-                continue
-            if re.match(r'qubit\b', line):
-                # qubit[n] name
-                parts = line.split('[')
-                if len(parts) > 1:
-                    self.stats['q'] = int(parts[1].split(']')[0])
-                    self.stats['qreg'] = parts[1].split(']')[1].strip().split(';')[0].strip()
-                    for i in range(2**self.stats['q']):
-                        vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
-                        vec[i] = self.complex_representation.one(None)
-                        vectors.append(vec)
+            # the quantum register: qreg name[n] (OpenQASM 2), qubit[n] name or qubit name (OpenQASM 3, one qubit)
+            if re.match(r'(qreg|qubit)\b', line):
+                register = re.fullmatch(r'qreg (\w+) ?\[ ?(\d+) ?\]|qubit(?: ?\[ ?(\d+) ?\])? (\w+)', line)
+                if register is None:
+                    raise QasmParseError(f"{self.qasm_file}: `{line}`: the statement is not supported")
+                if self.stats['qreg']:
+                    raise QasmParseError(f"{self.qasm_file}: `{line}`: only one quantum register is supported")
+                self.stats['qreg'] = register.group(1) or register.group(4)
+                self.stats['q'] = int(register.group(2) or register.group(3) or 1)
+                for i in range(2**self.stats['q']):
+                    vec = Vector(q=2**self.stats['q'], generator=None, element_representation=self.complex_representation, k=0)
+                    vec[i] = self.complex_representation.one(None)
+                    vectors.append(vec)
                 continue
             
             # classical declarations; `bit c = measure q[0]` is a measurement and is parsed below
-            if re.match(r'(creg|bit)\b', line) and 'measure' not in line:
+            if re.match(r'(creg|bit)\b', line) and not re.search(r'=\s*measure\b', line):
                 self.stats['classical_declarations'].append(classical_declaration(line))
                 continue
 
             # every complete definition was removed above, so this one has no closing brace
             if line.startswith('gate '):
-                raise Exception("gate definition not closed, not a valid qasm file")
+                raise QasmParseError(f"{self.qasm_file}: `{line}`: the gate definition is not closed")
 
             qreg_name = self.stats['qreg']
             # whole-register measurement (measure q -> c, c = measure q) -> measure every qubit
@@ -132,37 +131,61 @@ class Simulator:
                     self.stats['input_circuit'].append(('measure', [i]))
                     self.stats['measurements'].append((i, None if register is None else f"{register}[{i}]"))
                     self.add_measured_qubits([i])
+                    measured.add(i)
                 continue
-            # find gates using the register name
-            qreg_pattern = re.compile(rf'{re.escape(f"{qreg_name}")}\s*\[')
-            if qreg_pattern.search(line):
-                gate_line = line.rstrip(';').strip()
-                # OpenQASM 3 measurement (c[i] = measure q[i], bit c = measure q[i]) -> measure q[i]
-                assignment = re.match(r'^[^=]*=\s*(measure\s+.*)$', gate_line)
-                if assignment:
-                    gate_line = assignment.group(1)
-                # parse the gate and its qubits as (gate, q1, q2, ...)
-                parts = gate_line.split(' ')
-                gate = parts[0].lower()
-                rest = ' '.join(parts[1:]).split(',')
+            # OpenQASM 3 measurement (c[i] = measure q[i], bit c = measure q[i]) -> measure q[i]; the classical target
+            # of either form is read by measurement_target
+            gate_line = line
+            assignment = re.match(r'^[^=]*=\s*(measure\s+.*)$', line)
+            if assignment:
+                gate_line = assignment.group(1)
+            if re.match(r'measure\b', gate_line):
+                gate_line = gate_line.split('->')[0].strip()
+            # gate(parameters) operand, operand, ...
+            statement = re.fullmatch(r'(\w+)(\(.*\))? ?([^(]*)', gate_line)
+            gate = statement.group(1).lower() if statement else None
+            if gate not in ('measure', 'meas', 'barrier') and not any(gate in names for names in supported_gates):
+                raise QasmParseError(f"{self.qasm_file}: `{line}`: the statement is not supported")
+            if statement.group(2):
+                raise QasmParseError(f"{self.qasm_file}: `{line}`: the gate {gate} takes no parameters")
+            # barriers do not change the state
+            if gate == 'barrier':
+                continue
+            arity = 1 if gate in ('measure', 'meas') else gate_to_qubits(gate)
+            operands = [operand.strip() for operand in statement.group(3).split(',')]
+            # the whole register applies a single-qubit gate to each of its qubits
+            if qreg_name and operands == [qreg_name] and arity == 1:
+                applications = [[i] for i in range(self.stats['q'])]
+            else:
                 qubits = []
-                # parse qubits
-                for part in rest:
-                    part = part.strip()
-                    if qreg_pattern.search(part):
-                        qubits.append(int(part.split('[')[1].split(']')[0]))
+                for operand in operands:
+                    index = re.fullmatch(rf'{re.escape(qreg_name)} ?\[ ?(-?\d+) ?\]', operand)
+                    if qreg_name and operand == qreg_name:
+                        raise QasmParseError(f"{self.qasm_file}: `{line}`: only a single-qubit gate can apply to the whole register")
+                    if index is None:
+                        raise QasmParseError(f"{self.qasm_file}: `{line}`: the operand `{operand}` is not a qubit of the register {qreg_name}")
+                    qubits.append(int(index.group(1)))
+                if len(qubits) != arity:
+                    raise QasmParseError(f"{self.qasm_file}: `{line}`: {gate} acts on {arity} qubit(s), not {len(qubits)}")
+                if len(set(qubits)) != len(qubits):
+                    raise QasmParseError(f"{self.qasm_file}: `{line}`: a qubit is used twice")
+                if any(not 0 <= q < self.stats['q'] for q in qubits):
+                    raise QasmParseError(f"{self.qasm_file}: `{line}`: the register {qreg_name} has qubits 0 to {self.stats['q'] - 1}")
+                applications = [qubits]
+            for qubits in applications:
                 gates.append((gate, qubits))
                 self.stats['input_circuit'].append((gate, qubits))
                 if gate == 'measure':
                     self.stats['measurements'].append((qubits[0], self.measurement_target(line)))
                 if gate in ('measure', 'meas'):
                     self.add_measured_qubits(qubits)
-                self.stats['d'] += 1 if gate != 'measure' and gate != 'meas' else 0
-                if gate not in self.stats['gate_set'] and (gate != 'measure' and gate != 'meas'):
-                    self.stats['gate_set'].add_gate(gate, qubits=len(qubits))
-                continue
-
-            raise Exception(f"input file parsing failed")
+                    measured.update(qubits)
+                    continue
+                if measured.intersection(qubits):
+                    raise QasmParseError(f"{self.qasm_file}: `{line}`: only end-of-circuit measurements are supported")
+                self.stats['d'] += 1
+                if gate not in self.stats['gate_set']:
+                    self.stats['gate_set'].add_gate(gate, qubits=arity)
         return gates, vectors
             
     def add_measured_qubits(self, qubits: list[int]) -> None:
@@ -172,7 +195,47 @@ class Simulator:
         for q in qubits:
             if q not in self.stats['measured_qubits']:
                 self.stats['measured_qubits'].append(q)
-            
+
+    def check_gate_definition(self, definition: str) -> None:
+        # a definition of a native gate must be milq's own (as it writes them to the output) or have the native gate's
+        # unitary up to a global phase (as Qiskit writes them), the gate is simulated natively; other definitions are
+        # dropped, and using their gate is an unsupported statement
+        header = re.fullmatch(r'gate (\w+) ?(\(.*?\))? ?([^{]*?) ?\{(.*)\}', definition)
+        name = header.group(1) if header else None
+        if not any(name in names for names in supported_gates) or definition == nonstandard_gate_definitions.get(name):
+            return
+        error = QasmParseError(f"{self.qasm_file}: `{definition}`: a definition of the native gate {name} must be milq's own "
+                               f"or a sequence of native gates with the same unitary")
+        operands = [operand.strip() for operand in header.group(3).split(',')]
+        if header.group(2) or len(operands) != gate_to_qubits(name):
+            raise error
+        # the body as (gate, qubits), the operands numbered in their order
+        body = []
+        for statement in filter(None, (s.strip() for s in header.group(4).split(';'))):
+            match = re.fullmatch(r'(\w+) ([\w, ]+)', statement)
+            if not match or not any(match.group(1) in names for names in supported_gates):
+                raise error
+            arguments = [argument.strip() for argument in match.group(2).split(',')]
+            if (not set(arguments) <= set(operands) or len(set(arguments)) != len(arguments)
+                    or len(arguments) != gate_to_qubits(match.group(1))):
+                raise error
+            body.append((match.group(1), [operands.index(argument) for argument in arguments]))
+        # columns of the unitaries, the images of the computational basis states
+        unitaries = []
+        for gates in (body, [(name, list(range(len(operands))))]):
+            simulator = Simulator(qasm_file=self.qasm_file, complex_representation=Complex)
+            simulator.stats['q'] = len(operands)
+            vectors = []
+            for i in range(2**len(operands)):
+                vec = Vector(q=2**len(operands), generator=None, element_representation=Complex, k=0)
+                vec[i] = Complex.one(None)
+                vectors.append(vec)
+            unitaries.append(np.array([[complex(output[row].real, output[row].imag) for row in range(2**len(operands))]
+                                       for _, output in simulator.simulate(vectors, gates)]))
+        # |tr(U^dagger V)| = dim exactly when V = e^(i phi) U
+        if not np.isclose(abs(np.trace(unitaries[1].conj().T @ unitaries[0])), 2**len(operands)):
+            raise error
+
     def measurement_target(self, line: str) -> str:
         # the classical bit (or register) of `c = measure q`, `bit c = measure q` or `measure q -> c`, None for a plain
         # `measure q`; a declaration in the statement is moved to the classical declarations

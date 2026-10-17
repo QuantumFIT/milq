@@ -957,6 +957,9 @@ class Synthesizer:
             self.gate_set = gate_set
             self.qubits_to_measure = []
         self.v = len(vector_pairs)
+        if self.complex_representation != Complex:
+            for state in (state for pair in vector_pairs for state in pair):
+                state.k = integral_k(state.k)
         self.curr_depth = self.d
         max = 0
         for pair_idx, (input_vector, output_vector) in enumerate(vector_pairs):
@@ -1059,7 +1062,7 @@ class Synthesizer:
         target_states = []
         # k of every (input, target) pair, used to bound the FiveTuple rescaling
         if self.complex_representation != Complex:
-            self.pair_k = [(integral_k(input_state.k), integral_k(output_state.k)) for input_state, output_state in vector_pairs]
+            self.pair_k = [(input_state.k, output_state.k) for input_state, output_state in vector_pairs]
         bounds = [1] * (self.d + 1)
         if self.complex_representation != Complex:
             for d in range(self.d + 1):

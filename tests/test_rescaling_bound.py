@@ -80,6 +80,15 @@ def test_custom_target_with_a_large_k(workdir, mode, k_target):
     assert synthesized_gates(circuit) == ["x"]
 
 
+def test_float_k_reaches_pysmt_as_an_integer(workdir):
+    # yices2 tolerates a k of 4.0 in the formula; pySMT crashed on it, so the vectors must carry the int
+    res, circuit, _ = Synthesizer().synthesis(vectors="custom", vector_pairs=zero_to_one(4.0), q=1, d=1,
+                                              gate_set=GateSet(["x", "h"]), mode="basic", output_qasm="out.qasm",
+                                              solving="pysmt", solver="z3", complex_representation="FiveTuple")
+    assert res
+    assert synthesized_gates(circuit) == ["x"]
+
+
 def test_custom_target_with_a_fractional_k(workdir):
     with pytest.raises(ValueError, match="k of a FiveTuple vector must be an integer, got 4.5"):
         Synthesizer().synthesis(vectors="custom", vector_pairs=zero_to_one(4.5), q=1, d=1, gate_set=GateSet(["x", "h"]),

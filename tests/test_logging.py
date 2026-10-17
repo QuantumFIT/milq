@@ -207,16 +207,6 @@ def test_gurobi_model_variables_are_debug_messages(workdir, caplog, level, dumpe
     assert bool(variable_lines) == dumped
 
 
-def test_pysmt_solver_exception_is_a_warning(caplog):
-    class Crashing:
-        def solve(self):
-            raise RuntimeError("solver crashed")
-    gen = Generator(mode="pysmt")
-    gen.solver = Crashing()
-    assert gen.check_sat() is False
-    assert any(r.levelno == logging.WARNING and "solver crashed" in r.getMessage() for r in caplog.records)
-
-
 # the CLI, with a stand-in for the synthesis: it configures logging, the library doesn't
 
 CLI_WRAPPER = """

@@ -1102,4 +1102,6 @@ class Generator:
         # unknown is not UNSAT: the caller searches on, and synthesis() reports what stayed unproven
         self.unknowns += 1
         self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN")
+        for failure in getattr(self.solver, "failures", []):
+            self.logger.log(tag="WARNING", message=failure)
         return False

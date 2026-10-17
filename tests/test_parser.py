@@ -148,10 +148,12 @@ def test_unbalanced_input():
     assert parse("((x 1) (y (- 2)") == [("x", 1), ("y", -2)]
 
 
-def test_parse_returns_failure_triple_on_milp_error():
+def test_parse_raises_on_milp_error():
+    # a SAT model that can't be read used to come back as (False, None, None), i.e. "no circuit at this depth"
     generator = Generator(logger=Logger())
     generator.bool_variables = {"L0_h_q0": "not a solver variable"}
-    assert ModelParser(Logger()).parse(generator, qubits=1, depth=1, write_to_file=False) == (False, None, None)
+    with pytest.raises(AttributeError):
+        ModelParser(Logger()).parse(generator, qubits=1, depth=1, write_to_file=False)
 
 
 def test_negative_amplitude_end_to_end(workdir):

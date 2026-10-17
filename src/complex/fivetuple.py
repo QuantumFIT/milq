@@ -101,7 +101,7 @@ class FiveTuple:
             )
             
     def __div__(self, other):
-        if isinstance(other, float):
+        if isinstance(other, float) or isinstance(other, int):
             if self.gen is None:
                 return FiveTuple(a=self.a / other, b=self.b / other, c=self.c / other, d=self.d / other)
             else:

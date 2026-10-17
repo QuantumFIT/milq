@@ -5,6 +5,7 @@
 @brief: implementation of vector abstraction over the custom complex number representations
 """
 
+import copy
 import numpy as np
 from .classic import Complex
 from .fivetuple import FiveTuple
@@ -53,7 +54,9 @@ class Vector:
         
     def __eq__(self, other):
         if self.gen is None:
-            return all(self.vec[i] == other.vec[i] for i in range(len(self.vec))) and self.k == other.k
+            # value equality: a five-tuple vector with k equals its sqrt(2)-scaled copy with k + 1
+            a, b = self.rescale_with(other) if self.element_representation == FiveTuple else (self, other)
+            return all(a.vec[i] == b.vec[i] for i in range(len(a.vec)))
         else:
             eqs = [self.vec[i] == other.vec[i] for i in range(len(self.vec))]
             if self.k is not None and other.k is not None:
@@ -64,10 +67,9 @@ class Vector:
         return f"[{', '.join(str(v) for v in self.vec)}], k={self.k}"
     
     def copy(self):
-        new_vec = Vector(q=len(self.vec), generator=self.gen, element_representation=self.element_representation, k=self.k)
-        for i in range(len(self.vec)):
-            new_vec[i] = self.vec[i].copy()
-        new_vec.k = self.k
+        # keeps name, bound, n and k, copies only the elements
+        new_vec = copy.copy(self)
+        new_vec.vec = [elem.copy() for elem in self.vec]
         return new_vec
 
     def to_real(self, max_k=None):
@@ -182,6 +184,8 @@ class Vector:
     
     def measure(self, q : list[int], result : int) -> "Vector":
         # measure qubit q to result r in {0, 1}
+        if result not in (0, 1):
+            raise ValueError(f"a measurement outcome can be only 0 or 1, not {result}")
         if len(q) == 0:
             return self
         new_vec = self.copy()

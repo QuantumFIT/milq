@@ -42,7 +42,7 @@ class Matrix:
                             self.matrix[i][j] = element_representation.one(generator)
                         else:
                             self.matrix[i][j] = element_representation.zero(generator)
-                self.k = 0
+                self.k = k
                 return
             
             self.gen = generator
@@ -100,11 +100,18 @@ class Matrix:
             return new_matrix
         
         if isinstance(other, float) or isinstance(other, int) or isinstance(other, Complex) or isinstance(other, FiveTuple):
-            # pointwise multiplication
+            # pointwise multiplication into a new matrix
+            new_matrix = self.copy()
             for i in range(len(self.matrix)):
                 for j in range(len(self.matrix[i])):
-                    self.matrix[i][j] = self.matrix[i][j] * other
-            return self
+                    if self.element_representation == FiveTuple and not isinstance(other, FiveTuple):
+                        # five-tuple coefficients are integers, other scales go through k
+                        if not float(other).is_integer():
+                            raise ValueError("a five-tuple matrix can be multiplied only by an integer")
+                        new_matrix.matrix[i][j] = self.matrix[i][j].multiply_by_real(int(other))
+                    else:
+                        new_matrix.matrix[i][j] = self.matrix[i][j] * other
+            return new_matrix
         else:
             raise ValueError("matrix multiplication not supported for this representation")
         
@@ -114,7 +121,7 @@ class Matrix:
         return self * (1 / other)
     
     def __truediv__(self, other : float) -> "Matrix":
-        return self * (1 / other)
+        return self.__div__(other)
     
     def __repr__(self):
         matrix_str = ""
@@ -123,10 +130,16 @@ class Matrix:
             for j in range(len(self.matrix[i])):
                 matrix_str += f"{self.matrix[i][j]}, "
             matrix_str += "]\n"
-        return matrix_str
+        return matrix_str + f"k={self.k}"
     
+    def _check_same_k(self, other : "Matrix"):
+        # five-tuple elements are scaled by 1/sqrt(2)^k, so they can be added only with the same k
+        if self.element_representation == FiveTuple and self.gen is None and self.k != other.k:
+            raise ValueError(f"five-tuple matrices with different k ({self.k} and {other.k}) cannot be added")
+
     def __add__(self, other : "Matrix") -> "Matrix":
         if isinstance(other, Matrix):
+            self._check_same_k(other)
             new_matrix = Matrix(q=len(self.matrix), generator=self.gen, element_representation=self.element_representation, k=self.k)
             for i in range(len(self.matrix)):
                 for j in range(len(other.matrix)):
@@ -137,6 +150,7 @@ class Matrix:
     
     def __sub__(self, other : "Matrix") -> "Matrix":
         if isinstance(other, Matrix):
+            self._check_same_k(other)
             new_matrix = Matrix(q=len(self.matrix), generator=self.gen, element_representation=self.element_representation, k=self.k)
             for i in range(len(self.matrix)):
                 for j in range(len(other.matrix)):
@@ -157,10 +171,11 @@ class Matrix:
         return new_matrix
     
     def conjugate(self) -> "Matrix":
+        new_matrix = self.copy()
         for i in range(len(self.matrix)):
             for j in range(len(self.matrix[i])):
-                self.matrix[i][j] = self.matrix[i][j].conjugate()
-        return self
+                new_matrix.matrix[i][j] = self.matrix[i][j].conjugate()
+        return new_matrix
     
     def tensor(self, other : "Matrix") -> "Matrix":
         # U \otimes V
@@ -397,7 +412,8 @@ class Matrix:
         for i in range(n):
             for j in range(n):
                 matrix[i][j] = vector[i] * vector[j].conjugate()
-        return cls(matrix=matrix)
+        # FiveTuple: each product of two elements scaled by 1/sqrt(2)^k is scaled by 1/sqrt(2)^(2k)
+        return cls(matrix=matrix, k=2 * vector.k if vector.element_representation == FiveTuple else 0)
     
     def max_value(self) -> int:
         max = 0

@@ -32,9 +32,18 @@ class Simulator:
             raise ValueError("matrix or qasm_file has to be provided")
         if matrix is not None and complex_representation != Complex:
             raise ValueError("matrix can be provided only for Classic complex representation")
+        if meas not in (0, 1):
+            raise ValueError("the measurement outcome (meas) can be only 0 or 1")
         self.qasm_file = qasm_file
         self.complex_representation = complex_representation
         self.matrix = matrix
+        self.measurement_outcome = meas
+        self.basis = basis
+        self.no_measurement = no_measurement
+        self.reset_stats()
+
+    def reset_stats(self) -> None:
+        # every simulate_* parses the file again, and parsing starts from here, so the stats describe one simulation
         self.stats = {}
         self.stats['gate_set'] = GateSet()
         self.stats['d'] = 0
@@ -42,20 +51,19 @@ class Simulator:
         self.stats['qreg'] = ''
         self.stats['max_k'] = 0
         self.stats['input_circuit'] = []
+        # each measured qubit once, in the order of its first measurement (empty with no_measurement)
         self.stats['measured_qubits'] = []
         # end-of-circuit measurements as (qubit, classical bit or None) and the classical declarations, both in the
         # input's order and OpenQASM 3 syntax, to write them to the synthesized circuit as they are in the input
         self.stats['measurements'] = []
         self.stats['classical_declarations'] = []
-        self.measurement_outcome = meas
-        self.basis = basis
-        self.no_measurement = no_measurement
         
     """
     parse the input qasm file into a sequence of gates with a respective list of qubits
     also collects information about the input circuits -- qubits, gate set ...
     """
     def parse_file(self) -> tuple[list[tuple[str, list[int]]], list[Vector]]:
+        self.reset_stats()
         vectors = []
         if self.qasm_file is None:
             # matrix 2**q x 2**q
@@ -125,6 +133,7 @@ class Simulator:
                     gates.append(('measure', [i]))
                     self.stats['input_circuit'].append(('measure', [i]))
                     self.stats['measurements'].append((i, None if register is None else f"{register}[{i}]"))
+                    self.add_measured_qubits([i])
                 continue
             # find gates using the register name
             qreg_pattern = re.compile(rf'{re.escape(f"{qreg_name}")}\s*\[')
@@ -148,6 +157,8 @@ class Simulator:
                 self.stats['input_circuit'].append((gate, qubits))
                 if gate == 'measure':
                     self.stats['measurements'].append((qubits[0], self.measurement_target(line)))
+                if gate in ('measure', 'meas'):
+                    self.add_measured_qubits(qubits)
                 self.stats['d'] += 1 if gate != 'measure' and gate != 'meas' else 0
                 if gate not in self.stats['gate_set'] and (gate != 'measure' and gate != 'meas'):
                     self.stats['gate_set'].add_gate(gate, qubits=len(qubits))
@@ -155,6 +166,14 @@ class Simulator:
 
             raise Exception(f"input file parsing failed")
         return gates, vectors
+            
+    def add_measured_qubits(self, qubits: list[int]) -> None:
+        # simulate() ignores measurements with no_measurement, so they measure no qubit
+        if self.no_measurement:
+            return
+        for q in qubits:
+            if q not in self.stats['measured_qubits']:
+                self.stats['measured_qubits'].append(q)
             
     def measurement_target(self, line: str) -> str:
         # the classical bit (or register) of `c = measure q`, `bit c = measure q` or `measure q -> c`, None for a plain
@@ -341,7 +360,6 @@ class Simulator:
                                 new_vec = vector.copy()
                                 continue
                             new_vec = vector.measure(qubits, self.measurement_outcome)
-                            self.stats['measured_qubits'].extend(qubits)
                             break
                         else:
                             raise NotImplementedError(f"Gate {op} is not yet implemented")
@@ -474,21 +492,12 @@ class Simulator:
     simulate the given input circuit by creating the unitary matrix instead of vectors
     """
     def simulate_matrix(self) -> Matrix:
-        gates, _ = self.parse_file()
-        matrix = Matrix.i(element_representation=self.complex_representation, q=0, qubits=self.stats['q'])
-        for (op, qubits) in gates:
-            if len(qubits) == 1:
-                mat = getattr(Matrix, op)(element_representation=self.complex_representation, q=qubits[0], qubits=self.stats['q'])
-                matrix = mat * matrix
-            elif len(qubits) == 2:
-                mat = getattr(Matrix, op)(element_representation=self.complex_representation, q1=qubits[0], q2=qubits[1], qubits=self.stats['q'])
-                matrix = mat * matrix
-            elif len(qubits) == 3:
-                mat = getattr(Matrix, op)(element_representation=self.complex_representation, q1=qubits[0], q2=qubits[1], q3=qubits[2], qubits=self.stats['q'])
-                matrix = mat * matrix
-            else:
-                raise NotImplementedError(f"Gate {op} with {len(qubits)} qubits is not yet implemented")
-        return matrix
+        gates, vectors = self.parse_file()
+        if not self.no_measurement and any(gate == 'measure' for gate, _ in gates):
+            raise ValueError("a circuit with measurements has no unitary matrix (no_measurement ignores them)")
+        outputs = [output for _, output in self.simulate(vectors, gates)]
+        # every column went through the same gates, so they share k
+        return Matrix(matrix=[[column[row] for column in outputs] for row in range(len(outputs))], k=outputs[0].k)
         
     """
     return the statistics about the input circuit

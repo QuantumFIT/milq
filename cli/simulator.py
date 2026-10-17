@@ -22,7 +22,7 @@ parser.add_argument('-v', '--vectors', type=str, help='vectors mode to use for t
 parser.add_argument('-c', '--complex_representation', type=str, help='complex representation to use', required=False, choices=["FiveTuple", "Classic"], default="FiveTuple")
 parser.add_argument('-T', '--targets', type=int, help='number of target qubits', required=False, default=1)
 parser.add_argument('-A', '--ancillas', type=int, help='number of ancilla qubits', required=False, default=1)
-parser.add_argument('-m', '--meas', type=int, help='determine measurement outcome - if not set, default is 0 (|0>)', required=False, default=0)
+parser.add_argument('-m', '--meas', type=int, help='determine measurement outcome - if not set, default is 0 (|0>)', required=False, choices=[0, 1], default=0)
 args = parser.parse_args()
 
 if args.complex_representation == "FiveTuple":

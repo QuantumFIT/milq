@@ -1,5 +1,9 @@
 """Gate semantics of the simulator against Qiskit reference matrices."""
 
+import os
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 from qiskit import QuantumCircuit
@@ -8,6 +12,7 @@ from qiskit.quantum_info import Operator
 
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
+from complex.vector import Vector
 from conftest import to_complex, unitary
 from gates import supported_gates
 from sim import Simulator
@@ -147,6 +152,110 @@ def test_vector_to_real_with_generator(tmp_path, name, k, element, expected):
     assert gen.check_sat()
     gen.add_assertion(Not(matches))
     assert not gen.check_sat()
+
+
+# simulator stats (#87, F65)
+
+MEASURED = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncreg c[1];\nh q[0];\nmeasure q[0] -> c[0];\n'
+
+
+@pytest.mark.parametrize("second", ["simulate_circuit", "simulate_zero", "simulate_custom"])
+def test_repeated_simulations_do_not_accumulate_stats(tmp_path, second):
+    qasm = tmp_path / "measured.qasm"
+    qasm.write_text(MEASURED)
+    simulator = Simulator(str(qasm), complex_representation=Complex)
+    simulator.simulate_circuit()
+    if second == "simulate_custom":
+        simulator.simulate_custom([pair[0] for pair in simulator.simulate_zero()])
+    else:
+        getattr(simulator, second)()
+    stats = simulator.circuit_stats()
+    assert stats["d"] == 1
+    assert stats["input_circuit"] == [("h", [0]), ("measure", [0])]
+    assert stats["measured_qubits"] == [0]  # once, not once per input vector
+    assert stats["measurements"] == [(0, "c[0]")]
+    assert len(stats["classical_declarations"]) == 1
+
+
+@pytest.mark.parametrize("measurements, expected", [
+    ("measure q[1] -> c[1];\nmeasure q[0] -> c[0];\nmeasure q[1] -> c[1];\n", [1, 0]),
+    ("measure q -> c;\n", [0, 1]),
+])
+def test_measured_qubits_are_unique_in_order(tmp_path, measurements, expected):
+    qasm = tmp_path / "measured.qasm"
+    qasm.write_text(f'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncreg c[2];\nh q[0];\n{measurements}')
+    simulator = Simulator(str(qasm), complex_representation=Complex)
+    simulator.simulate_circuit()
+    assert simulator.circuit_stats()["measured_qubits"] == expected
+
+
+def test_no_measurement_measures_no_qubit(tmp_path):
+    qasm = tmp_path / "measured.qasm"
+    qasm.write_text(MEASURED)
+    simulator = Simulator(str(qasm), complex_representation=Complex, no_measurement=True)
+    simulator.simulate_circuit()
+    assert simulator.circuit_stats()["measured_qubits"] == []
+
+
+# simulate_matrix (#84, F30): every gate the vector simulator knows
+
+def matrix_values(matrix, representation):
+    return np.array([[to_complex(e, matrix.k, representation) for e in row] for row in matrix.matrix])
+
+
+@pytest.mark.parametrize("gate, qubits, representation", list(cases()))
+def test_simulate_matrix_matches_qiskit(tmp_path, gate, qubits, representation):
+    qasm = tmp_path / "gate.qasm"
+    qasm.write_text(f"OPENQASM 2.0;\nqreg q[{QUBITS}];\n{gate} " + ", ".join(f"q[{q}]" for q in qubits) + ";\n")
+    matrix = Simulator(str(qasm), complex_representation=representation).simulate_matrix()
+    np.testing.assert_allclose(matrix_values(matrix, representation), reference(gate, qubits), atol=1e-9)
+
+
+def test_simulate_matrix_rejects_measurements(tmp_path):
+    qasm = tmp_path / "measured.qasm"
+    qasm.write_text("OPENQASM 2.0;\nqreg q[1];\ncreg c[1];\nh q[0];\nmeasure q[0] -> c[0];\n")
+    with pytest.raises(ValueError, match="no unitary matrix"):
+        Simulator(str(qasm), complex_representation=Complex).simulate_matrix()
+    matrix = Simulator(str(qasm), complex_representation=Complex, no_measurement=True).simulate_matrix()
+    np.testing.assert_allclose(matrix_values(matrix, Complex), np.array([[1, 1], [1, -1]]) / np.sqrt(2), atol=1e-9)
+
+
+# cli/simulator.py (#84, F30, F71, F77)
+
+CLI = os.path.join(os.path.dirname(__file__), "..", "cli", "simulator.py")
+
+
+def run_cli(qasm, *args):
+    return subprocess.run([sys.executable, CLI, str(qasm), *args], capture_output=True, text=True, timeout=60)
+
+
+def test_cli_matrix_prints_k(tmp_path):
+    qasm = tmp_path / "ht.qasm"
+    qasm.write_text("OPENQASM 2.0;\nqreg q[1];\nh q[0];\nt q[0];\nsx q[0];\n")
+    run = run_cli(qasm, "-v", "matrix", "-c", "FiveTuple")
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip().endswith("k=3")  # h adds 1, sx 2
+
+
+@pytest.mark.parametrize("outcome", ["2", "-1"])
+def test_cli_rejects_other_measurement_outcomes(tmp_path, outcome):
+    qasm = tmp_path / "m.qasm"
+    qasm.write_text("OPENQASM 2.0;\nqreg q[2];\ncreg c[1];\nh q[0];\ncx q[0], q[1];\nmeasure q[1] -> c[0];\n")
+    run = run_cli(qasm, "-v", "zero", "-c", "Classic", "-m", outcome)
+    assert run.returncode == 2 and "invalid choice" in run.stderr
+
+
+def test_measurement_outcome_is_0_or_1():
+    vector = Vector(q=2, element_representation=Complex, k=0)
+    with pytest.raises(ValueError, match="only 0 or 1, not 2"):
+        vector.measure([0], 2)
+    with pytest.raises(ValueError, match="only 0 or 1"):
+        Simulator(matrix=None, qasm_file="unused.qasm", meas=2)
+
+
+def test_matrix_repr_shows_k():
+    from complex.matrix import Matrix
+    assert repr(Matrix.h(FiveTuple)).endswith("k=1")
 
 
 # simulate_jamiolkowski (#80, F22)

@@ -58,7 +58,7 @@ The **complex-number representation** (`-c`) decides which SMT solvers can be us
 | `-c` | Arithmetic | SMT solvers |
 |---|---|---|
 | `FiveTuple` (default) | exact, linear integer (QF_LIA) | yices2, cvc5, OpenSMT, SMTInterpol, z3 |
-| `Classic` | floating point *a* + *bi*, nonlinear real (QF_NRA) | yices2, cvc5, SMTInterpol, z3, dReal |
+| `Classic` | floating point *a* + *bi*, nonlinear real (QF_NRA) | yices2, cvc5, z3, dReal |
 
 FiveTuple is exact and usually the fastest choice for Clifford+T circuits. Classic is needed for end-of-circuit measurements and is the practical choice for approximate synthesis.
 

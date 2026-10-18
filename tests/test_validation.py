@@ -39,3 +39,9 @@ def test_unknown_vectors_are_rejected(workdir):
 def test_some_input_is_required(workdir):
     with pytest.raises(ValueError, match="qasm_file, matrix, or vector_pairs is required"):
         synthesize(qasm_file=None)
+
+
+@pytest.mark.parametrize("solver", ["smtinterpol", "opensmt"])
+def test_solver_without_nra_is_rejected_for_classic(workdir, solver):
+    with pytest.raises(ValueError, match=f"{solver} does not support QF_NRA"):
+        synthesize(solver=solver, complex_representation="Classic")

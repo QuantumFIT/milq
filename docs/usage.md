@@ -22,7 +22,7 @@ The input is an OpenQASM 2.0 or 3.0 file with a single quantum register. Example
 - **Gates without parameters,** one per statement, applied to distinct qubits `q[i]` of the register: `h`, `x`, `y`, `z`, `s`, `sdg`, `t`, `tdg`, `sx`, `sxdg`, `id`, `cx`, `cy`, `cz`, `ch`, `cs`, `csdg`, `csx`, `swap`, `iswap`, `sqrtswap`, `dcx`, `xcx` (a CX controlled on \|0⟩), `ccx`, `cswap` and `ccz`. A single-qubit gate on the whole register (`h q;`) applies to each qubit.
 - **Measurements at the end:** `measure q[i] -> c[i];` (2.0) or `c[i] = measure q[i];` (3.0). A gate on a qubit that was already measured is rejected. See [Measurements](#measurements).
 - Comments and `barrier` statements are skipped.
-- **`gate` definitions** of the gates above are accepted when they are MILQ's own or have the same unitary up to global phase (as Qiskit writes them); the gate is simulated natively. Other definitions are skipped, and using their gate is an error.
+- **`gate` definitions** of the gates above are accepted when they are MILQ's own or have the same unitary up to global phase (as Qiskit writes them); the gate is simulated natively. Their bodies can use the gates above, `p`, `u1` and `rz` with a multiple of π/4, and gates defined before them that take no parameters or don't use them. Other definitions are skipped, and using their gate is an error.
 
 ## 1. Pick what must be preserved (`-v`)
 

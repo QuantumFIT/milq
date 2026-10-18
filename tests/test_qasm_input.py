@@ -34,6 +34,10 @@ def parse(tmp_path, text):
     # F66: a used user-defined gate, a native gate redefined
     ("gate foo a { h a; }\nqubit[1] q;\nfoo q[0];\n", "`foo q\\[0\\]`: the statement is not supported"),
     ("gate cs a, b { cx a, b; }\nqubit[2] q;\ncs q[0], q[1];\n", "a definition of the native gate cs must be milq's own"),
+    # a phase that is not a multiple of pi/4, and a helper gate whose body uses its parameter
+    ("gate cs a, b { p(pi/3) a; cx a, b; }\nqubit[2] q;\ncs q[0], q[1];\n", "a definition of the native gate cs must be milq's own"),
+    ("gate cu1x(l) a, b { u1(l/2) a; cx a, b; u1(-l/2) b; cx a, b; u1(l/2) b; }\n"
+     "gate csx a, b { h b; cu1x(pi/2) a, b; h b; }\nqubit[2] q;\ncsx q[0], q[1];\n", "a definition of the native gate csx must be milq's own"),
 ])
 def test_parse_errors_name_the_statement(tmp_path, text, message):
     path = tmp_path / "in.qasm"
@@ -53,6 +57,14 @@ def test_parse_errors_name_the_statement(tmp_path, text, message):
     ("qubit[2] q;\nmeasure q[0];\nh q[1];\n", [('measure', [0]), ('h', [1])]),
     # F66: an unused user-defined gate is dropped, milq's own definitions of native gates are accepted
     ("gate foo a { h a; }\ngate csx a, b { ctrl @ sx a, b; }\nqubit[2] q;\ncsx q[0], q[1];\n", [('csx', [0, 1])]),
+    # Qiskit 1.x defines cs and csdg with phase gates, and csx with a helper gate for the angle it uses
+    ("gate cs q0,q1 { p(pi/4) q0; cx q0,q1; p(-pi/4) q1; cx q0,q1; p(pi/4) q1; }\n"
+     "gate csdg q0,q1 { p(-pi/4) q0; cx q0,q1; p(pi/4) q1; cx q0,q1; p(-pi/4) q1; }\n"
+     "qubit[2] q;\ncs q[0], q[1];\ncsdg q[1], q[0];\n", [('cs', [0, 1]), ('csdg', [1, 0])]),
+    ("gate cu1_1(_gate_p_0) _gate_q_0, _gate_q_1 {\n  u1(pi/4) _gate_q_0;\n  cx _gate_q_0, _gate_q_1;\n"
+     "  u1(-pi/4) _gate_q_1;\n  cx _gate_q_0, _gate_q_1;\n  u1(pi/4) _gate_q_1;\n}\n"
+     "gate csx _gate_q_0, _gate_q_1 {\n  h _gate_q_1;\n  cu1_1(pi/2) _gate_q_0, _gate_q_1;\n  h _gate_q_1;\n}\n"
+     "qubit[2] q;\ncsx q[0], q[1];\n", [('csx', [0, 1])]),
 ])
 def test_accepted_inputs(tmp_path, text, gates):
     assert parse(tmp_path, HEADER + text) == gates

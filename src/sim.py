@@ -5,6 +5,9 @@
 @brief: simulation of quantum circuits in desired representation used in synthesis
 """
 
+import ast
+import math
+import operator
 import re
 from complex.vector import Vector
 from complex.fivetuple import FiveTuple
@@ -22,6 +25,31 @@ def classical_declaration(line: str) -> str:
 
 class QasmParseError(ValueError):
     """an input circuit that milq cannot read; the message names the statement"""
+
+
+# the phase gates p(θ) = u1(θ) = rz(θ) (up to a global phase) in a gate definition, as native gates for each multiple
+# of pi/4; Qiskit 1.x defines cs, csdg and csx with them
+PHASE_GATES = ('p', 'u1', 'rz')
+PHASE_STEPS = [[], ['t'], ['s'], ['s', 't'], ['z'], ['z', 't'], ['sdg'], ['tdg']]
+ARITHMETIC = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
+
+
+def constant_angle(expression: str) -> float | None:
+    # the value of a constant angle such as pi/4, -pi/4 or 3*pi/4; None for anything else, e.g. a parameter
+    def value(node):
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            return node.value
+        if isinstance(node, ast.Name) and node.id in ('pi', 'π'):
+            return math.pi
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            return value(node.operand) * (-1 if isinstance(node.op, ast.USub) else 1)
+        if isinstance(node, ast.BinOp) and type(node.op) in ARITHMETIC:
+            return ARITHMETIC[type(node.op)](value(node.left), value(node.right))
+        raise ValueError(f"not a constant angle: {ast.dump(node)}")
+    try:
+        return float(value(ast.parse(expression, mode='eval').body))
+    except (SyntaxError, ValueError, ZeroDivisionError):
+        return None
 
 
 class Simulator:
@@ -86,6 +114,8 @@ class Simulator:
         # drop comments and gate definitions (the gates are simulated natively, see check_gate_definition);
         # a definition can span lines and be followed by more statements on the line of its '}'
         qasm_content = re.sub(r'//[^\n]*|/\*.*?\*/', '', qasm_content, flags=re.S)
+        # the definitions of other gates, by name, for the definitions of native gates that use them
+        self.helper_definitions = {}
         for definition in re.finditer(r'\bgate\s[^{]*\{[^}]*\}', qasm_content):
             self.check_gate_definition(' '.join(definition.group(0).split()))
         qasm_content = re.sub(r'\bgate\s[^{]*\{[^}]*\}', '', qasm_content)
@@ -199,27 +229,23 @@ class Simulator:
     def check_gate_definition(self, definition: str) -> None:
         # a definition of a native gate must be milq's own (as it writes them to the output) or have the native gate's
         # unitary up to a global phase (as Qiskit writes them), the gate is simulated natively; other definitions are
-        # dropped, and using their gate is an unsupported statement
+        # kept for the definitions that use them, and using their gate in the circuit is an unsupported statement
         header = re.fullmatch(r'gate (\w+) ?(\(.*?\))? ?([^{]*?) ?\{(.*)\}', definition)
         name = header.group(1) if header else None
-        if not any(name in names for names in supported_gates) or definition == nonstandard_gate_definitions.get(name):
+        if not any(name in names for names in supported_gates):
+            if header:
+                self.helper_definitions[name] = header
+            return
+        if definition == nonstandard_gate_definitions.get(name):
             return
         error = QasmParseError(f"{self.qasm_file}: `{definition}`: a definition of the native gate {name} must be milq's own "
                                f"or a sequence of native gates with the same unitary")
         operands = [operand.strip() for operand in header.group(3).split(',')]
         if header.group(2) or len(operands) != gate_to_qubits(name):
             raise error
-        # the body as (gate, qubits), the operands numbered in their order
-        body = []
-        for statement in filter(None, (s.strip() for s in header.group(4).split(';'))):
-            match = re.fullmatch(r'(\w+) ([\w, ]+)', statement)
-            if not match or not any(match.group(1) in names for names in supported_gates):
-                raise error
-            arguments = [argument.strip() for argument in match.group(2).split(',')]
-            if (not set(arguments) <= set(operands) or len(set(arguments)) != len(arguments)
-                    or len(arguments) != gate_to_qubits(match.group(1))):
-                raise error
-            body.append((match.group(1), [operands.index(argument) for argument in arguments]))
+        body = self.definition_body(header.group(4), operands)
+        if body is None:
+            raise error
         # columns of the unitaries, the images of the computational basis states
         unitaries = []
         for gates in (body, [(name, list(range(len(operands))))]):
@@ -235,6 +261,46 @@ class Simulator:
         # |tr(U^dagger V)| = dim exactly when V = e^(i phi) U
         if not np.isclose(abs(np.trace(unitaries[1].conj().T @ unitaries[0])), 2**len(operands)):
             raise error
+
+    def definition_body(self, body: str, operands: list[str], depth: int = 0) -> list[tuple[str, list[int]]] | None:
+        # the body of a definition as native (gate, qubits), the operands numbered in their order; None if it uses
+        # anything else. Phase gates with a multiple of pi/4 become t, s, z and their inverses, and a gate defined
+        # earlier in the file is expanded if its body is constant (Qiskit 1.x writes such a helper for csx)
+        gates = []
+        for statement in filter(None, (s.strip() for s in body.split(';'))):
+            match = re.fullmatch(r'(\w+)(?: ?\((.*)\))? ([\w, ]+)', statement)
+            if not match:
+                return None
+            gate, parameters = match.group(1), match.group(2)
+            arguments = [argument.strip() for argument in match.group(3).split(',')]
+            if not set(arguments) <= set(operands) or len(set(arguments)) != len(arguments):
+                return None
+            qubits = [operands.index(argument) for argument in arguments]
+            if gate in PHASE_GATES:
+                angle = constant_angle(parameters) if parameters is not None else None
+                steps = None if angle is None else angle / (math.pi / 4)
+                if len(qubits) != 1 or steps is None or not np.isclose(steps, round(steps)):
+                    return None
+                gates += [(phase, qubits) for phase in PHASE_STEPS[round(steps) % 8]]
+            elif any(gate in names for names in supported_gates):
+                if parameters is not None or len(qubits) != gate_to_qubits(gate):
+                    return None
+                gates.append((gate, qubits))
+            elif gate in self.helper_definitions and depth < 8:
+                helper = self.helper_definitions[gate]
+                helper_operands = [operand.strip() for operand in helper.group(3).split(',')]
+                helper_parameters = [p.strip() for p in helper.group(2)[1:-1].split(',')] if helper.group(2) else []
+                # Qiskit writes the helper for the arguments it is called with, so its body must not use its parameters
+                if len(qubits) != len(helper_operands) or any(re.search(rf'\b{re.escape(p)}\b', helper.group(4))
+                                                               for p in helper_parameters if p):
+                    return None
+                inner = self.definition_body(helper.group(4), helper_operands, depth + 1)
+                if inner is None:
+                    return None
+                gates += [(inner_gate, [qubits[i] for i in inner_qubits]) for inner_gate, inner_qubits in inner]
+            else:
+                return None
+        return gates
 
     def measurement_target(self, line: str) -> str:
         # the classical bit (or register) of `c = measure q`, `bit c = measure q` or `measure q -> c`, None for a plain

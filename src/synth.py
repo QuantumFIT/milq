@@ -1222,6 +1222,7 @@ class Synthesizer:
                                 break  # the empty circuit is the only one, and it has no gates to filter
                             self.gen.filter_model(circuit.bool_variables, self.curr_depth)
                     self.gen.pop()
+                    self.restart_after_empty_circuit()
                     self.curr_depth += 1
                     if self.pareto_front.timeout_met():
                         break
@@ -1245,6 +1246,7 @@ class Synthesizer:
                         self.logger.log("INFO", f"Popping depth {self.curr_depth}")
                         self.gen.pop()
                         self.logger.log("INFO", f"Popped depth {self.curr_depth}")
+                        self.restart_after_empty_circuit()
                         self.curr_depth += 1
             if self.encoding_method == "pareto-incremental":
                 self.pareto_front.cleanup()
@@ -1336,6 +1338,13 @@ class Synthesizer:
         if best_circuit is not None:
             return True, best_circuit, best_vectors
         return False, None, None
+
+    def restart_after_empty_circuit(self) -> None:
+        # the deeper circuits are searched by a solver process that has not seen the depth-0 check: with it, yices2
+        # took minutes instead of a second for depth 2 of an approximate GHZ synthesis (QF_NRA)
+        if self.curr_depth == 0 and self.gen.mode == "smtlib" and self.gen.incremental_mode:
+            self.logger.log("INFO", "Restarting the solver after the empty circuit")
+            self.gen.restart_incremental()
 
     def solve_and_extract_circuit(self, formula_file="formula.smt2", output_qasm="circuit.qasm", write_to_file = True, draw_circuit = False) -> bool:
         """    

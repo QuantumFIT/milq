@@ -63,3 +63,33 @@ def test_empty_circuit_is_found(workdir, backend, gates):
                                               gate_set=GateSet(["h", "cx", "t"]), output_qasm="out.qasm", **backend)
     assert res
     assert circuit.operations() == []
+
+
+@pytest.mark.parametrize("mode", ["incremental", "pareto-incremental"])
+def test_deeper_circuits_are_searched_without_the_depth_0_check(cx_qasm, monkeypatch, mode):
+    # #67: the depth-0 check runs in a solver process of its own; yices2 in QF_NRA was minutes slower after it
+    from generator import Generator
+    replayed = []
+    original_restart = Generator.restart_incremental
+    def restart(self):
+        replayed.append(list(self.incremental_history))
+        original_restart(self)
+    monkeypatch.setattr(Generator, "restart_incremental", restart)
+    res, circuit, _ = Synthesizer().synthesis(qasm_file=cx_qasm, vectors="all", mode=mode, gate_set=GateSet(["h", "cz"]),
+                                              output_qasm="out.qasm", solving="smt", solver="yices2",
+                                              complex_representation="FiveTuple", pareto_timeout=60, max_depth=3)
+    assert res and circuit.gate_count() == 3
+    # one restart, with the formula of depth 0 minus its scope: no check, no push or pop
+    assert len(replayed) == 1
+    assert replayed[0][0].startswith("(set-logic ")
+    assert not any(s.startswith(("(push", "(pop", "(check-sat", "(get-value")) for s in replayed[0])
+
+
+def test_no_restart_when_the_empty_circuit_is_the_result(workdir, monkeypatch):
+    from generator import Generator
+    monkeypatch.setattr(Generator, "restart_incremental", lambda self: pytest.fail("restarted"))
+    (workdir / "id.qasm").write_text("OPENQASM 2.0;\nqreg q[1];\nh q[0];\nh q[0];\n")
+    res, circuit, _ = Synthesizer().synthesis(qasm_file="id.qasm", vectors="all", mode="incremental",
+                                              gate_set=GateSet(["h"]), output_qasm="out.qasm", solving="smt",
+                                              solver="yices2", complex_representation="FiveTuple")
+    assert res and circuit.operations() == []

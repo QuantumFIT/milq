@@ -54,6 +54,10 @@ class Generator:
         self.saved_push = []
         # incremental SMT: names declared since each (push 1), forgotten again on (pop 1)
         self.declaration_scopes = []
+        # incremental SMT: the statements in effect (popped scopes removed) and where each open scope starts, to
+        # start the solver again with them (restart_incremental); None once that is no longer needed
+        self.incremental_history = None
+        self.history_scopes = []
         self.objective_assertions = []
         # statistics for number of variables, numbers ...
         self.stats['reals'] = 0
@@ -107,6 +111,7 @@ class Generator:
         
     def set_incremental_mode(self, incremental_mode: bool = True):
         self.incremental_mode = incremental_mode
+        self.incremental_history = []
         # add prologue to the solver 
         prologue = "(set-logic " + self.logic + ")\n"
         self.write_incremental(prologue)
@@ -926,6 +931,8 @@ class Generator:
             if self.incremental_mode:
                 self.write_incremental("(push 1)")
                 self.declaration_scopes.append([])
+                if self.incremental_history is not None:
+                    self.history_scopes.append(len(self.incremental_history) - 1)
             else:
                 assertions_to_push = self.assertions.copy()
                 optimize_objectives = self.optimize_objectives.copy()
@@ -955,6 +962,8 @@ class Generator:
         elif self.mode == "smtlib":
             if self.incremental_mode:
                 self.write_incremental("(pop 1)")
+                if self.incremental_history is not None and self.history_scopes:
+                    del self.incremental_history[self.history_scopes.pop():]
                 # the solver drops declarations made since the matching push, so must we
                 for name in self.declaration_scopes.pop() if self.declaration_scopes else []:
                     self.declared_names.discard(name)
@@ -987,7 +996,20 @@ class Generator:
         if not self.incremental_mode:
             raise ValueError("incremental mode not set")
         
+        if self.incremental_history is not None:
+            self.incremental_history.append(statement)
         self.solver.write_incremental(statement)
+
+    def restart_incremental(self):
+        # starts the solver process again and sends it the statements in effect, so that it has never seen the scopes
+        # popped so far: yices2 in QF_NRA can be much slower after a (check-sat) that was popped again. Only once:
+        # the statements are no longer recorded afterwards
+        statements, self.incremental_history = self.incremental_history, None
+        self.history_scopes = []
+        self.solver.close()
+        self.solver.create_process()
+        for statement in statements:
+            self.solver.write_incremental(statement)
         
     def get_model(self):
         if self.mode == "milp":

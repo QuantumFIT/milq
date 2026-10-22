@@ -15,11 +15,21 @@ from gates import self_adjoints, gate_to_qubits
 import gurobipy as gp
 from gurobipy import GRB, quicksum
 from solvers import SMTSolver
-from logger import Logger
-import time
+import logging
+from timing import timed
 import os
 import numbers
 from itertools import permutations
+
+log = logging.getLogger(__name__)
+
+def quiet_gurobi_env() -> gp.Env:
+    # with LogToConsole off, Gurobi's license banner and parameter changes go only to the "gurobipy" logger
+    # (and so to synth.log from the CLI), not to stdout
+    env = gp.Env(empty=True)
+    env.setParam("LogToConsole", 0)
+    env.start()
+    return env
 
 def _gurobi_status_name(status: int) -> str:
     # GRB.Status.TIME_LIMIT == 9 -> "TIME_LIMIT"
@@ -29,9 +39,8 @@ def _gurobi_status_name(status: int) -> str:
     return str(status)
 
 class Generator:
-    def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA", logger : Logger = None) -> None:
+    def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA") -> None:
         # modes - ["pysmt", "smtlib", "milp", "gurobi"] -- however, pysmt is inaccessible from the CLI program
-        self.logger = logger
         self.mode = mode
         self.declarations = []
         self.declared_names = set()
@@ -76,6 +85,10 @@ class Generator:
         if self.solver == "dreal":
             self.logic = "QF_NRA"
 
+    def _new_gurobi_model(self):
+        self.lp_problem = gp.Model("Circuit_Synthesis", env=quiet_gurobi_env())
+        self._gp_params()
+
     def _gp_params(self):
         # set Gurobi parameters for the LP problem (increase precision)
         self.lp_problem.Params.IntFeasTol = 1e-9
@@ -103,8 +116,7 @@ class Generator:
             if assertion is None:
                 return
             if self.lp_problem is None:
-                self.lp_problem = gp.Model("Circuit_Synthesis")
-                self._gp_params()
+                self._new_gurobi_model()
                 self.lp_problem.setObjective(0, GRB.MINIMIZE) # set dummy objective
             self.lp_problem.addConstr(assertion, name=f"assertion_{self.stats['assertions']}")
         self.stats['assertions'] += 1
@@ -476,8 +488,7 @@ class Generator:
         if ub is None:
             ub = GRB.INFINITY
         if self.lp_problem is None:
-            self.lp_problem = gp.Model("Circuit_Synthesis")
-            self._gp_params()
+            self._new_gurobi_model()
         var = self.lp_problem.addVar(name=x, lb=lb, ub=ub, vtype=type)
         self.symbols[x] = var
         self.declared_names.add(x)
@@ -950,15 +961,14 @@ class Generator:
         elif self.mode == "gurobi":
             if len(self.saved_push) > 0:
                 state = self.saved_push.pop()
-                start_time = time.time()
-                self._gurobi_remove_assertions_since(state['assertion_idx'])
-                if self.lp_problem is not None:
-                    self.lp_problem.update()
-                    current_num_sos = self.lp_problem.NumSOS
-                    if current_num_sos > state['num_sos']:
-                        self.lp_problem.remove([self.lp_problem.getSOSs()[i] for i in range(state['num_sos'], current_num_sos)])
-                    self.lp_problem.update()
-                self.logger.update_time("updating", time.time() - start_time)
+                with timed("updating"):
+                    self._gurobi_remove_assertions_since(state['assertion_idx'])
+                    if self.lp_problem is not None:
+                        self.lp_problem.update()
+                        current_num_sos = self.lp_problem.NumSOS
+                        if current_num_sos > state['num_sos']:
+                            self.lp_problem.remove([self.lp_problem.getSOSs()[i] for i in range(state['num_sos'], current_num_sos)])
+                        self.lp_problem.update()
         elif self.mode == "smtlib":
             if self.incremental_mode:
                 self.write_incremental("(pop 1)")
@@ -1016,8 +1026,9 @@ class Generator:
             return self
         elif self.mode == "gurobi":
             variables = self.lp_problem.getVars()
-            for var in variables:
-                self.logger.log(tag="MODEL_DEBUG", message=f"{var.varName} {var.X}")
+            if log.isEnabledFor(logging.DEBUG):
+                for var in variables:
+                    log.debug("%s %s", var.varName, var.X)
             return variables
         
         elif self.mode == "smtlib":          
@@ -1055,29 +1066,29 @@ class Generator:
             # self.solver creates the PuLP solver chosen in Synthesizer.synthesis (GUROBI or PULP_CBC_CMD)
             self.lp_problem.solve(self.solver())
             status = LpStatus[self.lp_problem.status]
-            self.logger.log(tag="Satisfiability", message=f"MILP solver status: {status}, solution: {LpSolution[self.lp_problem.sol_status]}")
+            log.info("MILP solver status: %s, solution: %s", status, LpSolution[self.lp_problem.sol_status])
             if self.lp_problem.sol_status in [LpSolutionOptimal, LpSolutionIntegerFeasible]:
-                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
+                log.info("Solver returned SAT")
                 return True
             elif self.lp_problem.status == LpStatusInfeasible:
-                self.logger.log(tag="Satisfiability", message="Solver returned UNSAT")
+                log.info("Solver returned UNSAT")
                 return False
             raise RuntimeError(f"MILP solver stopped without a solution (status: {status})")
         elif self.mode == "gurobi":
             self.lp_problem.optimize()
             status = self.lp_problem.Status
             if status == GRB.OPTIMAL:
-                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
+                log.info("Solver returned SAT")
                 return True
             # the objective is either constant or a cost variable with finite bounds, so the model
             # cannot be unbounded: INF_OR_UNBD (presolve could not tell the two apart) means infeasible
             elif status in [GRB.INFEASIBLE, GRB.INF_OR_UNBD]:
-                self.logger.log(tag="Satisfiability", message="Solver returned UNSAT")
+                log.info("Solver returned UNSAT")
                 return False
             elif self.lp_problem.SolCount > 0:
                 # e.g. a time or solution limit was hit after a circuit was found: the circuit is
                 # correct, but its cost was not proven minimal
-                self.logger.log(tag="WARNING", message=f"Gurobi stopped with status {_gurobi_status_name(status)}, using the best circuit found (cost not proven minimal)")
+                log.warning("Gurobi stopped with status %s, using the best circuit found (cost not proven minimal)", _gurobi_status_name(status))
                 return True
             raise RuntimeError(f"Gurobi stopped with status {_gurobi_status_name(status)} without finding a solution")
         elif self.mode == "smtlib":
@@ -1088,34 +1099,34 @@ class Generator:
                 self.solver.write_incremental("(check-sat)")
                 result = self.solver.solve(formula_file)
                 if result in ["unknown", "unsat"]:
-                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
+                    log.info("Solver returned %s", result.upper())
                     return False
                 else:
-                    self.logger.log(tag="Satisfiability", message="Solver returned SAT")
+                    log.info("Solver returned SAT")
                     return True
             else:
                 # solving with non-incremental (not from stdin, but from file)
                 # also gets the model instantly
                 result = self.solver.solve(formula_file)
                 if result in ["unknown", "unsat"]:
-                    self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
+                    log.info("Solver returned %s", result.upper())
                     return False
                 else:
                     self.model = result
-                    self.logger.log(tag="Satisfiability", message="Solver returned SAT")
+                    log.info("Solver returned SAT")
                     return True
             if result in ["unknown", "unsat"]:
-                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
+                log.info("Solver returned %s", result.upper())
                 return False
             else:
-                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
+                log.info("Solver returned SAT")
                 return True
         elif self.mode == "pysmt":
             try:
                 return self.solver.solve()
             except Exception as e:
-                self.logger.log(tag="Satisfiability", message="Solver returned UNKNOWN/UNSAT")
+                log.warning("pySMT solver raised %r, treated as UNSAT", e)
                 return False
             else:
-                self.logger.log(tag="Satisfiability", message="Solver returned SAT")
+                log.info("Solver returned SAT")
                 return True

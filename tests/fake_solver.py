@@ -8,6 +8,9 @@ reads commands from stdin and answers every (check-sat) (incremental mode). The
 answer is chosen by MODE:
   sat, unsat, unknown, delta-sat    the corresponding answer (sat also prints a model)
   unsat-then-error                  "unsat", then an error for (get-model), exit code 1 (like z3)
+  partial-model                     "sat", then exits with code 4 partway through the model (incremental mode)
+  error-model, unknown-model        "sat", then an error with a "(" in its message, or "unknown", instead of the model
+  garbage                           bytes that aren't UTF-8 on stdout, exit code 134
   error                             (error "boom"), exit code 1
   crash                             no answer, message on stderr, exit code 3
   hang                              never answers
@@ -32,11 +35,17 @@ def answer():
     if mode == "crash":
         sys.stderr.write("fake solver crashed\n")
         sys.exit(3)
+    if mode == "garbage":
+        sys.stdout.buffer.write(b"\xff\xfe garbage\n")
+        sys.stdout.flush()
+        sys.exit(134)
     if mode == "error":
         print('(error "boom")', flush=True)
         return 1
     if mode == "delta-sat":
         print("delta-sat with delta = 0.001", flush=True)
+    elif mode in ("partial-model", "error-model", "unknown-model"):
+        print("sat", flush=True)
     elif mode == "unsat-then-error":
         print("unsat")
         print('(error "model is not available")', flush=True)
@@ -63,6 +72,15 @@ for line in sys.stdin:  # incremental mode
     if line == "(check-sat)":
         answer()
     elif line.startswith("(get-value"):
+        if mode == "partial-model":
+            print("((x 1)", flush=True)
+            sys.exit(4)
+        if mode == "error-model":
+            print('(error "Parse Error: expected a term, got ( ")', flush=True)
+            continue
+        if mode == "unknown-model":
+            print("unknown", flush=True)
+            continue
         print("((x 1))", flush=True)
     elif line and echo_success:
         print("success", flush=True)

@@ -6,6 +6,7 @@
 """
 
 import os
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import queue
 import signal
@@ -17,22 +18,22 @@ class SolverError(Exception):
     """the solver failed (error response, crash, ...) instead of answering sat/unsat/unknown"""
 
 
+def _first_line(output: str) -> str:
+    # the first line other than blanks and SMTInterpol's "success" acknowledgements
+    return next((line.strip() for line in output.splitlines() if line.strip() not in ("", "success")), "")
+
+
 def classify_answer(output: str) -> str:
-    # the answer is the first line other than SMTInterpol's "success" acknowledgements
-    for line in output.splitlines():
-        line = line.strip()
-        if not line or line == "success":
-            continue
-        if line == "sat" or line.startswith("delta-sat"):  # dReal: "delta-sat with delta = ..."
-            return "sat"
-        if line in ("unsat", "unknown"):
-            return line
-        return "error"
+    line = _first_line(output)
+    if line == "sat" or line.startswith("delta-sat"):  # dReal: "delta-sat with delta = ..."
+        return "sat"
+    if line in ("unsat", "unknown"):
+        return line
     return "error"
 
 
 def _describe_failure(name: str, stdout: str, stderr: str, returncode=None) -> str:
-    details = (stdout.strip() or stderr.strip() or "no output").splitlines()[0]
+    details = _first_line(stdout) or _first_line(stderr) or "no output" # get the first non-junk line
     code = f", exit code {returncode}" if returncode is not None else ""
     if returncode == 127:  # the shell could not find a program, e.g. java for SMTInterpol
         code += " (command not found)"
@@ -60,13 +61,17 @@ class SMTSolver:
         self.process = None
             
     def create_process(self):
-        self.process = subprocess.Popen(
-            self.args + self.smtlib_flags,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        try:
+            self.process = subprocess.Popen(
+                self.args + self.smtlib_flags,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                errors="replace",
+            )
+        except OSError as e:
+            raise SolverError(f"{self.name} could not be started: {e}") from e
 
     def close(self) -> None:
         # stops the solver process of the incremental mode and reaps it; it is killed instead of sent (exit), as it
@@ -108,6 +113,7 @@ class SMTSolver:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    errors="replace",
                 )
                 stdout, stderr = result.communicate()
             except OSError as e:
@@ -127,14 +133,24 @@ class SMTSolver:
         model = ""
         while True:
             result = self.process.stdout.readline()
-            open_parentheses += result.count("(")
-            open_parentheses -= result.count(")")
+            if result == '':  # end of output: the solver exited partway through the model
+                self.process.wait()
+                failure = _describe_failure(self.name, "", self.process.stderr.read(), self.process.returncode)
+                raise SolverError(f"{failure} (while sending the model)")
+            # parentheses and colons inside a quoted string, e.g. an error message, don't count
+            unquoted = re.sub(r'"(?:[^"]|"")*"', '""', result)
+            open_parentheses += unquoted.count("(")
+            open_parentheses -= unquoted.count(")")
             model += result + "\n"
             if open_parentheses == 0:
                 # this still may be dreal name : [interval] format
-                if ":" in result:
+                if ":" in unquoted:
                     continue
                 break
+        reply = model.strip()
+        # an error or a bare atom such as cvc5's "unknown" instead of the values (#76 G9)
+        if reply.startswith("(error") or ("(" not in reply and ":" not in reply):
+            raise SolverError(_describe_failure(self.name, reply, "") + " (instead of the model)")
         return model
             
     def write_incremental(self, statement : str):
@@ -152,6 +168,7 @@ class PortfolioSMTSolver:
     def __init__(self, solvers: dict[str, SMTSolver], logic="QF_LIA"):
         self.solvers = solvers
         self.logic = logic
+        self.failures = []
     
     def create_process(self):
         for solver in self.solvers.values():
@@ -167,13 +184,15 @@ class PortfolioSMTSolver:
     
     def solve(self, formula_file) -> str:
         processes = {}
-        failures = []  # solvers that failed are skipped, the others keep running
+        failures = self.failures = []
         finished = queue.Queue()
 
         def collect(name, proc):
-            # reading the whole output also keeps a solver printing a large model from blocking on a full pipe
-            stdout, stderr = proc.communicate()
-            finished.put((name, proc.returncode, stdout, stderr))
+            try:
+                stdout, stderr = proc.communicate()
+                finished.put((name, proc.returncode, stdout, stderr))
+            except BaseException as e:
+                finished.put((name, None, "", f"reading its output failed: {e!r}"))
 
         try:
             for name, solver in self.solvers.items():
@@ -183,6 +202,7 @@ class PortfolioSMTSolver:
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
+                        errors="replace",
                         start_new_session=True,  # own process group, see _kill_process_group
                     )
                 except OSError as e:  # e.g. the solver is not installed

@@ -1,7 +1,8 @@
-"""binary_cost_search terminates and finds the minimal cost (#43)."""
+"""binary_cost_search terminates and finds the minimal cost (#43), also with gate weights above 1 (#72)."""
 
 import pytest
 
+from gates import GateSet
 from synth import Synthesizer
 
 
@@ -17,9 +18,11 @@ class FakeGen:
     def add_assertion(self, n): self.bounds.append(n)
 
 
-def search(d, min_cost):
+def search(d, min_cost, weight=1):
     synth = Synthesizer.__new__(Synthesizer)
     synth.d = d
+    synth.gate_set = GateSet(["h"])
+    synth.gate_set.set_gate("h", weight=weight)
     synth.gen = FakeGen()
     synth.solve_and_extract_circuit = lambda **_: (
         (True, f"c{synth.gen.bounds[-1]}", None) if synth.gen.bounds[-1] >= min_cost else (False, None, None))
@@ -36,5 +39,12 @@ def test_all_unsat_terminates(d):
 @pytest.mark.parametrize("d,min_cost", [(1, 0), (1, 2), (5, 0), (5, 3), (5, 6)])
 def test_finds_min_cost(d, min_cost):
     (res, circuit, _), bounds = search(d, min_cost)
+    assert (res, circuit) == (True, f"c{min_cost}")
+    assert len(bounds) == len(set(bounds))
+
+
+@pytest.mark.parametrize("d,min_cost", [(1, 5), (2, 9)])
+def test_finds_min_cost_with_a_weight_of_three(d, min_cost):
+    (res, circuit, _), bounds = search(d, min_cost, weight=3)
     assert (res, circuit) == (True, f"c{min_cost}")
     assert len(bounds) == len(set(bounds))

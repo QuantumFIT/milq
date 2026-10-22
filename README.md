@@ -70,7 +70,7 @@ Examples, run from the repository root:
 pip install pytest
 pytest
 ```
-The tests use the bundled yices2/cvc5 binaries and the size-limited license shipped with `gurobipy`. They run in CI on every push and pull request. Known bugs are marked `xfail` with their issue number. Strict mode is on, so a fix must remove its marker from `KNOWN_BUGS` in `tests/test_simulator.py`.
+The tests use the bundled yices2/cvc5 binaries and the size-limited license shipped with `gurobipy`. They run in CI on every push and pull request; CI uses the full Gurobi license from the organization secret `GUROBI_LICENSE` when it works there, and the size-limited one otherwise. Known bugs are marked `xfail` with their issue number. Strict mode is on, so a fix must remove its marker from `KNOWN_BUGS` in `tests/test_simulator.py`.
 
 ## Project Structure
 

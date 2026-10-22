@@ -730,7 +730,9 @@ class Synthesizer:
                     value_bound = max(vec1.bound, vec_target.bound)
                     rescaled_bound = 2 * value_bound * 2**(max_gap // 2)
                     rescaled1 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled1_{vec1.name}", bound=rescaled_bound)
-                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}", bound=rescaled_bound)
+                    # vec2 is the target, the same at every depth: without the depth in the name, MILP would get back the
+                    # first depth's PuLP variables, with that depth's (smallest) bound
+                    rescaled2 = Vector(q=2**self.q, generator=self.gen, element_representation=self.complex_representation, k=0, n=self.q, name=f"Rescaled2_{vec2.name}_{depth}", bound=rescaled_bound)
                     if self.gen.mode == "milp" or self.gen.mode == "gurobi":
                         self.gen.add_milp_rescaling(rescaled1, rescaled2, vec1, vec_target, pair_idx, max_gap, value_bound + rescaled_bound)
                     else:

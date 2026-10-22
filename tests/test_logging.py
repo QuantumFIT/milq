@@ -161,11 +161,13 @@ def test_pareto_incremental_reports_solving_and_parsing(workdir):
 
 # output files
 
-@pytest.mark.parametrize("solving, solver, mode", [("smt", "yices2", "incremental"), ("smt", "yices2", "basic"),
-                                                   ("gurobi", None, "incremental")])
-def test_synthesis_without_output_qasm_writes_no_files(workdir, solving, solver, mode):
+@pytest.mark.parametrize("solving, solver, mode, representation", [("smt", "yices2", "incremental", "FiveTuple"),
+                                                                   ("smt", "yices2", "basic", "FiveTuple"),
+                                                                   ("gurobi", None, "incremental", "Classic")])
+def test_synthesis_without_output_qasm_writes_no_files(workdir, solving, solver, mode, representation):
     # the circuit and the formula go to a temporary directory, removed afterwards
-    res, circuit, _ = Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving=solving, solver=solver, mode=mode)
+    res, circuit, _ = Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving=solving, solver=solver, mode=mode,
+                                              complex_representation=representation)
     assert res and circuit.gate_count() == 2
     assert os.listdir(workdir) == []
 
@@ -200,7 +202,7 @@ def test_progress_is_logged(workdir, caplog):
 @pytest.mark.parametrize("level, dumped", [(logging.DEBUG, True), (logging.INFO, False)])
 def test_gurobi_model_variables_are_debug_messages(workdir, caplog, level, dumped):
     caplog.set_level(level)
-    Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="gurobi", mode="incremental")
+    Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="gurobi", mode="incremental", complex_representation="Classic")
     variable_lines = [r for r in caplog.records if r.name == "generator" and r.levelno == logging.DEBUG]
     assert bool(variable_lines) == dumped
 
@@ -289,7 +291,7 @@ def cli(*args):
                           capture_output=True, text=True, timeout=300)
 
 
-@pytest.mark.parametrize("solver", [["-s", "smt", "-a", "yices2"], ["-s", "gurobi"]], ids=["yices2", "gurobi"])
+@pytest.mark.parametrize("solver", [["-s", "smt", "-a", "yices2"], ["-s", "gurobi", "-c", "Classic"]], ids=["yices2", "gurobi"])
 def test_cli_without_o_only_prints_the_circuit(workdir, solver):
     run = subprocess.run([sys.executable, MILQ, GHZ2, "-v", "zero", *solver], capture_output=True, text=True, timeout=300)
     assert run.returncode == 0, run.stderr
@@ -297,7 +299,7 @@ def test_cli_without_o_only_prints_the_circuit(workdir, solver):
     assert os.listdir(workdir) == []  # no circuit, formula or log file
 
 
-@pytest.mark.parametrize("solver", [["-s", "smt", "-a", "yices2"], ["-s", "gurobi"], ["-s", "milp", "-a", "gurobi", "-c", "Classic"]],
+@pytest.mark.parametrize("solver", [["-s", "smt", "-a", "yices2"], ["-s", "gurobi", "-c", "Classic"], ["-s", "milp", "-a", "gurobi", "-c", "Classic"]],
                          ids=["yices2", "gurobi", "pulp-gurobi"])
 def test_cli_prints_the_result_times_and_circuit(workdir, solver):
     run = cli(*solver, "--log")

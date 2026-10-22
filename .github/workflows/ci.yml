@@ -41,8 +41,8 @@ jobs:
           cache-dependency-path: requirements.txt
 
       # lowest: every `>=x` lower bound of requirements.txt pinned to `==x`. The size-limited license that comes
-      # with gurobipy expires about two years after its major release (13.x on 2027-11-29) and CI has no other
-      # license, so the gurobipy floor has to be raised before then, or the Gurobi tests of this job fail with
+      # with gurobipy expires about two years after its major release (13.x on 2027-11-29). Where CI falls back to
+      # it (see below), the gurobipy floor has to be raised before then, or the Gurobi tests of this job fail with
       # "License expired".
       - name: Install dependencies
         run: |
@@ -55,7 +55,36 @@ jobs:
           fi
           pip freeze
 
-      # yices2 and cvc5 are used from solvers/; gurobipy ships a size-limited license
+      # The organization secret GUROBI_LICENSE holds the contents of a gurobi.lic file. It is used only if it
+      # works as a full license here: it can be missing (Dependabot and pull requests from forks get no
+      # secrets), invalid, expired, or tied to another machine. Otherwise gurobipy keeps the size-limited
+      # license it ships with.
+      - name: Set up the Gurobi license
+        env:
+          GUROBI_LICENSE: ${{ secrets.GUROBI_LICENSE }}
+        run: |
+          license="$RUNNER_TEMP/gurobi.lic"
+          if [ -z "$GUROBI_LICENSE" ]; then
+            echo "::notice::No GUROBI_LICENSE secret: the tests use the size-limited license shipped with gurobipy"
+            exit 0
+          fi
+          (umask 077 && printf '%s\n' "$GUROBI_LICENSE" > "$license")
+          # more variables than the size-limited license allows: only a full license can solve this
+          if GRB_LICENSE_FILE="$license" python - <<'PY'
+          import gurobipy as gp
+          with gp.Env(params={"OutputFlag": 0}) as env, gp.Model(env=env) as model:
+              model.addVars(2001)
+              model.optimize()
+          PY
+          then
+            echo "GRB_LICENSE_FILE=$license" >> "$GITHUB_ENV"
+            echo "::notice::The tests use the Gurobi license from GUROBI_LICENSE"
+          else
+            rm -f "$license"
+            echo "::warning::GUROBI_LICENSE is not a working full Gurobi license here: the tests use the size-limited license shipped with gurobipy"
+          fi
+
+      # yices2 and cvc5 are used from solvers/
       - name: Run tests with coverage
         run: pytest -v -rxs --cov --cov-report=xml --cov-report=term
 

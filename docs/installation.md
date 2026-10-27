@@ -24,7 +24,7 @@ MILQ is not packaged; it runs from the repository (see [Usage](usage)).
 
 ## Solvers
 
-You need at least one solver. MILQ does not ship SMT solvers: install the ones you want, then let `./configure-solvers` find them (see [below](#solver-configuration)). z3 comes with the Python dependencies; **yices2** is the solver the examples and tests use, and a good one to add.
+You need at least one solver. MILQ does not ship SMT solvers: `./configure-solvers --download` downloads yices2, cvc5 and OpenSMT, or install the ones you want yourself and let `./configure-solvers` find them (see [below](#solver-configuration)). z3 comes with the Python dependencies; **yices2** is the solver the examples and tests use, and a good one to add.
 
 | Solver | How to get it | Notes |
 |---|---|---|
@@ -53,7 +53,13 @@ dreal: not found
 wrote /home/me/milq/solvers.toml
 ```
 
-It looks for `yices-smt2` (or `yices_smt2`), `cvc5`, `opensmt`, `smtinterpol`, `z3` and `dreal`, and keeps each one only if it answers a trivial formula, so e.g. SMTInterpol without Java is left out. `-s DIR` also looks in `DIR` and `DIR/bin`, `-o FILE` writes another file (`-` for standard output), and `--force` overwrites an existing one. Run it again after installing a solver.
+It looks for `yices-smt2` (or `yices_smt2`), `cvc5`, `opensmt`, `smtinterpol`, `z3` and `dreal` on `PATH` and among the downloaded solvers, and keeps each one only if it answers a trivial formula, so e.g. SMTInterpol without Java is left out. `-s DIR` also looks in `DIR` and `DIR/bin`, `-o FILE` writes another file (`-` for standard output), and `--force` overwrites an existing one. Run it again after installing a solver.
+
+`--download` first downloads the release binaries of yices2 2.7.0, cvc5 1.3.1 and OpenSMT 2.9.2 from GitHub into `solvers/` in the repository root (not tracked by git), checks their SHA-256 and links the executables into `solvers/bin`. `--download yices2,cvc5` downloads only those. Releases are available for Linux x86-64 and macOS (Linux arm64: cvc5 only); solvers that are already downloaded are kept. `--download-dir DIR` keeps them elsewhere.
+
+```console
+$ ./configure-solvers --download
+```
 
 Each `[solvers.NAME]` table of the file defines one solver, and `-a NAME` selects it:
 

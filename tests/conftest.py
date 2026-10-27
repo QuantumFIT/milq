@@ -16,6 +16,7 @@ from complex.fivetuple import FiveTuple
 from sim import Simulator
 from solver_config import ENV_VARIABLE, load_solver_config
 from solver_detection import detect, render
+from solver_download import bin_dir
 
 OMEGA = np.exp(1j * np.pi / 4)
 
@@ -23,7 +24,7 @@ OMEGA = np.exp(1j * np.pi / 4)
 # write for them; the user's solvers.toml is neither read nor changed
 _solver_config_dir = tempfile.mkdtemp(prefix="milq-solvers-")
 SOLVER_CONFIG = os.path.join(_solver_config_dir, "solvers.toml")
-_detections = detect()
+_detections = detect([bin_dir()])
 with open(SOLVER_CONFIG, "w") as f:
     f.write(render(_detections))
 SOLVERS = load_solver_config(SOLVER_CONFIG) if any(d.path for d in _detections) else {}

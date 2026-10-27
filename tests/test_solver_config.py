@@ -7,12 +7,13 @@ import sys
 
 import pytest
 
-from conftest import BENCHMARKS, REPO_ROOT
-from solver_config import DEFAULT_PATH, ENV_VARIABLE, SolverConfigError, load_solver_config
+import solver_config
+from conftest import BENCHMARKS, REPO_ROOT, SOLVER_CONFIG, SOLVERS
+from solver_config import ENV_VARIABLE, SolverConfigError, load_solver_config
 from synth import Synthesizer
 
 FAKE = os.path.join(os.path.dirname(__file__), "fake_solver.py")
-YICES = os.path.join(REPO_ROOT, "solvers", "yices2", "yices_smt2")
+YICES = SOLVERS["yices2"].path if "yices2" in SOLVERS else "yices-smt2"
 GHZ2 = os.path.join(BENCHMARKS, "ghz/2.qasm")
 
 
@@ -22,19 +23,18 @@ def write_config(path, text):
 
 
 @pytest.fixture(autouse=True)
-def no_config_from_environment(monkeypatch):
+def default_config(monkeypatch):
+    # without --solver-config and the environment variable, the configuration of the tests (see conftest.py)
+    # stands in for solvers.toml in the repository root
     monkeypatch.delenv(ENV_VARIABLE, raising=False)
+    monkeypatch.setattr(solver_config, "DEFAULT_PATH", SOLVER_CONFIG)
 
 
 def test_default_config():
     config = load_solver_config()
-    assert list(config) == ["yices2", "cvc5", "opensmt", "smtinterpol", "z3", "dreal"]
+    assert config == SOLVERS
     assert config["yices2"].command() == [YICES]
     assert config["yices2"].command(incremental=True) == [YICES, "--incremental"]
-    assert config["cvc5"].command(incremental=True) == [os.path.join(REPO_ROOT, "solvers", "cvc5", "cvc5"),
-                                                        "--produce-models", "--incremental"]
-    assert config["z3"].path == "z3"  # looked up on PATH
-    assert config["dreal"].logics == ("QF_NRA",)
     assert all(solver.portfolio for solver in config.values())
 
 
@@ -93,8 +93,14 @@ def test_invalid_config(tmp_path, text, message):
 
 
 def test_missing_config(tmp_path):
-    with pytest.raises(SolverConfigError, match="solver configuration not found"):
+    with pytest.raises(SolverConfigError, match="solver configuration not found$"):
         load_solver_config(str(tmp_path / "missing.toml"))
+
+
+def test_missing_default_config_names_configure_solvers(tmp_path, monkeypatch):
+    monkeypatch.setattr(solver_config, "DEFAULT_PATH", str(tmp_path / "solvers.toml"))
+    with pytest.raises(SolverConfigError, match=f"not found; run {tmp_path}/configure-solvers to write it"):
+        load_solver_config()
 
 
 def synthesize(solver, config=None, mode="incremental", representation="FiveTuple"):
@@ -148,14 +154,16 @@ def test_environment_variable_selects_config(workdir, monkeypatch):
 
 
 def test_solver_without_the_logic(workdir):
+    config = write_config(workdir / "s.toml", '[solvers.opensmt]\npath = "opensmt"\nlogics = ["QF_LIA", "QF_LRA"]\n')
     with pytest.raises(SolverConfigError, match="opensmt does not support QF_NRA"):
-        synthesize("opensmt", representation="Classic")
+        synthesize("opensmt", config, representation="Classic")
 
 
 def test_dreal_needs_classic(workdir):
     # dReal supports only QF_NRA; forcing QF_NRA on a FiveTuple formula failed in the encoding
+    config = write_config(workdir / "s.toml", '[solvers.dreal]\npath = "dreal"\nlogics = ["QF_NRA"]\n')
     with pytest.raises(SolverConfigError, match="dreal does not support QF_LIA"):
-        synthesize("dreal")
+        synthesize("dreal", config)
 
 
 def test_portfolio_without_a_solver_for_the_logic(workdir):
@@ -193,9 +201,9 @@ def test_pysmt_solving_rejects_unknown_solver(workdir):
 
 def test_cli_reports_config_errors(workdir):
     result = subprocess.run([sys.executable, os.path.join(REPO_ROOT, "milq"), "-s", "smt", "-a", "yices", GHZ2],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, env={**os.environ, ENV_VARIABLE: SOLVER_CONFIG})
     assert result.returncode == 2
-    assert f"milq: error: Invalid solver: yices; {DEFAULT_PATH} configures" in result.stderr
+    assert f"milq: error: Invalid solver: yices; {SOLVER_CONFIG} configures" in result.stderr
 
 
 def test_cli_solver_config_option(workdir):

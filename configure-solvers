@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""
+@file: configure-solvers
+@brief: writes the SMT solver configuration (solvers.toml) for the solvers installed on this computer
+"""
+
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'src'))
+from solver_config import DEFAULT_PATH
+from solver_detection import KNOWN_SOLVERS, detect, render
+
+parser = argparse.ArgumentParser(
+    description='Find the SMT solvers installed on this computer and write the solver configuration for them. '
+                f'Looks for {", ".join(s.name for s in KNOWN_SOLVERS)} on PATH (and dReal also in /opt/dreal) '
+                'and keeps those that answer a trivial formula.')
+parser.add_argument('-o', '--output', help=f'file to write, - for standard output (default: {DEFAULT_PATH})',
+                    default=DEFAULT_PATH)
+parser.add_argument('-f', '--force', action='store_true', help='overwrite the output file if it exists')
+parser.add_argument('-s', '--search', action='append', default=[], metavar='DIR',
+                    help='also look in DIR and DIR/bin, before PATH (can be repeated)')
+parser.add_argument('-t', '--timeout', type=float, default=30, help='seconds a solver has to answer (default: 30)')
+args = parser.parse_args()
+
+if args.output != '-' and os.path.exists(args.output) and not args.force:
+    print(f"configure-solvers: error: {args.output} exists, use --force to overwrite it", file=sys.stderr)
+    sys.exit(2)
+
+detections = detect(args.search, timeout=args.timeout)
+for detection in detections:
+    for executable, problem in detection.rejected:
+        print(f"{detection.solver.name}: {executable} does not work ({problem})", file=sys.stderr)
+    print(f"{detection.solver.name}: {detection.path or 'not found'}", file=sys.stderr)
+
+if not any(detection.path for detection in detections):
+    print("configure-solvers: error: no SMT solver found (-s gurobi and -s milp need none)", file=sys.stderr)
+    sys.exit(1)
+
+config = render(detections)
+if args.output == '-':
+    sys.stdout.write(config)
+else:
+    with open(args.output, 'w') as f:
+        f.write(config)
+    print(f"wrote {args.output}", file=sys.stderr)

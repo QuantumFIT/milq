@@ -11,3 +11,6 @@ excel/
 
 coverage.xml
 .coverage
+
+# written by ./configure-solvers
+/solvers.toml

@@ -84,7 +84,26 @@ jobs:
             echo "::warning::GUROBI_LICENSE is not a working full Gurobi license here: the tests use the size-limited license shipped with gurobipy"
           fi
 
-      # yices2 and cvc5 are used from solvers/
+      # The tests use the SMT solvers that configure-solvers finds on PATH: z3 from z3-solver, and yices2 and
+      # cvc5 from their releases.
+      - name: Install SMT solvers
+        run: |
+          solvers="$RUNNER_TEMP/solvers"
+          mkdir -p "$solvers" && cd "$solvers"
+          curl -sSfLO https://github.com/SRI-CSL/yices2/releases/download/Yices-2.6.5/yices-2.6.5-x86_64-pc-linux-gnu-static-gmp.tar.gz
+          curl -sSfLO https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.1/cvc5-Linux-x86_64-static.zip
+          sha256sum -c <<'SHA256'
+          1a1cda20d2df4938fa4944a69f33ddc9172e319ece0eed0aa09c4d7abede3ed1  cvc5-Linux-x86_64-static.zip
+          SHA256
+          sha256sum yices-2.6.5-x86_64-pc-linux-gnu-static-gmp.tar.gz
+          tar xzf yices-2.6.5-x86_64-pc-linux-gnu-static-gmp.tar.gz
+          unzip -q cvc5-Linux-x86_64-static.zip
+          ls -d "$solvers"/*/bin >> "$GITHUB_PATH"
+
+      # what the tests will find; they generate their own configuration the same way
+      - name: Configure SMT solvers
+        run: ./configure-solvers -o -
+
       - name: Run tests with coverage
         run: pytest -v -rxs --cov --cov-report=xml --cov-report=term
 

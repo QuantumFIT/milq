@@ -9,6 +9,7 @@ from complex.fivetuple import FiveTuple
 from complex.vector import Vector
 from conftest import BENCHMARKS
 from gates import GateSet
+from solver_detection import KNOWN_SOLVERS, Detection, render
 from synth import Synthesizer
 
 GHZ = os.path.join(BENCHMARKS, "ghz/2.qasm")
@@ -114,5 +115,9 @@ def test_custom_vectors_must_use_the_synthesis_representation(workdir):
 
 @pytest.mark.parametrize("solver", ["smtinterpol", "opensmt"])
 def test_solver_without_nra_is_rejected_for_classic(workdir, solver):
+    # as configure-solvers configures it; the solver need not be installed, it is rejected before it runs
+    known = next(known for known in KNOWN_SOLVERS if known.name == solver)
+    config = workdir / "solvers.toml"
+    config.write_text(render([Detection(known, solver)]))
     with pytest.raises(ValueError, match=f"{solver} does not support QF_NRA"):
-        synthesize(solver=solver, complex_representation="Classic")
+        synthesize(solver=solver, complex_representation="Classic", solver_config=str(config))

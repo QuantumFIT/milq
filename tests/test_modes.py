@@ -27,7 +27,9 @@ def test_fixed_depth_modes(workdir, mode, solving, solver, representation):
     np.testing.assert_allclose(unitary("out.qasm")[:, 0], unitary(GHZ2)[:, 0], atol=1e-9)
 
 
-@pytest.mark.parametrize("solving, solver", [("smt", "yices2"), ("gurobi", "gurobi")])
+# z3: yices2 2.7.0 does not answer the depth-1 query of the incremental search within minutes (2.6.5 does in
+# about a second, but not without the depth-0 query before it), while z3 and cvc5 take well under a second
+@pytest.mark.parametrize("solving, solver", [("smt", "z3"), ("gurobi", "gurobi")])
 def test_approximate_synthesis(workdir, solving, solver):
     res, circuit, _ = Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving=solving, solver=solver,
                                               mode="incremental", complex_representation="Classic", approx=True,

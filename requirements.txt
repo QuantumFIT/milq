@@ -1,8 +1,6 @@
 # The lower bounds are the oldest releases that pass the tests on Python 3.11; CI tests them next to the newest
 # releases.
 numpy>=1.23.2
-# 0.9.0 fails to import on Python 3.12+ (it bundles an old six), 0.9.5 crashes in the pysmt mode
-PySMT>=0.9.6
 # 2.7 fails with Gurobi through PuLP; 4.0 removed PULP_CBC_CMD
 PuLP>=2.8.0,<4
 # 12.0 added the nonlinear expressions of the gurobi mode (2 ** x, division by a variable), but the size-limited

@@ -6,7 +6,6 @@
 """
 
 import numpy as np
-from pysmt.shortcuts import Plus, Minus, Times, Equals, And, Real
 
 class Complex:
     def __init__(self, a=None, b=None, name=None, generator=None, bound=None):

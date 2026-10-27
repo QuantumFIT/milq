@@ -122,22 +122,6 @@ def test_synthesis_stops_its_solver_on_an_exception(workdir, monkeypatch):
     assert child_processes(YICES) == []
 
 
-def test_close_exits_the_pysmt_solver(workdir):
-    # pySMT's Solver and Portfolio are stopped with exit(); a stand-in, as a second pySMT synthesis in one process
-    # fails (#90)
-    class PySMTSolver:
-        exits = 0
-
-        def exit(self):
-            self.exits += 1
-
-    synthesizer = Synthesizer()
-    synthesizer.gen.mode = "pysmt"
-    synthesizer.gen.solver = PySMTSolver()
-    synthesizer.close()
-    assert synthesizer.gen.solver.exits == 1
-
-
 def test_synthesizer_is_a_context_manager(workdir):
     with Synthesizer():  # nothing to stop without a synthesis
         pass

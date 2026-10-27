@@ -6,7 +6,6 @@
 """
 
 import numpy as np
-from pysmt.shortcuts import Plus, Minus, Times, Equals, And, Real
 from .classic import Complex
 
 class FiveTuple:

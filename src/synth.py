@@ -16,9 +16,6 @@ import copy
 import tempfile
 import subprocess
 from sim import Simulator
-from pysmt.logics import QF_NRA, QF_LIA, QF_NIA, QF_LRA
-from pysmt.shortcuts import Portfolio, Symbol, Real, And, Equals, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Minus, Div, Times, write_smtlib, Solver
-from pysmt.typing import REAL, INT
 from pareto import Pareto
 from gates import GateSet, check_supported, Circuit, k_increments, max_k_increment
 from pulp import *
@@ -101,8 +98,6 @@ class Synthesizer:
         solver = self.gen.solver
         if isinstance(solver, (SMTSolver, PortfolioSMTSolver)):
             solver.close()
-        elif self.gen.mode == "pysmt" and hasattr(solver, "exit"):  # pySMT's Solver or Portfolio
-            solver.exit()
             
     def _load_solver_config(self, solver: str, path: str | None) -> None:
         self.solver_config = load_solver_config(path)
@@ -112,30 +107,12 @@ class Synthesizer:
 
     def add_solvers(self, incremental_mode : bool = False) -> None:
         # register the solvers from the solver configuration (solvers.toml)
-        if self.gen.mode == "pysmt":
-            logics = {"QF_LIA": QF_LIA, "QF_LRA": QF_LRA, "QF_NIA": QF_NIA, "QF_NRA": QF_NRA}
-        else:
-            logics = {logic: logic for logic in LOGICS}
         for name, config in self.solver_config.items():
-            # pySMT drives its generic solvers through stdin by itself
-            args = config.command(incremental_mode and self.gen.mode != "pysmt")
-            self.add_one_solver(name=name, args=args, logics=[logics[logic] for logic in config.logics],
+            self.add_one_solver(name=name, args=config.command(incremental_mode), logics=list(config.logics),
                                 incremental_mode=incremental_mode)
     
     def add_one_solver(self, name: str, args: list[str], logics: list[str], smtlib_flags: list[str] = [], incremental_mode: bool = False) -> None:
-        if name == "z3" and self.gen.mode == "pysmt": 
-            return
-        if self.gen.mode == "pysmt":
-            factory = get_env().factory
-            # pySMT keeps solvers registered for the whole process, e.g. by an earlier synthesis
-            if factory.is_generic_solver(name):
-                if factory.get_generic_solver_info(name) != (args, logics):
-                    raise SolverConfigError(f"pySMT already has a solver {name} with another command or logics; "
-                                            "use one solver configuration per process")
-                return
-            factory.add_generic_solver(name=name, args=args, logics=logics)
-        else:
-            self.solvers[name] = SMTSolver(name, args, logics, smtlib_flags, incremental_mode)
+        self.solvers[name] = SMTSolver(name, args, logics, smtlib_flags, incremental_mode)
 
     def encode_layer(self, inp : Vector, out : Vector, layer : int, inp_weight : any = None, out_weight : any = None, selection_variables : list = None, bool_variables : list = None) -> None:
         updates_k_value = []        
@@ -769,7 +746,7 @@ class Synthesizer:
                        custom -> input_vectors with qasm_file or matrix, or else vector_pairs, q, d, gate_set)
             vector_pairs -> list of pairs (input_vector, output_vector) for input and its expected output.
             input_vectors -> with vectors=custom and a qasm_file or matrix: the input states; the expected outputs are simulated from the circuit
-            solving -> smt, pysmt, milp (these need a solver) or gurobi
+            solving -> smt, milp (these need a solver) or gurobi
             solver -> specify specific solver or portfolio of solvers
             solver_config -> SMT solver configuration file (default: $MILQ_SOLVER_CONFIG, else solvers.toml in the repository root)
             mode -> specify solving method (basic -> create whole formula and get the best model, incremental -> incrementally generate the formula, binary, topdown, bottomup -> searches to optimize cost function)
@@ -818,9 +795,9 @@ class Synthesizer:
         if matrix is not None and d is None and mode not in ["incremental", "pareto-incremental"]:
             # the fixed-depth modes take d from the input's gate count, and a matrix has none
             raise ValueError("d is required for a matrix input in basic, binary, topdown and bottomup mode")
-        if solving not in ["smt", "pysmt", "milp", "gurobi"]:
-            raise ValueError("solving can be only smt, pysmt, milp, or gurobi")
-        if solving in ["smt", "milp", "pysmt"] and solver is None:
+        if solving not in ["smt", "milp", "gurobi"]:
+            raise ValueError("solving can be only smt, milp, or gurobi")
+        if solving in ["smt", "milp"] and solver is None:
             raise ValueError("a solver is required for basic smt and milp solving")
         if mode not in ["basic", "incremental", "binary", "topdown", "bottomup", "pareto-incremental"]:
             raise ValueError("mode can be only basic, incremental, binary, topdown, bottomup, or pareto-incremental")
@@ -956,23 +933,6 @@ class Synthesizer:
                                             f"{', '.join(self.solvers[solver].logics)})")
                 self.gen.solver = self.solvers[solver]
 
-        elif solving == "pysmt":
-            self._load_solver_config(solver, solver_config)
-            self.gen.mode = "pysmt"
-            incremental_mode = True if mode == "incremental" or mode == "pareto-incremental" else False
-            self.add_solvers(incremental_mode=incremental_mode)
-            if solver == "portfolio":
-                if self.gen.logic != "QF_NRA":
-                    solvers = ["z3", "cvc5", "yices2", "opensmt", "smtinterpol"]
-                else:
-                    log.warning("pySMT parser does not support some outputs from solvers that support NRA even though LIA works just fine.")
-                    solvers = ["z3", "cvc5", "yices2"]
-                # z3 is pySMT's own (z3-solver), the others have to be configured
-                solvers = [name for name in solvers if name == "z3" or (name in self.solver_config and self.solver_config[name].portfolio
-                                                                        and self.gen.logic in self.solver_config[name].logics)]
-                self.gen.solver = Portfolio(solvers, logic=self.gen.logic, incremental=incremental_mode, generate_models=True)
-            else:
-                self.gen.solver = Solver(name=solver, logic=self.gen.logic, incremental=incremental_mode, generate_models=True)
         elif solving == "milp":
             if solver not in ["gurobi", "cbc"]:
                 raise ValueError(f"Invalid solver: {solver}")

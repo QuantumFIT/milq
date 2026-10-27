@@ -5,17 +5,11 @@
 @brief: Generator class, responsible for generating the SMT/MILP/Gurobi formulae for synthesis
 """
 
-from ast import Return
-from pysmt.smtlib.parser import SmtLibParser
-from pysmt.shortcuts import Real, Int, Bool, Symbol, And, Div, Plus, GT, LT, get_env, Int, Or, Not, Implies, GE, LE, Ite, Times, Minus, Plus
-from pysmt.shortcuts import Equals as pysmtEquals
-from pysmt.typing import REAL, INT, BOOL
 from pulp import *
 from gates import self_adjoints, gate_to_qubits
 import gurobipy as gp
 from gurobipy import GRB, quicksum
 from solvers import SMTSolver, SolverError
-from pysmt.exceptions import SolverReturnedUnknownResultError
 import logging
 from timing import timed
 import os
@@ -40,8 +34,8 @@ def _gurobi_status_name(status: int) -> str:
     return str(status)
 
 class Generator:
-    def __init__(self, mode : str = "pysmt", solver : str = "opensmt", logic : str = "QF_LIA") -> None:
-        # modes - ["pysmt", "smtlib", "milp", "gurobi"] -- however, pysmt is inaccessible from the CLI program
+    def __init__(self, mode : str = "smtlib", solver : str = "opensmt", logic : str = "QF_LIA") -> None:
+        # modes - ["smtlib", "milp", "gurobi"]
         self.mode = mode
         self.declarations = []
         self.declared_names = set()
@@ -49,10 +43,6 @@ class Generator:
         self.optimize_objectives = []
         self.solver = solver
         self.logic = logic
-        self.Symbol = Symbol
-        self.REAL = REAL
-        self.INT = INT
-        self.BOOL = BOOL
         self.symbols = {}
         self.stats = {}
         self.lp_problem = None
@@ -97,11 +87,7 @@ class Generator:
         self.lp_problem.Params.OutputFlag = 0
 
     def add_assertion(self, assertion):
-        if self.mode == "pysmt":
-            if self.solver is None:
-                raise ValueError("solver is not set")
-            self.solver.add_assertion(assertion)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             if self.incremental_mode:
                 self.write_incremental(f"(assert {assertion})")
             else:
@@ -138,9 +124,7 @@ class Generator:
 
     def add_objective(self, objective):
         # add objective to the LP problem
-        if self.mode == "pysmt":
-            return
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return
         elif self.mode == "milp":
             self.lp_problem += objective, f"assertion_{self.stats['assertions']}"
@@ -167,12 +151,7 @@ class Generator:
         return selection_variables, bool_variables
 
     def Plus(self, x, y):
-        if self.mode == "pysmt":
-            plus_expr = x + y
-            if isinstance(plus_expr, bool):
-                return Plus(x, y)
-            return plus_expr
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             if isinstance(x, str) and isinstance(y, str):
                 return f"(+ {x} {y})"
             elif isinstance(x, str) and isinstance(y, (int, float)):
@@ -185,12 +164,7 @@ class Generator:
             return x + y
     
     def Minus(self, x, y):
-        if self.mode == "pysmt":
-            minus_expr = x - y
-            if isinstance(minus_expr, bool):
-                return Minus(x, y)
-            return minus_expr
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             if isinstance(x, str) and isinstance(y, str):
                 return f"(- {x} {y})"
             elif isinstance(x, str) and isinstance(y, (int, float)):
@@ -203,12 +177,7 @@ class Generator:
             return x - y
     
     def Times(self, x, y):
-        if self.mode == "pysmt":
-            times_expr = x * y
-            if isinstance(times_expr, bool):
-                return Times(x, y)
-            return times_expr
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             if isinstance(x, str) and isinstance(y, str):
                 return f"(* {x} {y})"
             elif isinstance(x, str) and isinstance(y, (int, float)):
@@ -232,20 +201,13 @@ class Generator:
             raise NotImplementedError("square not yet supported")
         
     def Div(self, x, y):
-        if self.mode == "pysmt":
-            return Div(x, y)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(/ {x} {y})"
         elif self.mode == "milp" or self.mode == "gurobi":
             return x / y
     
     def Equals(self, x, y):
-        if self.mode == "pysmt":
-            eq_expr = (x == y)
-            if isinstance(eq_expr, bool):
-                return pysmtEquals(x, y)
-            return eq_expr
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             eq_expr = (x == y)
             if isinstance(eq_expr, bool) :
                 return f"(= {x} {y})"
@@ -257,47 +219,37 @@ class Generator:
             return x == y
 
     def ConstrainedEquals(self, sel, x, y, bigM=None):
-        if self.mode == "pysmt" or self.mode == "smtlib":
+        if self.mode == "smtlib":
             return self.add_assertion(self.Implies(sel, self.Equals(x, y)))
         elif self.mode == "milp" or self.mode == "gurobi":
             return x.constrained_equals(sel, bigM, x, y)
     
     def GE(self, x, y):
-        if self.mode == "pysmt":
-            return GE(x, y)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(>= {x} {y})"
         elif self.mode == "milp" or self.mode == "gurobi":
             return x >= y
     
     def LE(self, x, y):
-        if self.mode == "pysmt":
-            return LE(x, y)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(<= {x} {y})"
         elif self.mode == "milp" or self.mode == "gurobi":
             return x <= y
     
     def LT(self, x, y):
-        if self.mode == "pysmt":
-            return LT(x, y)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(< {x} {y})"
         elif self.mode == "milp" or self.mode == "gurobi":
             return x < y
     
     def GT(self, x, y):
-        if self.mode == "pysmt":
-            return GT(x, y)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(> {x} {y})"
         elif self.mode == "milp" or self.mode == "gurobi":
             return x > y
     
     def Ite(self, condition, true_value, false_value):
-        if self.mode == "pysmt":
-            return Ite(condition, true_value, false_value)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(ite {condition} {true_value} {false_value})"
         elif self.mode == "milp":
             raise NotImplementedError("explicit Ite not supported in milp mode")
@@ -307,18 +259,14 @@ class Generator:
             return true_value
     
     def And(self, *args):
-        if self.mode == "pysmt":
-            return And(*args)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(and {' '.join(args)})"
         elif self.mode == "milp" or self.mode == "gurobi":
             for arg in args:
                 self.add_assertion(arg)
         
     def LAnd(self, *args):
-        if self.mode == "pysmt":
-            return And(*args)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(and {' '.join(args)})"
         elif self.mode == "gurobi":
             return gp.and_(args)
@@ -330,9 +278,7 @@ class Generator:
             return and_var
     
     def Or(self, *args):
-        if self.mode == "pysmt":
-            return Or(*args)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(or {' '.join(args)})"
         elif self.mode == "milp" or self.mode == "gurobi":
             or_var = self.declare_bool(f"or_{self.stats['bools']}")
@@ -345,30 +291,28 @@ class Generator:
         if self.mode == "gurobi":
             return ((sel == 1) >> expr)
         else:
-            raise NotImplementedError("Indicator not supported in milp/pysmt/smtlib mode")
+            raise NotImplementedError("Indicator not supported in milp/smtlib mode")
     
     def NotIndicator(self, sel, expr):
         if self.mode == "gurobi":
             return ((sel == 0) >> expr)
         else:
-            raise NotImplementedError("NotIndicator not supported in milp/pysmt/smtlib mode")
+            raise NotImplementedError("NotIndicator not supported in milp/smtlib mode")
         
     def Abs(self, x):
         if self.mode == "gurobi":
             return gp.abs_(x)
         else:
-            raise NotImplementedError("Abs not supported in milp/pysmt/smtlib mode")
+            raise NotImplementedError("Abs not supported in milp/smtlib mode")
         
     def Exp(self, x):
         if self.mode == "gurobi":
             return 2 ** x
         else:
-            raise NotImplementedError("Exp not supported in milp/pysmt/smtlib mode")
+            raise NotImplementedError("Exp not supported in milp/smtlib mode")
 
     def Not(self, x):
-        if self.mode == "pysmt":
-            return Not(x)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(not {x})"
         elif self.mode == "milp":
             return 1 - x
@@ -378,7 +322,7 @@ class Generator:
             return not_var
         
     def Sum(self, *args):
-        if self.mode == "pysmt" or self.mode == "smtlib":
+        if self.mode == "smtlib":
             return (f"(+ {' '.join(args)})")
         elif self.mode == "milp":
             return lpSum(args)
@@ -419,12 +363,12 @@ class Generator:
         # OR between all 
         if self.mode == "milp" or self.mode == "gurobi":
             return self.add_assertion(self.Sum([bool_variable for bool_variable in args]) >= 1)
-        elif self.mode == "pysmt" or self.mode == "smtlib":
+        elif self.mode == "smtlib":
             return self.add_assertion(self.Or(*args))
     
     def AtMostOne(self, *args):
         # (NOT x1 or x2) and NOT (x1 and x3) ...
-        if self.mode == "milp" or self.mode == "pysmt" or self.mode == "smtlib":
+        if self.mode == "milp" or self.mode == "smtlib":
             for i in range(len(args)):
                 others = [args[j] for j in range(len(args)) if j != i]
                 for other in others:
@@ -440,9 +384,7 @@ class Generator:
             self.AtMostOne(*args)
     
     def Implies(self, condition, expr, bigM=None):
-        if self.mode == "pysmt":
-            return Implies(condition, expr)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(=> {condition} {expr})"
         elif self.mode == "gurobi":
             return self.Indicator(condition, expr)
@@ -450,22 +392,11 @@ class Generator:
             raise NotImplementedError("explicit Implies not supported in milp mode")
         
     def Mod(self, x, y):
-        if self.mode == "pysmt":
-            q = self.declare_integer(f"q_mod_{self.stats['integers']}")
-            r = self.declare_integer(f"r_mod_{self.stats['integers']}")
-            self.add_assertion(self.And(self.Equals(x, self.Plus(self.Times(y, q), r)), self.GE(r, Int(0)), self.LT(r, y)))
-            return r
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             return f"(mod {x} {y})"
         elif self.mode == "milp" or self.mode == "gurobi":
             raise NotImplementedError("Mod not supported in milp/gurobi mode")
     
-    def _pysmt_declaration(self, x, type):
-        symbol = self.Symbol(x, type)
-        self.symbols[x] = symbol
-        self.declared_names.add(x)
-        return symbol
-
     def _smtlib_declaration(self, x, type):
         self.declarations.append(("declare-fun", x, f"() {type}"))
         if self.incremental_mode:
@@ -499,9 +430,7 @@ class Generator:
         res = None
         if x not in self.declared_names:
             self.stats['reals'] += 1
-            if self.mode == "pysmt":
-                res = self._pysmt_declaration(x, self.REAL)
-            elif self.mode == "smtlib":
+            if self.mode == "smtlib":
                 res = self._smtlib_declaration(x, "Real")
             elif self.mode == "milp":
                 res = self._milp_declaration(x, LpContinuous, lb, ub)
@@ -515,14 +444,7 @@ class Generator:
         return res
          
     def format_real(self, x):
-        if self.mode == "pysmt":
-            if isinstance(x, (int, float)):
-                return Real(float(x))
-            elif isinstance(x, str):
-                if x in self.symbols:
-                    return self.symbols[x]
-            return x
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             if isinstance(x, numbers.Real):
                 return self._smtlib_numeral(x)
             return x
@@ -556,9 +478,7 @@ class Generator:
             # even though declaring integer, in QF_NRA, reals have to be used
             if self.logic == "QF_NRA" or self.logic == "QF_LRA":
                 return self.declare_real(x)
-            if self.mode == "pysmt":
-                res = self._pysmt_declaration(x, self.INT)
-            elif self.mode == "smtlib":
+            if self.mode == "smtlib":
                 res = self._smtlib_declaration(x, "Int")
             elif self.mode == "milp":
                 res =  self._milp_declaration(x, LpInteger, lb, ub)
@@ -575,14 +495,7 @@ class Generator:
     def format_integer(self, x):
         if self.logic == "QF_NRA":
             return self.format_real(x)
-        if self.mode == "pysmt":
-            if isinstance(x, int):
-                return Int(x)
-            elif isinstance(x, str):
-                if x in self.symbols:
-                    return self.symbols[x]
-            return x
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             if isinstance(x, numbers.Integral):
                 return self._smtlib_numeral(x)
             return x
@@ -602,21 +515,14 @@ class Generator:
         res = None
         if x not in self.declared_names:
             self.stats['bools'] += 1
-            if self.mode == "pysmt":
-                res = self._pysmt_declaration(x, self.BOOL)
-            elif self.mode == "smtlib":
+            if self.mode == "smtlib":
                 res =  self._smtlib_declaration(x, "Bool")
             elif self.mode == "milp":
                 res = self._milp_declaration(x, LpBinary)
             elif self.mode == "gurobi":
                 res = self._gurobi_declaration(x, GRB.BINARY, lb=0.0, ub=1.0)
         else:
-            if self.mode == "pysmt":
-                if x in self.symbols:
-                    res = self.symbols[x]
-                else:
-                    res = x
-            elif self.mode == "smtlib":
+            if self.mode == "smtlib":
                 res = x
             elif self.mode == "milp" or self.mode == "gurobi":
                 if x in self.symbols:
@@ -630,7 +536,7 @@ class Generator:
     def declare_helpers(self):
         # possible helper methods
         # sqrt2, onehalf, inv_sqrt2 for exact representations in smt
-        if self.logic == "QF_NRA" and (self.mode in ["pysmt", "smtlib"]):
+        if self.logic == "QF_NRA" and self.mode == "smtlib":
             self.declare_real("sqrt2")
             self.add_assertion(self.Equals(self.Times(self.format_real("sqrt2"), self.format_real("sqrt2")), self.Real(2.0)))
             self.add_assertion(self.GT(self.format_real("sqrt2"), self.Real(0)))
@@ -641,9 +547,7 @@ class Generator:
 
     def maximize(self, expression):
         # maximize objective
-        if self.mode == "pysmt":
-            pass
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             self.optimize_objectives.append(("maximize", expression))
         elif self.mode == "milp":
             raise NotImplementedError("milp mode not yet supported")
@@ -652,9 +556,7 @@ class Generator:
     
     def minimize(self, expression):
         # minimize objective
-        if self.mode == "pysmt":
-            pass
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             self.optimize_objectives.append(("minimize", expression))
         elif self.mode == "milp":
             raise NotImplementedError("milp mode not yet supported")
@@ -665,14 +567,7 @@ class Generator:
         # write the full formula in given format to a file, either .smt2 or .lp
         if self.incremental_mode:
             return filename
-        if self.mode == "pysmt":
-            filename = os.path.splitext(filename)[0] + ".smt2"
-            if not hasattr(self.solver, "assertions"):
-                return filename
-            from pysmt.shortcuts import write_smtlib
-            formula = self.solver.environment.formula_manager.And(self.solver.assertions)
-            write_smtlib(formula, filename)
-        elif self.mode == "smtlib":
+        if self.mode == "smtlib":
             filename = os.path.splitext(filename)[0] + ".smt2"
             with open(filename, 'w') as f:
                 f.write(f"(set-logic {self.logic})\n")
@@ -700,7 +595,7 @@ class Generator:
         
     def enumerate_k_values(self, n, pair_idx):
         # enumerate all possible k values up to n for the given pair
-        if self.mode == "pysmt" or self.mode == "smtlib":
+        if self.mode == "smtlib":
             self.declare_integer(f"k{pair_idx}")
             eqs = []
             for i in range(n):
@@ -711,7 +606,7 @@ class Generator:
 
     def enumerate_powers_of_2(self, n, pair_idx):
         # enumerate all possible powers of 2^k up to n for the given pair
-        if self.mode == "pysmt" or self.mode == "smtlib":
+        if self.mode == "smtlib":
             self.declare_integer(f"pow2{pair_idx}")
             self.declare_integer(f"k{pair_idx}")
             for i in range(n):
@@ -953,8 +848,6 @@ class Generator:
                     "assertions": assertions_to_push,
                     "optimize_objectives": optimize_objectives
                 }
-        elif self.mode == "pysmt":
-            self.solver.push()
     
     def pop(self):
         if self.mode == "milp":
@@ -986,8 +879,6 @@ class Generator:
                 self.assertions = self.saved_push["assertions"]
                 self.optimize_objectives = self.saved_push["optimize_objectives"]
                 self.saved_push = None
-        elif self.mode == "pysmt":
-            self.solver.pop()
     
     def filter_model(self, model, depth):
         # not model -> not (g1 and g2 and g3 ...) -> (not g1 or not g2 or not g3 ...)
@@ -998,8 +889,6 @@ class Generator:
         elif self.mode == "smtlib":
             # SMT-LIB terms are the variable names themselves (symbols is not filled in incremental mode)
             self.add_assertion(self.Not(self.And(*model)))
-        elif self.mode == "pysmt":
-            self.add_assertion(self.Not(self.And(*[self.symbols[bool_var] for bool_var in model])))
             
     def write_incremental(self, statement : str):
         if self.mode != 'smtlib':
@@ -1058,9 +947,6 @@ class Generator:
                 return self.solver.get_model()
             else:
                 return self.model
-        elif self.mode == "pysmt":
-            # the same with get-value
-            return self.solver.get_model()
         
         
     def check_sat(self, formula_file: str = "formula.smt2"):
@@ -1110,16 +996,6 @@ class Generator:
                 self.model = result
             log.info("Solver returned SAT")
             return True
-        elif self.mode == "pysmt":
-            try:
-                result = self.solver.solve()
-            except SolverReturnedUnknownResultError:
-                return self._unknown()
-            except Exception as e:
-                # a crash or a parse error is a failure, not an answer
-                raise SolverError(f"pySMT solver failed: {type(e).__name__}: {e}") from e
-            log.info("Solver returned %s", "SAT" if result else "UNSAT")
-            return result
 
     def _unknown(self) -> bool:
         # unknown is not UNSAT: the caller searches on, and synthesis() reports what stayed unproven

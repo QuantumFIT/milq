@@ -12,7 +12,7 @@
 Supported solvers:
 dReal, z3, cvc5, opensmt, yices2, smtinterpol, Gurobi
 
-MILQ does not ship the SMT solvers. Install the ones you want and run `./configure-solvers`, which writes their paths and command-line arguments to `solvers.toml`; see the [solver configuration](https://quantum.fit.vut.cz/milq/installation#solver-configuration) docs.
+MILQ does not ship the SMT solvers. Run `./configure-solvers --download` to download yices2, cvc5 and OpenSMT, or install the ones you want and run `./configure-solvers`, which writes their paths and command-line arguments to `solvers.toml`; see the [solver configuration](https://quantum.fit.vut.cz/milq/installation#solver-configuration) docs.
 
 ## Installation Guide
 **Dependencies:**
@@ -24,9 +24,9 @@ pip install -r requirements.txt
 ```
 - Gurobi License for 13.0.1 version (Get free academic license on [Gurobi site](https://www.gurobi.com/)), refer to their installation manuals and create `gurobi.lic` file. (The license is not re-distributable without explicit agreement with Gurobi)
 
-Then write the solver configuration for the SMT solvers on your `PATH` (with the virtual environment active):
+Then download yices2, cvc5 and OpenSMT and write the solver configuration for them and the SMT solvers on your `PATH` (with the virtual environment active):
 ```
-./configure-solvers
+./configure-solvers --download
 ```
 
 ## Usage
@@ -69,7 +69,7 @@ Examples, run from the repository root:
 pip install pytest
 pytest
 ```
-The tests use the SMT solvers that `configure-solvers` finds on `PATH` (most need yices2; your `solvers.toml` is not used) and the size-limited license shipped with `gurobipy`. They run in CI on every push and pull request; CI installs yices2 and cvc5 from their releases and uses the full Gurobi license from the organization secret `GUROBI_LICENSE` when it works there, and the size-limited one otherwise. Known bugs are marked `xfail` with their issue number. Strict mode is on, so a fix must remove its marker from `KNOWN_BUGS` in `tests/test_simulator.py`.
+The tests use the SMT solvers that `configure-solvers` finds on `PATH` (most need yices2; your `solvers.toml` is not used) and the size-limited license shipped with `gurobipy`. They run in CI on every push and pull request; CI downloads yices2, cvc5 and OpenSMT with `configure-solvers --download` and uses the full Gurobi license from the organization secret `GUROBI_LICENSE` when it works there, and the size-limited one otherwise. Known bugs are marked `xfail` with their issue number. Strict mode is on, so a fix must remove its marker from `KNOWN_BUGS` in `tests/test_simulator.py`.
 
 ## Project Structure
 
@@ -77,8 +77,9 @@ The tests use the SMT solvers that `configure-solvers` finds on `PATH` (most nee
 - README.md
 - milq (CLI for synthesis)
 - requirements.txt
-- configure-solvers (writes solvers.toml for the installed SMT solvers)
+- configure-solvers (writes solvers.toml for the installed SMT solvers, --download downloads some)
 - solvers.toml (paths and arguments of the SMT solvers, not tracked)
+- solvers/ (solvers downloaded by configure-solvers --download, not tracked)
 - benchmarks/
 | - ghz (GHZ circuits)
 | - bernstein-vazirani (BV circuits)
@@ -100,6 +101,7 @@ The tests use the SMT solvers that `configure-solvers` finds on `PATH` (most nee
 | - sim.py (simulator module)
 | - solver_config.py (loading of solvers.toml)
 | - solver_detection.py (finding the installed SMT solvers, for configure-solvers)
+| - solver_download.py (downloading SMT solver releases, for configure-solvers --download)
 | - solvers.py (abstraction over SMT solvers and Portfolio solver)
 | - synth.py (main synthesis module)
 | - timing.py (phase timings)

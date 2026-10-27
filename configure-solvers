@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 @file: configure-solvers
-@brief: writes the SMT solver configuration (solvers.toml) for the solvers installed on this computer
+@brief: writes the SMT solver configuration (solvers.toml) for the solvers installed on this computer,
+        optionally after downloading some of them
 """
 
 import argparse
@@ -11,16 +12,23 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'src'))
 from solver_config import DEFAULT_PATH
 from solver_detection import KNOWN_SOLVERS, detect, render
+from solver_download import DEFAULT_DIR as DOWNLOAD_DIR, DownloadError, bin_dir, download, releases
 
 parser = argparse.ArgumentParser(
     description='Find the SMT solvers installed on this computer and write the solver configuration for them. '
-                f'Looks for {", ".join(s.name for s in KNOWN_SOLVERS)} on PATH (and dReal also in /opt/dreal) '
-                'and keeps those that answer a trivial formula.')
+                f'Looks for {", ".join(s.name for s in KNOWN_SOLVERS)} in the --search directories, the '
+                'downloaded solvers and on PATH (and dReal also in /opt/dreal), and keeps those that answer a '
+                'trivial formula.')
 parser.add_argument('-o', '--output', help=f'file to write, - for standard output (default: {DEFAULT_PATH})',
                     default=DEFAULT_PATH)
 parser.add_argument('-f', '--force', action='store_true', help='overwrite the output file if it exists')
 parser.add_argument('-s', '--search', action='append', default=[], metavar='DIR',
                     help='also look in DIR and DIR/bin, before PATH (can be repeated)')
+parser.add_argument('-d', '--download', nargs='?', const='all', metavar='SOLVERS',
+                    help='first download release binaries of these solvers (comma-separated; default: all of '
+                         f'{", ".join(r.solver for r in releases()) or "none on this platform"})')
+parser.add_argument('--download-dir', default=DOWNLOAD_DIR, metavar='DIR',
+                    help=f'where downloaded solvers are kept (default: {DOWNLOAD_DIR})')
 parser.add_argument('-t', '--timeout', type=float, default=30, help='seconds a solver has to answer (default: 30)')
 args = parser.parse_args()
 
@@ -28,7 +36,24 @@ if args.output != '-' and os.path.exists(args.output) and not args.force:
     print(f"configure-solvers: error: {args.output} exists, use --force to overwrite it", file=sys.stderr)
     sys.exit(2)
 
-detections = detect(args.search, timeout=args.timeout)
+if args.download:
+    available = {release.solver: release for release in releases()}
+    wanted = list(available) if args.download == 'all' else args.download.split(',')
+    unknown = [name for name in wanted if name not in available]
+    if unknown:
+        print(f"configure-solvers: error: no download of {', '.join(unknown)} for this platform "
+              f"(available: {', '.join(available) or 'none'})", file=sys.stderr)
+        sys.exit(2)
+    for name in wanted:
+        release = available[name]
+        print(f"downloading {name} {release.version} from {release.url}", file=sys.stderr)
+        try:
+            download(release, args.download_dir)
+        except DownloadError as e:
+            print(f"configure-solvers: error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+detections = detect([*args.search, bin_dir(args.download_dir)], timeout=args.timeout)
 for detection in detections:
     for executable, problem in detection.rejected:
         print(f"{detection.solver.name}: {executable} does not work ({problem})", file=sys.stderr)

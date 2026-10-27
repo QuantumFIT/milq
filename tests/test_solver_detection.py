@@ -1,8 +1,11 @@
 """Generation of the solver configuration from the installed solvers (configure-solvers)."""
 
+import hashlib
+import io
 import os
 import subprocess
 import sys
+import tarfile
 
 import pytest
 
@@ -88,8 +91,9 @@ def test_render_round_trip(tmp_path):
 
 
 def configure(*args, path):
-    return subprocess.run([sys.executable, CONFIGURE, *args], capture_output=True, text=True,
-                          env={**os.environ, "PATH": str(path)})
+    # --download-dir: not the solvers the user downloaded
+    return subprocess.run([sys.executable, CONFIGURE, "--download-dir", str(path / "downloads"), *args],
+                          capture_output=True, text=True, env={**os.environ, "PATH": str(path)})
 
 
 def test_configure_solvers_writes_the_config(tmp_path):
@@ -127,3 +131,32 @@ def test_configure_solvers_without_solvers(tmp_path):
     assert result.returncode == 1
     assert "no SMT solver found" in result.stderr
     assert not (tmp_path / "solvers.toml").exists()
+
+
+def test_configure_solvers_downloads(tmp_path, monkeypatch):
+    # the releases of this platform replaced by a local archive, through a sitecustomize module
+    archive = tmp_path / "cvc5.tar.bz2"
+    with tarfile.open(archive, "w:bz2") as t:
+        data = b"#!/bin/sh\necho sat\n"
+        info = tarfile.TarInfo("cvc5/bin/cvc5")
+        info.size, info.mode = len(data), 0o755
+        t.addfile(info, io.BytesIO(data))
+    sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "sitecustomize.py").write_text(f"""
+import sys
+sys.path.insert(0, {os.path.join(REPO_ROOT, "src")!r})
+import solver_download
+release = solver_download.Release("cvc5", "1.0", {archive.as_uri()!r}, {sha256!r}, "cvc5")
+solver_download.releases = lambda platform_name=None: (release,)
+""")
+    monkeypatch.setenv("PYTHONPATH", str(site))
+    result = configure("-o", "-", "--download", path=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert f"cvc5: {tmp_path}/downloads/bin/cvc5\n" in result.stderr
+    assert f'path = "{tmp_path}/downloads/bin/cvc5"' in result.stdout
+
+    result = configure("-o", "-", "--download", "yices2", path=tmp_path)
+    assert result.returncode == 2
+    assert "no download of yices2 for this platform (available: cvc5)" in result.stderr

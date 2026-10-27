@@ -58,7 +58,8 @@ def test_missing_input_is_an_error_without_traceback(workdir):
     assert result.stderr.startswith("milq: error:")
 
 
-@pytest.mark.parametrize("args", [["-m", "7"], ["-T", "1"], ["-v", "rus", "-T", "-1"]])
+@pytest.mark.parametrize("args", [["-m", "7"], ["-T", "1"], ["-v", "rus", "-T", "-1"], ["-v", "rus", "-T", "0"],
+                                  ["-v", "rus", "-A", "-1"], ["-v", "rus", "-T", "x"]])
 def test_invalid_simulator_options_are_usage_errors(args):
     result = simulator(GHZ, *args)
     assert result.returncode == 2

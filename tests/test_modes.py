@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from conftest import BENCHMARKS, unitary
+from gates import GateSet
 from synth import Synthesizer
 
 GHZ2 = os.path.join(BENCHMARKS, "ghz/2.qasm")
@@ -65,3 +66,15 @@ def test_end_of_circuit_measurement_needs_classic(workdir):
     with pytest.raises(ValueError, match="only supported for a\\+bj"):
         Synthesizer().synthesis(qasm_file="in.qasm", vectors="zero", solving="smt", solver="yices2",
                                 complex_representation="FiveTuple")
+
+
+@pytest.mark.parametrize("mode", ["basic", "binary", "topdown", "bottomup"])
+def test_cost_search_with_a_gate_heavier_than_one(workdir, mode):
+    # the cost searches stopped at d+1, which only holds for unit weights (#72 F18)
+    (workdir / "in.qasm").write_text('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nh q[0];\n')
+    gate_set = GateSet(["h", "x"])
+    gate_set.set_gate("h", weight=3, qubits=1)
+    res, circuit, _ = Synthesizer().synthesis(qasm_file="in.qasm", vectors="all", solving="smt", solver="yices2",
+                                              mode=mode, gate_set=gate_set, output_qasm="out.qasm")
+    assert res
+    assert [gate.name for gate in circuit.operations()] == ["h"]

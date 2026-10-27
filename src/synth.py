@@ -1316,11 +1316,14 @@ class Synthesizer:
 
         return res, circuit, vectors
 
+    def max_cost(self):
+        return (self.d + 1) * self.gate_set.max_weight()
+
     def binary_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         solved = []
         unsolved = []
         lower_bound = 0
-        upper_bound = self.d+1
+        upper_bound = self.max_cost()
         best_circuit = None
         best_vectors = None
         while True:
@@ -1356,7 +1359,7 @@ class Synthesizer:
         
     def incremental_bottom_up_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
         i = 0
-        while i < self.d+2:
+        while i <= self.max_cost():
             self.gen.push()
             with timed("encoding"):
                 self.gen.add_assertion(self.gen.LE(weights[self.d], self.gen.Int(i)))
@@ -1371,7 +1374,7 @@ class Synthesizer:
         return False, None, None
 
     def incremental_top_down_cost_search(self, weights, formula_file="formula.smt2", output_qasm="circuit.qasm"):
-        i = self.d+1
+        i = self.max_cost()
         best_circuit = None
         best_vectors = None
         while i >= 0:

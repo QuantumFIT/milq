@@ -13,7 +13,7 @@ from qiskit.quantum_info import Operator
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
 from complex.vector import Vector
-from conftest import to_complex, unitary
+from conftest import to_complex, unitary, z3_check, z3_generator
 from gates import supported_gates
 from sim import Simulator
 
@@ -132,11 +132,8 @@ def test_vector_rescale_with_rejects_generator(tmp_path):
     (2, (4, 0, -2, 0), (2, -1)),  # even k
 ])
 def test_vector_to_real_with_generator(tmp_path, name, k, element, expected):
-    from pysmt.shortcuts import Not, Solver
     from complex.vector import Vector
-    from generator import Generator
-    gen = Generator(mode="pysmt", logic="QF_NRA")
-    gen.solver = Solver(name="z3")
+    gen = z3_generator(logic="QF_NRA")
     vec = Vector(q=1, name=name, generator=gen, element_representation=FiveTuple, k=k, k_bound=4)
     if name is None:
         vec[0] = FiveTuple(*element, generator=gen)
@@ -147,9 +144,9 @@ def test_vector_to_real_with_generator(tmp_path, name, k, element, expected):
         gen.add_assertion(gen.Equals(vec.k, gen.Int(k)))
     real = vec.to_real(max_k=4)[0]
     matches = gen.And(gen.Equals(real.real, gen.Real(expected[0])), gen.Equals(real.imag, gen.Real(expected[1])))
-    assert gen.check_sat()
-    gen.add_assertion(Not(matches))
-    assert not gen.check_sat()
+    assert z3_check(gen, tmp_path)
+    gen.add_assertion(gen.Not(matches))
+    assert not z3_check(gen, tmp_path)
 
 
 # simulator stats (#87, F65)

@@ -1,6 +1,5 @@
 """The SMT solver configuration (solvers.toml) and how synthesis uses it."""
 
-import multiprocessing
 import os
 import subprocess
 import sys
@@ -170,33 +169,6 @@ def test_portfolio_without_a_solver_for_the_logic(workdir):
     config = write_config(workdir / "s.toml", f'[solvers.yices2]\npath = "{YICES}"\nlogics = ["QF_LIA"]\n')
     with pytest.raises(SolverConfigError, match="no portfolio solver supports QF_NRA"):
         synthesize("portfolio", config, representation="Classic")
-
-
-# pySMT's portfolio creates its solvers in child processes, which see the generic solvers only when forked (#93)
-PORTFOLIO_NOT_FORKED = pytest.mark.xfail(multiprocessing.get_start_method() != "fork", strict=True,
-                                         reason="#93: the configured solvers are missing in pySMT's portfolio processes")
-
-
-@pytest.mark.parametrize("solver", ["yices2", pytest.param("portfolio", marks=PORTFOLIO_NOT_FORKED)])
-def test_pysmt_solving(workdir, solver):
-    # the pySMT backend registers the configured solvers as pySMT generic solvers
-    res, circuit, _ = Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="pysmt", solver=solver, mode="basic",
-                                              output_qasm="out.qasm")
-    assert res
-    assert circuit.gate_count() == 2
-
-
-def test_pysmt_solving_rejects_a_changed_solver(workdir):
-    Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="pysmt", solver="yices2", mode="basic")
-    config = write_config(workdir / "s.toml", f'[solvers.yices2]\npath = "{YICES}"\nargs = ["-v", "0"]\nlogics = ["QF_LIA"]\n')
-    with pytest.raises(SolverConfigError, match="pySMT already has a solver yices2"):
-        Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="pysmt", solver="yices2", mode="basic",
-                                solver_config=config)
-
-
-def test_pysmt_solving_rejects_unknown_solver(workdir):
-    with pytest.raises(SolverConfigError, match="Invalid solver: yices"):
-        Synthesizer().synthesis(qasm_file=GHZ2, vectors="zero", solving="pysmt", solver="yices", mode="basic")
 
 
 def test_cli_reports_config_errors(workdir):

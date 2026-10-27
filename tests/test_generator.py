@@ -2,13 +2,13 @@
 
 import pytest
 from pulp import PULP_CBC_CMD
-from pysmt.shortcuts import Solver
 
+from conftest import z3_check, z3_generator
 from gates import GateSet
 from generator import Generator
 
 
-@pytest.mark.parametrize("mode", ["pysmt", "milp", "gurobi"])
+@pytest.mark.parametrize("mode", ["smtlib", "milp", "gurobi"])
 @pytest.mark.parametrize("first, second, allowed", [
     ("t_q0", "tdg_q0", False),        # G Gdg is identity
     ("tdg_q0", "t_q0", False),        # Gdg G is identity
@@ -19,10 +19,11 @@ from generator import Generator
     ("cx_q0_q1", "cx_q1_q0", True),   # different wire order is a different gate
 ])
 def test_add_constraints_forbids_only_adjoint_pairs(tmp_path, mode, first, second, allowed):
-    gen = Generator(mode=mode)
-    if mode == "pysmt":
-        gen.solver = Solver(name="z3")
-    elif mode == "milp":
+    if mode == "smtlib":
+        gen = z3_generator()
+    else:
+        gen = Generator(mode=mode)
+    if mode == "milp":
         gen.solver = lambda: PULP_CBC_CMD(msg=False)
     gate_set = GateSet(["h", "t", "tdg", "cx"])
     for layer in (0, 1):
@@ -31,4 +32,4 @@ def test_add_constraints_forbids_only_adjoint_pairs(tmp_path, mode, first, secon
     # select the two gates
     gen.AtLeastOne(gen.symbols[f"L0_{first}"])
     gen.AtLeastOne(gen.symbols[f"L1_{second}"])
-    assert gen.check_sat() == allowed
+    assert (z3_check(gen, tmp_path) if mode == "smtlib" else gen.check_sat()) == allowed

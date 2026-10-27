@@ -5,15 +5,13 @@ import time
 
 import numpy as np
 import pytest
-from pysmt.shortcuts import Solver
 
 import pareto
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
 from complex.vector import Vector
-from conftest import BENCHMARKS, unitary
+from conftest import BENCHMARKS, unitary, z3_check, z3_generator
 from gates import Circuit, Gate, GateSet
-from generator import Generator
 from pareto import Pareto
 from solvers import SolverError
 from synth import Synthesizer, rus_recovery_pairs
@@ -67,15 +65,14 @@ def test_rus_cost(workdir, representation):
     assert synthesizer.rus_cost(circuit, recovery, [half]) == (5, pytest.approx(0.5))
 
 
-def test_filter_model_pysmt_excludes_model():
-    gen = Generator(mode="pysmt")
-    gen.solver = Solver(name="z3")
+def test_filter_model_smtlib_excludes_model(tmp_path):
+    gen = z3_generator()
     names = ["L0_h_q0", "L1_cx_q0_q1"]
     for name in names:
         gen.add_assertion(gen.declare_bool(name))
-    assert gen.solver.solve()
+    assert z3_check(gen, tmp_path)
     gen.filter_model(names, 2)
-    assert not gen.solver.solve()
+    assert not z3_check(gen, tmp_path)
 
 
 @pytest.mark.parametrize("expired_after", [1, 3])

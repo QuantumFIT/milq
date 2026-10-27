@@ -107,9 +107,6 @@ class ModelParser:
                 elif isinstance(value_obj, float):
                     if abs(value_obj - 1) < 1e-6:
                         parse = True
-                else:
-                    if value_obj.is_true():
-                        parse = True
                 if parse: # parse only if the selection variable is True
                     parts = variable.split("_")
                     d = int(parts[0][1:])
@@ -153,8 +150,6 @@ class ModelParser:
                     costs[indice] = round(value_obj)
                 elif isinstance(value_obj, str):
                     costs[indice] = round(float(value_obj))
-                else:
-                    costs[indice] = int(value_obj.constant_value())
         self.stats['cost'] = costs[best_indice]
         circ.set_cost(self.stats['cost'])
         return circ, out_vectors

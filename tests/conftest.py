@@ -13,10 +13,12 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
+from generator import Generator
 from sim import Simulator
 from solver_config import ENV_VARIABLE, load_solver_config
 from solver_detection import detect, render
 from solver_download import bin_dir
+from solvers import SMTSolver
 
 OMEGA = np.exp(1j * np.pi / 4)
 
@@ -41,6 +43,17 @@ def pytest_unconfigure(config):
 
 def pytest_report_header(config):
     return "SMT solvers: " + ", ".join(f"{name} ({solver.path})" for name, solver in SOLVERS.items())
+
+
+def z3_generator(logic="QF_LIA"):
+    # an SMT-LIB generator solved by z3 (installed with z3-solver); check it with z3_check
+    gen = Generator(mode="smtlib", logic=logic)
+    gen.solver = SMTSolver("z3", SOLVERS["z3"].command(), [logic])
+    return gen
+
+
+def z3_check(gen, directory):
+    return gen.check_sat(gen.write_formula(os.path.join(directory, "formula.smt2")))
 
 
 def to_complex(element, k, representation):

@@ -8,7 +8,6 @@ import sys
 import threading
 
 import pytest
-from pysmt.exceptions import SolverReturnedUnknownResultError
 
 from generator import Generator
 from solvers import PortfolioSMTSolver, SMTSolver, SolverError, _describe_failure
@@ -222,30 +221,6 @@ def test_portfolio_unknown_reports_the_failed_solvers(formula, caplog):
     assert gen.check_sat(formula) is False
     assert any(r.levelno == logging.WARNING and r.getMessage() == "crash failed, exit code 3: fake solver crashed"
                for r in caplog.records)
-
-
-class RaisingSolver:
-    def __init__(self, error):
-        self.error = error
-
-    def solve(self):
-        raise self.error
-
-
-def test_pysmt_unknown_is_counted():
-    gen = Generator(mode="pysmt")
-    gen.solver = RaisingSolver(SolverReturnedUnknownResultError())
-    assert gen.check_sat() is False
-    assert gen.unknowns == 1
-
-
-def test_pysmt_failure_raises():
-    # used to be logged as UNKNOWN/UNSAT and read as "no circuit" (BUGS N11)
-    gen = Generator(mode="pysmt")
-    gen.solver = RaisingSolver(RuntimeError("parse error"))
-    with pytest.raises(SolverError, match="pySMT solver failed: RuntimeError: parse error"):
-        gen.check_sat()
-    assert gen.unknowns == 0
 
 
 def answer_unknown(monkeypatch, calls=None):

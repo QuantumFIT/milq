@@ -15,7 +15,7 @@ MILQ simulates the input circuit on a set of input states and asks a solver for 
 
 ## Quick example
 
-The GHZ state preparation circuit in `benchmarks/ghz/3.qasm` is synthesized with yices2 (bundled with MILQ) in about a second:
+The GHZ state preparation circuit in `benchmarks/ghz/3.qasm` is synthesized with yices2 in about a second:
 
 ```console
 $ ./milq -s smt -a yices2 benchmarks/ghz/3.qasm

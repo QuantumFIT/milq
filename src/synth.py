@@ -965,6 +965,9 @@ class Synthesizer:
                 else:
                     log.warning("pySMT parser does not support some outputs from solvers that support NRA even though LIA works just fine.")
                     solvers = ["z3", "cvc5", "yices2"]
+                # z3 is pySMT's own (z3-solver), the others have to be configured
+                solvers = [name for name in solvers if name == "z3" or (name in self.solver_config and self.solver_config[name].portfolio
+                                                                        and self.gen.logic in self.solver_config[name].logics)]
                 self.gen.solver = Portfolio(solvers, logic=self.gen.logic, incremental=incremental_mode, generate_models=True)
             else:
                 self.gen.solver = Solver(name=solver, logic=self.gen.logic, incremental=incremental_mode, generate_models=True)

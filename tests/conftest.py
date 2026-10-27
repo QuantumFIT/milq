@@ -1,5 +1,7 @@
 import os
+import shutil
 import sys
+import tempfile
 import time
 
 import numpy as np
@@ -12,8 +14,32 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 from complex.classic import Complex
 from complex.fivetuple import FiveTuple
 from sim import Simulator
+from solver_config import ENV_VARIABLE, load_solver_config
+from solver_detection import detect, render
 
 OMEGA = np.exp(1j * np.pi / 4)
+
+# the tests use the SMT solvers installed on this computer, through the configuration ./configure-solvers would
+# write for them; the user's solvers.toml is neither read nor changed
+_solver_config_dir = tempfile.mkdtemp(prefix="milq-solvers-")
+SOLVER_CONFIG = os.path.join(_solver_config_dir, "solvers.toml")
+_detections = detect()
+with open(SOLVER_CONFIG, "w") as f:
+    f.write(render(_detections))
+SOLVERS = load_solver_config(SOLVER_CONFIG) if any(d.path for d in _detections) else {}
+
+
+def pytest_configure(config):
+    # in os.environ, so that the milq processes started by the tests see it too
+    os.environ[ENV_VARIABLE] = SOLVER_CONFIG
+
+
+def pytest_unconfigure(config):
+    shutil.rmtree(_solver_config_dir, ignore_errors=True)
+
+
+def pytest_report_header(config):
+    return "SMT solvers: " + ", ".join(f"{name} ({solver.path})" for name, solver in SOLVERS.items())
 
 
 def to_complex(element, k, representation):

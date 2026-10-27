@@ -1,6 +1,6 @@
 """
 @file: solver_config.py
-@brief: loading of the SMT solver configuration (solvers.toml in the repository root)
+@brief: loading of the SMT solver configuration (solvers.toml in the repository root, written by ./configure-solvers)
 """
 
 import os
@@ -56,7 +56,8 @@ def load_solver_config(path: str | None = None) -> dict[str, SolverConfig]:
         with open(path, "rb") as f:
             data = tomllib.load(f)
     except FileNotFoundError:
-        raise SolverConfigError(f"{path}: solver configuration not found") from None
+        hint = f"; run {os.path.join(os.path.dirname(DEFAULT_PATH), 'configure-solvers')} to write it" if path == DEFAULT_PATH else ""
+        raise SolverConfigError(f"{path}: solver configuration not found{hint}") from None
     except tomllib.TOMLDecodeError as e:
         raise SolverConfigError(f"{path}: {e}") from None
 

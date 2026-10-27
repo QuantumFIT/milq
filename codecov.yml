@@ -27,7 +27,6 @@ coverage:
 ignore:
   - "tests/**"
   - "benchmarks/**"
-  - "solvers/**"
 
 comment:
   layout: "condensed_header, diff, files"

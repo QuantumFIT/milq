@@ -12,7 +12,7 @@ from solvers import PortfolioSMTSolver, SMTSolver, SolverError
 from synth import Synthesizer
 
 FAKE = os.path.join(os.path.dirname(__file__), "fake_solver.py")
-YICES = b"yices_smt2"
+YICES = b"yices"  # yices-smt2, or yices_smt2 in the SMT-COMP builds
 
 
 def incremental_fake(mode="sat"):

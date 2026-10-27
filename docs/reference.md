@@ -17,7 +17,7 @@ $ ./milq [options] <qasm_file>
 | `qasm_file` | path | *(required)* | Input circuit ([format](usage#input-circuits)). |
 | `-v`, `--vectors` | `all`, `zero`, `jamiolkowski`, `rus` | `all` | Input states the circuits must agree on ([details](usage#1-pick-what-must-be-preserved--v)). |
 | `-s`, `--solving` | `smt`, `gurobi`, `milp` | `gurobi` | Solving method ([details](usage#2-pick-a-backend--s--a--c)). |
-| `-a`, `--solver` | a solver from the [solver configuration](installation#solver-configuration) (`yices2`, `cvc5`, `opensmt`, `smtinterpol`, `z3`, `dreal` by default), `portfolio`, `gurobi`, `cbc` | `gurobi` | Solver; SMT solvers and `portfolio` require `-s smt`, and `cbc` requires `-s milp`. |
+| `-a`, `--solver` | a solver from the [solver configuration](installation#solver-configuration) (as written by `configure-solvers`: `yices2`, `cvc5`, `opensmt`, `smtinterpol`, `z3`, `dreal`, those installed), `portfolio`, `gurobi`, `cbc` | `gurobi` | Solver; SMT solvers and `portfolio` require `-s smt`, and `cbc` requires `-s milp`. |
 | `--solver-config` | path | `$MILQ_SOLVER_CONFIG`, else `solvers.toml` in the repository root | [Solver configuration](installation#solver-configuration) file. |
 | `-c`, `--complex_representation` | `FiveTuple`, `Classic` | `FiveTuple` | Representation of amplitudes. |
 | `-m`, `--mode` | `incremental`, `basic`, `bottomup`, `topdown`, `binary`, `pareto-incremental` | `incremental` | Search mode ([details](usage#3-pick-a-search-mode--m)). |

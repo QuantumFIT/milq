@@ -1,6 +1,7 @@
 """
 @file: solver_detection.py
-@brief: generation of the SMT solver configuration (solvers.toml) from the solvers installed on the computer
+@brief: the SMT solvers MILQ knows (how to find, call and download them), and generation of the solver
+        configuration (solvers.toml) from the solvers installed on the computer
 """
 
 import glob
@@ -9,30 +10,68 @@ import os
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from solver_config import SolverConfig
 
 
 @dataclass(frozen=True)
+class Release:
+    version: str
+    url: str
+    sha256: str  # as GitHub reports it for the release asset
+
+
+@dataclass(frozen=True)
 class KnownSolver:
     name: str
-    executables: tuple[str, ...]  # names to look for, in order of preference
+    executables: tuple[str, ...]  # names to look for, in order of preference; a download links the first
     logics: tuple[str, ...]
     args: tuple[str, ...] = ()
     incremental_args: tuple[str, ...] = ()
     globs: tuple[str, ...] = ()  # where else the solver is usually installed
     comment: str = ""
+    releases: dict[str, Release] = field(default_factory=dict)  # by platform, for configure-solvers --download
 
+
+_YICES = "https://github.com/SRI-CSL/yices2/releases/download/yices-2.7.0/yices-2.7.0-"
+_CVC5 = "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.1/cvc5-"
+_OPENSMT = "https://github.com/usi-verification-and-security/opensmt/releases/download/v2.9.2/opensmt-"
 
 # the solvers MILQ knows how to call, in the order the portfolio lists them
 KNOWN_SOLVERS = (
     # yices_smt2 is the name in the SMT-COMP builds
     KnownSolver("yices2", ("yices-smt2", "yices_smt2"), ("QF_LIA", "QF_LRA", "QF_NIA", "QF_NRA"),
-                incremental_args=("--incremental",)),
+                incremental_args=("--incremental",),
+                releases={
+                    "linux-x86_64": Release("2.7.0", _YICES + "x86_64-pc-linux-gnu-static-gmp.tar.gz",
+                                            "49566b6f817692820538df78fe406878400d79810631c9372b2495bc81d3e00a"),
+                    "darwin-arm64": Release("2.7.0", _YICES + "arm-apple-darwin24.5.0-static-gmp.tar.gz",
+                                            "5682fedf13add7818e8d05796b9133e67844fce2bb72fd1ecc75dcb73167c7ac"),
+                    "darwin-x86_64": Release("2.7.0", _YICES + "x86_64-apple-darwin21.6.0-static-gmp.tar.gz",
+                                             "dff40838ae5674abed2c08c383d702c1358ad64627c15799d2a15e67d1b4495a"),
+                }),
     KnownSolver("cvc5", ("cvc5",), ("QF_LIA", "QF_NIA", "QF_NRA"),
-                args=("--produce-models",), incremental_args=("--incremental",)),
-    KnownSolver("opensmt", ("opensmt",), ("QF_LIA", "QF_LRA")),
+                args=("--produce-models",), incremental_args=("--incremental",),
+                releases={
+                    "linux-x86_64": Release("1.3.1", _CVC5 + "Linux-x86_64-static.zip",
+                                            "1a1cda20d2df4938fa4944a69f33ddc9172e319ece0eed0aa09c4d7abede3ed1"),
+                    "linux-arm64": Release("1.3.1", _CVC5 + "Linux-arm64-static.zip",
+                                           "fe2b661834a82fd8830f7a757c340f0e20041fa41e19b038fa02ace0eaf1c6f2"),
+                    "darwin-arm64": Release("1.3.1", _CVC5 + "macOS-arm64-static.zip",
+                                            "a0e7f5b03b1bc4284fbfff7cdfb08c704801701cf7ece83a13f8a505e7581215"),
+                    "darwin-x86_64": Release("1.3.1", _CVC5 + "macOS-x86_64-static.zip",
+                                             "e7fe4af9491bd7c0db7591c0a483775735bd1a98b23933fd337a73ae39c10ff9"),
+                }),
+    KnownSolver("opensmt", ("opensmt",), ("QF_LIA", "QF_LRA"),
+                releases={
+                    "linux-x86_64": Release("2.9.2", _OPENSMT + "x64-linux-static.tar.bz2",
+                                            "be4767bf5d6c08bc7f4f49ae1480f2ae2ac8f38a277d0ec39d56badd974b84bd"),
+                    "darwin-arm64": Release("2.9.2", _OPENSMT + "arm-osx.tar.bz2",
+                                            "6c8605db38e0f62ea040cffc670e65bd5f47e4fb65ecd65c6aaf4170cd19c51c"),
+                    "darwin-x86_64": Release("2.9.2", _OPENSMT + "x64-osx.tar.bz2",
+                                             "b376e0339793f1ed5c546155f865de10fb39d1346d1788b57c80dfb538375ada"),
+                }),
     KnownSolver("smtinterpol", ("smtinterpol",), ("QF_LIA", "QF_NIA"),
                 comment="no QF_NRA: SMTInterpol answers unknown to any nonlinear real term"),
     KnownSolver("z3", ("z3",), ("QF_LIA", "QF_NIA", "QF_NRA"), incremental_args=("-in",)),

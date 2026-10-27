@@ -1,6 +1,7 @@
 """
 @file: solver_download.py
-@brief: download of SMT solver release binaries (configure-solvers --download)
+@brief: download of SMT solver release binaries (configure-solvers --download); the releases are listed
+        with the known solvers in solver_detection.py
 """
 
 import hashlib
@@ -12,7 +13,9 @@ import tarfile
 import tempfile
 import urllib.request
 import zipfile
-from dataclasses import dataclass
+
+import solver_detection
+from solver_detection import KnownSolver, Release
 
 DEFAULT_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "solvers"))
 
@@ -21,60 +24,18 @@ class DownloadError(Exception):
     """a solver could not be downloaded or unpacked"""
 
 
-@dataclass(frozen=True)
-class Release:
-    solver: str  # name in KNOWN_SOLVERS
-    version: str
-    url: str
-    sha256: str
-    executable: str  # name of the executable in the archive
-
-
-def _platform() -> str:
+def platform_name() -> str:
+    # the keys of KnownSolver.releases, e.g. linux-x86_64 or darwin-arm64
     machine = platform.machine().lower()
     machine = {"amd64": "x86_64", "aarch64": "arm64"}.get(machine, machine)
     return f"{sys.platform}-{machine}"
 
 
-_YICES = "https://github.com/SRI-CSL/yices2/releases/download/yices-2.7.0/"
-_CVC5 = "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.1/"
-_OPENSMT = "https://github.com/usi-verification-and-security/opensmt/releases/download/v2.9.2/"
-
-# release binaries by platform, with the sha256 that GitHub reports for them
-RELEASES = {
-    "linux-x86_64": (
-        Release("yices2", "2.7.0", _YICES + "yices-2.7.0-x86_64-pc-linux-gnu-static-gmp.tar.gz",
-                "49566b6f817692820538df78fe406878400d79810631c9372b2495bc81d3e00a", "yices-smt2"),
-        Release("cvc5", "1.3.1", _CVC5 + "cvc5-Linux-x86_64-static.zip",
-                "1a1cda20d2df4938fa4944a69f33ddc9172e319ece0eed0aa09c4d7abede3ed1", "cvc5"),
-        Release("opensmt", "2.9.2", _OPENSMT + "opensmt-x64-linux-static.tar.bz2",
-                "be4767bf5d6c08bc7f4f49ae1480f2ae2ac8f38a277d0ec39d56badd974b84bd", "opensmt"),
-    ),
-    "linux-arm64": (
-        Release("cvc5", "1.3.1", _CVC5 + "cvc5-Linux-arm64-static.zip",
-                "fe2b661834a82fd8830f7a757c340f0e20041fa41e19b038fa02ace0eaf1c6f2", "cvc5"),
-    ),
-    "darwin-arm64": (
-        Release("yices2", "2.7.0", _YICES + "yices-2.7.0-arm-apple-darwin24.5.0-static-gmp.tar.gz",
-                "5682fedf13add7818e8d05796b9133e67844fce2bb72fd1ecc75dcb73167c7ac", "yices-smt2"),
-        Release("cvc5", "1.3.1", _CVC5 + "cvc5-macOS-arm64-static.zip",
-                "a0e7f5b03b1bc4284fbfff7cdfb08c704801701cf7ece83a13f8a505e7581215", "cvc5"),
-        Release("opensmt", "2.9.2", _OPENSMT + "opensmt-arm-osx.tar.bz2",
-                "6c8605db38e0f62ea040cffc670e65bd5f47e4fb65ecd65c6aaf4170cd19c51c", "opensmt"),
-    ),
-    "darwin-x86_64": (
-        Release("yices2", "2.7.0", _YICES + "yices-2.7.0-x86_64-apple-darwin21.6.0-static-gmp.tar.gz",
-                "dff40838ae5674abed2c08c383d702c1358ad64627c15799d2a15e67d1b4495a", "yices-smt2"),
-        Release("cvc5", "1.3.1", _CVC5 + "cvc5-macOS-x86_64-static.zip",
-                "e7fe4af9491bd7c0db7591c0a483775735bd1a98b23933fd337a73ae39c10ff9", "cvc5"),
-        Release("opensmt", "2.9.2", _OPENSMT + "opensmt-x64-osx.tar.bz2",
-                "b376e0339793f1ed5c546155f865de10fb39d1346d1788b57c80dfb538375ada", "opensmt"),
-    ),
-}
-
-
-def releases(platform_name: str | None = None) -> tuple[Release, ...]:
-    return RELEASES.get(platform_name or _platform(), ())
+def downloadable(platform_key: str | None = None) -> dict[str, tuple[KnownSolver, Release]]:
+    # the known solvers that have a release for the platform (default: this one), by name
+    platform_key = platform_key or platform_name()
+    return {solver.name: (solver, solver.releases[platform_key])
+            for solver in solver_detection.KNOWN_SOLVERS if platform_key in solver.releases}
 
 
 def bin_dir(directory: str = DEFAULT_DIR) -> str:
@@ -101,11 +62,12 @@ def _find(directory: str, name: str) -> str | None:
     return None
 
 
-def download(release: Release, directory: str = DEFAULT_DIR, force: bool = False) -> str:
+def download(solver: KnownSolver, release: Release, directory: str = DEFAULT_DIR, force: bool = False) -> str:
     # downloads and unpacks the release into directory/NAME-VERSION, links its executable into directory/bin,
     # and returns the link; a release that is already there is kept unless force
-    target = os.path.join(directory, f"{release.solver}-{release.version}")
-    link = os.path.join(bin_dir(directory), release.executable)
+    executable_name = solver.executables[0]
+    target = os.path.join(directory, f"{solver.name}-{release.version}")
+    link = os.path.join(bin_dir(directory), executable_name)
     if os.path.isdir(target) and not force and os.path.realpath(link).startswith(os.path.realpath(target) + os.sep):
         return link
     os.makedirs(directory, exist_ok=True)
@@ -125,11 +87,11 @@ def download(release: Release, directory: str = DEFAULT_DIR, force: bool = False
             _unpack(archive, unpacked)
         except (tarfile.TarError, zipfile.BadZipFile, OSError) as e:
             raise DownloadError(f"{release.url}: cannot unpack: {e}") from None
-        if _find(unpacked, release.executable) is None:
-            raise DownloadError(f"{release.url}: no {release.executable} in the archive")
+        if _find(unpacked, executable_name) is None:
+            raise DownloadError(f"{release.url}: no {executable_name} in the archive")
         shutil.rmtree(target, ignore_errors=True)
         os.replace(unpacked, target)
-    executable = _find(target, release.executable)
+    executable = _find(target, executable_name)
     os.chmod(executable, os.stat(executable).st_mode | 0o111)  # zip files keep no permissions
     os.makedirs(bin_dir(directory), exist_ok=True)
     if os.path.lexists(link):

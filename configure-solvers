@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'src'))
 from solver_config import DEFAULT_PATH
 from solver_detection import KNOWN_SOLVERS, detect, render
-from solver_download import DEFAULT_DIR as DOWNLOAD_DIR, DownloadError, bin_dir, download, releases
+from solver_download import DEFAULT_DIR as DOWNLOAD_DIR, DownloadError, bin_dir, download, downloadable
 
 parser = argparse.ArgumentParser(
     description='Find the SMT solvers installed on this computer and write the solver configuration for them. '
@@ -26,7 +26,7 @@ parser.add_argument('-s', '--search', action='append', default=[], metavar='DIR'
                     help='also look in DIR and DIR/bin, before PATH (can be repeated)')
 parser.add_argument('-d', '--download', nargs='?', const='all', metavar='SOLVERS',
                     help='first download release binaries of these solvers (comma-separated; default: all of '
-                         f'{", ".join(r.solver for r in releases()) or "none on this platform"})')
+                         f'{", ".join(downloadable()) or "none on this platform"})')
 parser.add_argument('--download-dir', default=DOWNLOAD_DIR, metavar='DIR',
                     help=f'where downloaded solvers are kept (default: {DOWNLOAD_DIR})')
 parser.add_argument('-t', '--timeout', type=float, default=30, help='seconds a solver has to answer (default: 30)')
@@ -37,7 +37,7 @@ if args.output != '-' and os.path.exists(args.output) and not args.force:
     sys.exit(2)
 
 if args.download:
-    available = {release.solver: release for release in releases()}
+    available = downloadable()
     wanted = list(available) if args.download == 'all' else args.download.split(',')
     unknown = [name for name in wanted if name not in available]
     if unknown:
@@ -45,10 +45,10 @@ if args.download:
               f"(available: {', '.join(available) or 'none'})", file=sys.stderr)
         sys.exit(2)
     for name in wanted:
-        release = available[name]
+        solver, release = available[name]
         print(f"downloading {name} {release.version} from {release.url}", file=sys.stderr)
         try:
-            download(release, args.download_dir)
+            download(solver, release, args.download_dir)
         except DownloadError as e:
             print(f"configure-solvers: error: {e}", file=sys.stderr)
             sys.exit(1)

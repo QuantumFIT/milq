@@ -134,7 +134,8 @@ def test_configure_solvers_without_solvers(tmp_path):
 
 
 def test_configure_solvers_downloads(tmp_path, monkeypatch):
-    # the releases of this platform replaced by a local archive, through a sitecustomize module
+    # the known solvers replaced by a cvc5 whose release for this platform is a local archive, through a
+    # sitecustomize module
     archive = tmp_path / "cvc5.tar.bz2"
     with tarfile.open(archive, "w:bz2") as t:
         data = b"#!/bin/sh\necho sat\n"
@@ -147,9 +148,10 @@ def test_configure_solvers_downloads(tmp_path, monkeypatch):
     (site / "sitecustomize.py").write_text(f"""
 import sys
 sys.path.insert(0, {os.path.join(REPO_ROOT, "src")!r})
-import solver_download
-release = solver_download.Release("cvc5", "1.0", {archive.as_uri()!r}, {sha256!r}, "cvc5")
-solver_download.releases = lambda platform_name=None: (release,)
+import dataclasses, solver_detection, solver_download
+cvc5 = next(solver for solver in solver_detection.KNOWN_SOLVERS if solver.name == "cvc5")
+release = solver_detection.Release("1.0", {archive.as_uri()!r}, {sha256!r})
+solver_detection.KNOWN_SOLVERS = (dataclasses.replace(cvc5, releases={{solver_download.platform_name(): release}}),)
 """)
     monkeypatch.setenv("PYTHONPATH", str(site))
     result = configure("-o", "-", "--download", path=tmp_path)
